@@ -1,0 +1,6 @@
+__pycache__
+build
+*.so
+*.hdf5
+*.pt
+*.log
