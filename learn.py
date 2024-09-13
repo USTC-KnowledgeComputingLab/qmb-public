@@ -10,6 +10,8 @@ import naqs_network
 import openfermion_to_sparse
 import loss_function
 
+torch.set_grad_enabled(False)
+
 
 def main(*, model, hidden, sampling_count, lr, local_step, logging_psi_count, loss_name, log_path, checkpoint_path, model_path):
     logging.basicConfig(
@@ -68,10 +70,11 @@ def main(*, model, hidden, sampling_count, lr, local_step, logging_psi_count, lo
         optimizer = torch.optim.Adam(network.parameters(), lr=lr)
         loss_func = getattr(loss_function, loss_name)
         for i in range(local_step):
-            amplitudes = network(configs)
-            amplitudes = amplitudes / amplitudes[max_index]
-            loss = loss_func(amplitudes, targets)
-            loss.backward()
+            with torch.enable_grad():
+                amplitudes = network(configs)
+                amplitudes = amplitudes / amplitudes[max_index]
+                loss = loss_func(amplitudes, targets)
+                loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             logging.info("local optimizing, step %d, loss %f", i, loss.item())

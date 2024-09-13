@@ -9,6 +9,8 @@ import openfermion
 import naqs_network
 import openfermion_to_sparse
 
+torch.set_grad_enabled(False)
+
 
 def main(*, model, hidden, sampling_count, lr, local_step, log_path, checkpoint_path, model_path):
     logging.basicConfig(
@@ -59,8 +61,9 @@ def main(*, model, hidden, sampling_count, lr, local_step, log_path, checkpoint_
         optimizer = torch.optim.Adam(network.parameters(), lr=lr)
         for i in range(local_step):
             logging.info("calculating energy")
-            amplitudes = network(configs)
-            energy = ((amplitudes.conj() @ hamiltonian @ amplitudes) / (amplitudes.conj() @ amplitudes)).real
+            with torch.enable_grad():
+                amplitudes = network(configs)
+                energy = ((amplitudes.conj() @ hamiltonian @ amplitudes) / (amplitudes.conj() @ amplitudes)).real
             logging.info("energy: %f", energy.item())
 
             logging.info("opimization stepping")
