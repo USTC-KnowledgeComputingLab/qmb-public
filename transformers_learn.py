@@ -110,7 +110,7 @@ def main(*, model, embedding_dim, heads_num, feed_forward_dim, depth, sampling_c
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="approach to the ground state for the quantum chemistry many body system")
+    parser = argparse.ArgumentParser(description="approach to the ground state for the quantum chemistry many body system", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("model")
     parser.add_argument("-n", "--sampling-count", dest="sampling_count", type=int, default=4000, help="sampling count")
     parser.add_argument("-e", "--embedding-dim", dest="embedding_dim", type=int, default=512, help="embedding dimension")

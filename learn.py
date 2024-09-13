@@ -95,7 +95,7 @@ def main(*, model, hidden, sampling_count, lr, local_step, logging_psi_count, lo
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="approach to the ground state for the quantum chemistry many body system")
+    parser = argparse.ArgumentParser(description="approach to the ground state for the quantum chemistry many body system", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("model")
     parser.add_argument("-n", "--sampling-count", dest="sampling_count", type=int, default=4000, help="sampling count")
     parser.add_argument("-w", "--hidden-width", dest="hidden", type=int, default=[512], nargs="+", help="hidden width of the network")
