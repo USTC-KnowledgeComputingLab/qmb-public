@@ -33,7 +33,7 @@ def main(*, model, embedding_dim, heads_num, feed_forward_dim, depth, sampling_c
     logging.info("loading physical model %s", model)
     physical_model = openfermion.MolecularData(filename=f"{model_path}/{model}.hdf5")
     logging.info("converting physical model to python list")
-    openfermion_hamiltonian = list(openfermion.transforms.get_fermion_operator(physical_model.get_molecular_hamiltonian()).terms.items())
+    openfermion_hamiltonian = openfermion_to_sparse.Hamiltonian(list(openfermion.transforms.get_fermion_operator(physical_model.get_molecular_hamiltonian()).terms.items()))
     logging.info("creating neural network")
     network = transformers_network.WaveFunction(
         double_sites=physical_model.n_qubits,
@@ -59,14 +59,12 @@ def main(*, model, embedding_dim, heads_num, feed_forward_dim, depth, sampling_c
     while True:
         logging.info("sampling")
         configs, pre_amplitudes, _, _ = network.generate_unique(sampling_count)
-        logging.info("converting sampling configs to tuple")
-        tuple_configs = [tuple(config.view([-1]).tolist()) for config in configs]
         logging.info("counting unique sampling count")
-        unique_sampling_count = len(tuple_configs)
+        unique_sampling_count = len(configs)
         logging.info("unique sampling count is %d", unique_sampling_count)
 
         logging.info("generating hamiltonian as sparse matrix data")
-        indices_i, indices_j, values = openfermion_to_sparse.openfermion_to_sparse(openfermion_hamiltonian, tuple_configs)
+        indices_i, indices_j, values = openfermion_hamiltonian.inside(configs.cpu())
         logging.info("converting sparse matrix data to coo matrix")
         hamiltonian = scipy.sparse.coo_matrix((values, (indices_i, indices_j)), [unique_sampling_count, unique_sampling_count], dtype=numpy.complex128)
         logging.info("estimating ground state")
@@ -106,7 +104,7 @@ def main(*, model, embedding_dim, heads_num, feed_forward_dim, depth, sampling_c
         logging.info("printing several largest amplitudes")
         indices = targets.abs().sort(descending=True).indices
         for index in indices[:logging_psi_count]:
-            logging.info("config %s, target %s, final %s", "".join(map(str, tuple_configs[index])), f"{targets[index].item():.4f}", f"{amplitudes[index].item():.4f}")
+            logging.info("config %s, target %s, final %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.4f}", f"{amplitudes[index].item():.4f}")
 
 
 if __name__ == "__main__":

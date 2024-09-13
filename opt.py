@@ -23,7 +23,7 @@ def main(*, model, hidden, sampling_count, lr, local_step, log_path, checkpoint_
     logging.info("loading physical model %s", model)
     physical_model = openfermion.MolecularData(filename=f"{model_path}/{model}.hdf5")
     logging.info("converting physical model to python list")
-    openfermion_hamiltonian = list(openfermion.transforms.get_fermion_operator(physical_model.get_molecular_hamiltonian()).terms.items())
+    openfermion_hamiltonian = openfermion_to_sparse.Hamiltonian(list(openfermion.transforms.get_fermion_operator(physical_model.get_molecular_hamiltonian()).terms.items()))
     logging.info("creating neural network")
     network = naqs_network.WaveFunction(
         double_sites=physical_model.n_qubits,
@@ -46,14 +46,12 @@ def main(*, model, hidden, sampling_count, lr, local_step, log_path, checkpoint_
     while True:
         logging.info("sampling")
         configs, _, _, _ = network.generate_unique(sampling_count)
-        logging.info("converting sampling configs to tuple")
-        tuple_configs = [tuple(config.view([-1]).tolist()) for config in configs]
         logging.info("counting unique sampling count")
-        unique_sampling_count = len(tuple_configs)
+        unique_sampling_count = len(configs)
         logging.info("unique sampling count is %d", unique_sampling_count)
 
         logging.info("generating hamiltonian as sparse matrix data")
-        indices_i, indices_j, values = openfermion_to_sparse.openfermion_to_sparse(openfermion_hamiltonian, tuple_configs)
+        indices_i, indices_j, values = openfermion_hamiltonian.inside(configs.cpu())
         logging.info("converting sparse matrix data to coo matrix")
         hamiltonian = torch.sparse_coo_tensor((indices_i, indices_j), values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).cuda()
 

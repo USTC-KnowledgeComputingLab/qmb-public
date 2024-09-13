@@ -1,8 +1,11 @@
+#include <array>
+#include <cstdint>
 #include <memory>
-#include <numeric>
 #include <pybind11/complex.h>
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -70,66 +73,138 @@ class Tree {
     }
 };
 
-std::tuple<std::vector<int>, std::vector<int>, std::vector<std::complex<double>>> openfermion_to_sparse(
-    const std::vector<std::tuple<std::vector<std::pair<int, int>>, std::complex<double>>>& openfermion_hamiltonian,
-    const std::vector<std::vector<int>>& configs
-) {
-    Tree<int64_t, -1> config_dict;
-    for (size_t i = 0; i < configs.size(); ++i) {
-        config_dict.set(configs[i].begin(), configs[i].end(), i);
+namespace py = pybind11;
+
+class Hamiltonian {
+    using Coef = std::complex<double>;
+    using Site = int16_t;
+    using Type = int16_t; // 0 for empty, 1 for annihilation, 2 for creation
+    using Op = std::pair<Site, Type>;
+    using Ops = std::array<Op, 4>;
+    using Term = std::pair<Ops, Coef>;
+    std::vector<Term> terms;
+
+    template<typename T>
+    static py::array_t<T> vector_to_array(const std::vector<T>& vec, std::vector<int64_t> shape) {
+        py::array_t<T> result(shape);
+        auto result_buffer = result.request();
+        T* ptr = static_cast<T*>(result_buffer.ptr);
+        std::copy(vec.begin(), vec.end(), ptr);
+        return result;
     }
 
-    std::vector<int> indices_i;
-    std::vector<int> indices_j;
-    std::vector<std::complex<double>> values;
-
-    std::vector<int> config_j;
-    for (size_t index_i = 0; index_i < configs.size(); ++index_i) {
-        const std::vector<int>& config_i = configs[index_i];
-        for (const auto& [key, value] : openfermion_hamiltonian) {
-            config_j = config_i;
-            std::complex<double> current_value = value;
-            bool success = true;
-
-            for (auto it = key.rbegin(); it != key.rend(); ++it) {
-                int site = it->first;
-                int operation = it->second;
-
-                if (operation == 0) {
-                    if (config_j[site] != 1) {
-                        success = false;
-                        break;
-                    }
-                    config_j[site] = 0;
-                    if (std::accumulate(config_j.begin(), config_j.begin() + site, 0) % 2 == 1) {
-                        current_value = -current_value;
-                    }
-                } else {
-                    if (config_j[site] != 0) {
-                        success = false;
-                        break;
-                    }
-                    config_j[site] = 1;
-                    if (std::accumulate(config_j.begin(), config_j.begin() + site, 0) % 2 == 1) {
-                        current_value = -current_value;
-                    }
-                }
+  public:
+    Hamiltonian(const std::vector<std::tuple<std::vector<std::pair<int, int>>, std::complex<double>>>& openfermion_hamiltonian) {
+        for (const auto& [openfermion_ops, coef] : openfermion_hamiltonian) {
+            Ops ops;
+            size_t i = 0;
+            for (; i < openfermion_ops.size(); i++) {
+                ops[i].first = openfermion_ops[i].first;
+                ops[i].second = 1 + openfermion_ops[i].second; // 0 for annihilation, 1 for creation
             }
-
-            if (success) {
-                auto index_j = config_dict.get(config_j.begin(), config_j.end());
-                if (index_j != -1) {
-                    indices_i.push_back(index_i);
-                    indices_j.push_back(index_j);
-                    values.push_back(current_value);
-                }
+            for (; i < 4; i++) {
+                ops[i].second = 0; // 0 empty
             }
+            terms.emplace_back(ops, coef);
         }
     }
 
-    return std::make_tuple(indices_i, indices_j, values);
-}
+    template<bool outside>
+    auto call(const py::array_t<int64_t, py::array::c_style>& configs) {
+        py::buffer_info configs_buf = configs.request();
+        const int64_t batch = configs_buf.shape[0];
+        const int64_t sites = configs_buf.shape[1];
+        int64_t* configs_ptr = static_cast<int64_t*>(configs_buf.ptr);
+
+        Tree<int64_t, -1> config_dict;
+        if constexpr (!outside) {
+            for (int64_t i = 0; i < batch; ++i) {
+                config_dict.set(&configs_ptr[i * sites], &configs_ptr[(i + 1) * sites], i);
+            }
+        }
+
+        int64_t prime_count = 0;
+        std::vector<int64_t> indices_i;
+        std::vector<int64_t> indices_j;
+        std::vector<std::complex<double>> coefs;
+        std::vector<int64_t> config_j_pool;
+        std::vector<int64_t> config_j(sites);
+        for (int64_t index_i = 0; index_i < batch; ++index_i) {
+            for (const auto& [ops, coef] : terms) {
+                for (int64_t i = 0; i < sites; i++) {
+                    config_j[i] = configs_ptr[index_i * sites + i];
+                }
+                bool success = true;
+                bool parity = false;
+
+                for (auto i = 4; i-- > 0;) {
+                    auto [site, operation] = ops[i];
+                    if (operation == 0) {
+                        continue;
+                    } else if (operation == 1) {
+                        if (config_j[site] != 1) {
+                            success = false;
+                            break;
+                        }
+                        config_j[site] = 0;
+                        if (std::accumulate(config_j.begin(), config_j.begin() + site, 0) % 2 == 1) {
+                            parity ^= true;
+                        }
+                    } else {
+                        if (config_j[site] != 0) {
+                            success = false;
+                            break;
+                        }
+                        config_j[site] = 1;
+                        if (std::accumulate(config_j.begin(), config_j.begin() + site, 0) % 2 == 1) {
+                            parity ^= true;
+                        }
+                    }
+                }
+
+                if (success) {
+                    int64_t index_j = config_dict.get(config_j.begin(), config_j.end());
+                    if (index_j == -1) {
+                        if constexpr (outside) {
+                            int64_t size = config_j_pool.size();
+                            config_j_pool.resize(size + sites);
+                            for (int64_t i = 0; i < sites; i++) {
+                                config_j_pool[i + size] = config_j[i];
+                            }
+                            index_j = prime_count;
+                            config_dict.set(config_j.begin(), config_j.end(), prime_count++);
+                        } else {
+                            continue;
+                        }
+                    }
+                    indices_i.push_back(index_i);
+                    indices_j.push_back(index_j);
+                    coefs.push_back(parity ? -coef : +coef);
+                }
+            }
+        }
+
+        int64_t term_count = coefs.size();
+        if constexpr (outside) {
+            return py::make_tuple(
+                vector_to_array(indices_i, {term_count}),
+                vector_to_array(indices_j, {term_count}),
+                vector_to_array(coefs, {term_count}),
+                vector_to_array(config_j_pool, {prime_count, sites})
+            );
+        } else {
+            return py::make_tuple(
+                vector_to_array(indices_i, {term_count}),
+                vector_to_array(indices_j, {term_count}),
+                vector_to_array(coefs, {term_count})
+            );
+        }
+    }
+};
 
 PYBIND11_MODULE(openfermion_to_sparse, m) {
-    m.def("openfermion_to_sparse", &openfermion_to_sparse, "Convert OpenFermion Hamiltonian to sparse matrix format");
+    py::class_<Hamiltonian>(m, "Hamiltonian")
+        .def(py::init<std::vector<std::tuple<std::vector<std::pair<int, int>>, std::complex<double>>>>())
+        .def("inside", &Hamiltonian::call<false>)
+        .def("outside", &Hamiltonian::call<true>);
 }
