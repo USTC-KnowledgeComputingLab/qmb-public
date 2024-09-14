@@ -1,7 +1,7 @@
 import argparse
 import logging
-import naqs_network
-import transformers_network
+import naqs as naqs_m
+import attention as attention_m
 
 
 def naqs(model, input_args):
@@ -14,7 +14,7 @@ def naqs(model, input_args):
     hidden = args.hidden
     logging.info("hidden is set to %a", hidden)
 
-    network = naqs_network.WaveFunction(
+    network = naqs_m.WaveFunction(
         double_sites=model.n_qubits,
         physical_dim=2,
         is_complex=True,
@@ -27,7 +27,7 @@ def naqs(model, input_args):
     return network
 
 
-def transformers(model, input_args):
+def attention(model, input_args):
     logging.info("parsing args %a by network transformers", input_args)
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--embedding-dim", dest="embedding_dim", type=int, default=512, help="embedding dimension")
@@ -43,7 +43,7 @@ def transformers(model, input_args):
     depth = args.depth
     logging.info("embedding dim: %d, heads_num: %d, feed forward dim: %d, depth: %d", embedding_dim, heads_num, feed_forward_dim, depth)
 
-    network = transformers_network.WaveFunction(
+    network = attention_m.WaveFunction(
         double_sites=model.n_qubits,
         physical_dim=2,
         is_complex=True,
