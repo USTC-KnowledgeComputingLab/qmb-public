@@ -44,7 +44,7 @@ def main():
     logging.basicConfig(
         handlers=[logging.StreamHandler(), logging.FileHandler(f"{log_path}/{run_name}.log")],
         level=logging.INFO,
-        format='%(asctime)s - ' + model_name + '(' + network_name + ') - %(levelname)s - %(message)s',
+        format=f"[%(process)d] %(asctime)s {model_name}({network_name}) %(levelname)s: %(message)s",
     )
 
     logging.info("learn script start, with %a", sys.argv)
