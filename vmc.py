@@ -8,7 +8,6 @@ import torch
 import openfermion
 import networks
 import openfermion_to_sparse
-import loss_function
 
 
 def main():
@@ -18,8 +17,7 @@ def main():
     parser.add_argument("-n", "--sampling-count", dest="sampling_count", type=int, default=4000, help="sampling count")
     parser.add_argument("-r", "--learning-rate", dest="lr", type=float, default=1e-3, help="learning rate for the local optimizer")
     parser.add_argument("-s", "--local-step", dest="local_step", type=int, default=1000, help="step count for the local optimizer")
-    parser.add_argument("-p", "--logging-psi-count", dest="logging_psi_count", type=int, default=30, help="psi count to be printed after local optimizer")
-    parser.add_argument("-l", "--loss-name", dest="loss_name", type=str, default="log", help="the loss function to be used")
+    parser.add_argument("-o", "--include-outside", dest="include_outside", default=False, help="calculate all psi(s')", action="store_true")
     parser.add_argument("-L", "--log-path", dest="log_path", type=str, default="logs", help="path of logs folder")
     parser.add_argument("-C", "--checkpoint-path", dest="checkpoint_path", type=str, default="checkpoints", help="path of checkpoints folder")
     parser.add_argument("-M", "--model-path", dest="model_path", type=str, default="models", help="path of models folder")
@@ -30,8 +28,7 @@ def main():
     sampling_count = args.sampling_count
     lr = args.lr
     local_step = args.local_step
-    logging_psi_count = args.logging_psi_count
-    loss_name = args.loss_name
+    include_outside = args.include_outside
     log_path = args.log_path
     checkpoint_path = args.checkpoint_path
     model_path = args.model_path
@@ -45,9 +42,9 @@ def main():
         format='%(asctime)s - ' + model_name + '(' + network_name + ') - %(levelname)s - %(message)s',
     )
 
-    logging.info("learn script start, with %a", sys.argv)
+    logging.info("vmc script start, with %a", sys.argv)
     logging.info("model: %s, network: %s, run name: %s", model_name, network_name, run_name)
-    logging.info("sampling count: %d, learning rate: %f, local step: %d, logging psi count: %d, loss name: %s", sampling_count, lr, local_step, logging_psi_count, loss_name)
+    logging.info("sampling count: %d, learning rate: %f, local step: %d, include outside: %a", sampling_count, lr, local_step, include_outside)
     logging.info("log path: %s, checkpoint path: %s, model path: %s", log_path, checkpoint_path, model_path)
     logging.info("other arguments will be passed to network parser: %a", other_args)
 
@@ -88,56 +85,49 @@ def main():
     logging.info("main looping")
     while True:
         logging.info("sampling configurations")
-        configs, pre_amplitudes, _, _ = network.generate_unique(sampling_count)
+        configs_i, _, _, _ = network.generate_unique(sampling_count)
         logging.info("sampling done")
-        unique_sampling_count = len(configs)
+        unique_sampling_count = len(configs_i)
         logging.info("unique sampling count is %d", unique_sampling_count)
 
-        logging.info("generating hamiltonian data to create sparse matrix")
-        indices_i_and_j, values = openfermion_hamiltonian.inside(configs.cpu())
-        logging.info("sparse matrix data created")
-        logging.info("converting sparse matrix data to coo matrix")
-        hamiltonian = scipy.sparse.coo_matrix((values, indices_i_and_j.T), [unique_sampling_count, unique_sampling_count], dtype=numpy.complex128)
-        logging.info("coo matrix created")
-        logging.info("estimating ground state")
-        expected_energy, targets = scipy.sparse.linalg.lobpcg(hamiltonian, pre_amplitudes.cpu().reshape([-1, 1]).detach().numpy(), largest=False, maxiter=1024)
-        logging.info("estimiated, target energy is %f, fci energy is %f", expected_energy.item(), fci_energy)
-        logging.info("preparing learning targets")
-        targets = torch.tensor(targets).view([-1]).cuda()
-        max_index = targets.abs().argmax()
-        targets = targets / targets[max_index]
+        if include_outside:
+            logging.info("generating hamiltonian data to create sparse matrix outsidely")
+            indices_i_and_j, values, configs_j = openfermion_hamiltonian.outside(configs_i.cpu())
+            logging.info("sparse matrix data created")
+            outside_count = len(configs_j)
+            logging.info("outside configs count is %d", outside_count)
+            logging.info("converting sparse matrix data to coo matrix")
+            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, outside_count], dtype=torch.complex128).cuda()
+            logging.info("coo matrix created")
+            logging.info("moving configs j to cuda")
+            configs_j = torch.tensor(configs_j).cuda()
+            logging.info("configs j has been moved to cuda")
+        else:
+            logging.info("generating hamiltonian data to create sparse matrix insidely")
+            indices_i_and_j, values = openfermion_hamiltonian.inside(configs_i.cpu())
+            logging.info("sparse matrix data created")
+            logging.info("converting sparse matrix data to coo matrix")
+            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).cuda()
+            logging.info("coo matrix created")
 
-        logging.info("choosing loss function as %s", loss_name)
-        loss_func = getattr(loss_function, loss_name)
         logging.info("local optimization starting")
         optimizer = torch.optim.Adam(network.parameters(), lr=lr)
         for i in range(local_step):
-            with torch.enable_grad():
-                amplitudes = network(configs)
-                amplitudes = amplitudes / amplitudes[max_index]
-                loss = loss_func(amplitudes, targets)
-                loss.backward()
-            optimizer.step()
             optimizer.zero_grad()
-            logging.info("local optimizing, step %d, loss %f", i, loss.item())
+            with torch.enable_grad():
+                amplitudes_i = network(configs_i)
+                if include_outside:
+                    amplitudes_j = network(configs_j)
+                else:
+                    amplitudes_j = amplitudes_i
+                energy = ((amplitudes_i.conj() @ hamiltonian @ amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i)).real
+            energy.backward()
+            optimizer.step()
+            logging.info("local optimizing, step %d, energy: %f", i, energy.item())
         logging.info("local optimization finished")
         logging.info("saving checkpoint")
         torch.save(network.state_dict(), f"{checkpoint_path}/{run_name}.pt")
         logging.info("checkpoint saved")
-        logging.info("calculating current energy")
-        amplitudes = amplitudes.cpu().detach().numpy()
-        final_energy = ((amplitudes.conj() @ hamiltonian @ amplitudes) / (amplitudes.conj() @ amplitudes)).real
-        logging.info(
-            "loss = %f during local optimization, final energy %f, target energy %f, fci energy %f",
-            loss.item(),
-            final_energy.item(),
-            expected_energy.item(),
-            fci_energy,
-        )
-        logging.info("printing several largest amplitudes")
-        indices = targets.abs().sort(descending=True).indices
-        for index in indices[:logging_psi_count]:
-            logging.info("config %s, target %s, final %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.4f}", f"{amplitudes[index].item():.4f}")
 
 
 if __name__ == "__main__":

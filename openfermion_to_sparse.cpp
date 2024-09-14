@@ -124,8 +124,7 @@ class Hamiltonian {
         }
 
         int64_t prime_count = 0;
-        std::vector<int64_t> indices_i;
-        std::vector<int64_t> indices_j;
+        std::vector<int64_t> indices_i_and_j;
         std::vector<std::complex<double>> coefs;
         std::vector<int64_t> config_j_pool;
         std::vector<int64_t> config_j(sites);
@@ -177,8 +176,8 @@ class Hamiltonian {
                             continue;
                         }
                     }
-                    indices_i.push_back(index_i);
-                    indices_j.push_back(index_j);
+                    indices_i_and_j.push_back(index_i);
+                    indices_i_and_j.push_back(index_j);
                     coefs.push_back(parity ? -coef : +coef);
                 }
             }
@@ -187,17 +186,12 @@ class Hamiltonian {
         int64_t term_count = coefs.size();
         if constexpr (outside) {
             return py::make_tuple(
-                vector_to_array(indices_i, {term_count}),
-                vector_to_array(indices_j, {term_count}),
+                vector_to_array(indices_i_and_j, {term_count, 2}),
                 vector_to_array(coefs, {term_count}),
                 vector_to_array(config_j_pool, {prime_count, sites})
             );
         } else {
-            return py::make_tuple(
-                vector_to_array(indices_i, {term_count}),
-                vector_to_array(indices_j, {term_count}),
-                vector_to_array(coefs, {term_count})
-            );
+            return py::make_tuple(vector_to_array(indices_i_and_j, {term_count, 2}), vector_to_array(coefs, {term_count}));
         }
     }
 };
