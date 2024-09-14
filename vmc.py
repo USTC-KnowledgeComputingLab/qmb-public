@@ -22,6 +22,7 @@ def main():
     parser.add_argument("-C", "--checkpoint-path", dest="checkpoint_path", type=str, default="checkpoints", help="path of checkpoints folder")
     parser.add_argument("-M", "--model-path", dest="model_path", type=str, default="models", help="path of models folder")
     parser.add_argument("-N", "--run-name", dest="run_name", type=str, default=None, help="the run name")
+    parser.add_argument("-S", "--random-seed", dest="random_seed", type=int, default=None, help="the manual random seed")
     args, other_args = parser.parse_known_args()
     model_name = args.model
     network_name = args.network
@@ -35,6 +36,7 @@ def main():
     run_name = args.run_name
     if run_name is None:
         run_name = model_name
+    random_seed = args.random_seed
 
     logging.basicConfig(
         handlers=[logging.StreamHandler(), logging.FileHandler(f"{log_path}/{run_name}.log")],
@@ -47,6 +49,12 @@ def main():
     logging.info("sampling count: %d, learning rate: %f, local step: %d, include outside: %a", sampling_count, lr, local_step, include_outside)
     logging.info("log path: %s, checkpoint path: %s, model path: %s", log_path, checkpoint_path, model_path)
     logging.info("other arguments will be passed to network parser: %a", other_args)
+
+    if random_seed is not None:
+        logging.info("setting random seed to %d", random_seed)
+        torch.manual_seed(random_seed)
+    else:
+        logging.info("random seed not set, using %d", torch.seed())
 
     logging.info("disabling torch default gradient behavior")
     torch.set_grad_enabled(False)
