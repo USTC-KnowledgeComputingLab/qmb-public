@@ -2,7 +2,10 @@ import torch
 import logging
 
 
-def _cg(matrix, vector, max_step=None, threshold=None):
+def _cg(matrix, vector, max_step=None, threshold=None, epsilon=None):
+
+    metric_trace = (matrix.conj() * matrix).sum()
+    eps = epsilon * metric_trace / len(vector)
 
     def D(v):
         return matrix @ v
@@ -11,7 +14,7 @@ def _cg(matrix, vector, max_step=None, threshold=None):
         return matrix.H @ v
 
     def A(v):
-        return DT(D(v))
+        return DT(D(v)) + eps * v
 
     logging.info("conjugate gradient starting")
 
@@ -32,10 +35,10 @@ def _cg(matrix, vector, max_step=None, threshold=None):
             logging.info("conjugate gradient step stop because of threshold reached")
             break
         Dp = D(p)
-        pAp = Dp.conj() @ Dp
+        pAp = Dp.conj() @ Dp + eps * p.conj() @ p
         alpha = r_square / pAp
         x = x + alpha * p
-        r = r - alpha * DT(Dp)
+        r = r - alpha * (DT(Dp) + eps * p)
         new_r_square = r.conj() @ r
         beta = new_r_square / r_square
         r_square = new_r_square
@@ -46,11 +49,11 @@ def _cg(matrix, vector, max_step=None, threshold=None):
     return x
 
 
-def cg(matrix, vector, max_step=None, threshold=None):
+def cg(matrix, vector, max_step=None, threshold=None, epsilon=None):
     logging.info("reshaping gradient and matric to vector and matrix")
     _vector = torch.cat([tensor.view([-1]) for tensor in vector])
     _matrix = torch.stack([torch.cat([tensor.view([-1]) for tensor in line]) for line in matrix])
-    _x = _cg(_matrix, _vector, max_step=max_step, threshold=threshold)
+    _x = _cg(_matrix, _vector, max_step=max_step, threshold=threshold, epsilon=epsilon)
     logging.info("reshaping inversion result back to tensors")
     x = []
     index = 0

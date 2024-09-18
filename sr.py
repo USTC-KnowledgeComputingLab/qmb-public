@@ -23,6 +23,7 @@ def main():
     parser.add_argument("-k", "--metric-rank", dest="metric_rank", type=int, default=128, help="the rank of metric")
     parser.add_argument("-c", "--cg-max-step", dest="cg_max_step", type=int, default=None, help="max step for cg")
     parser.add_argument("-g", "--cg-threshold", dest="cg_threshold", type=float, default=None, help="threshold for cg")
+    parser.add_argument("-y", "--cg-epsilon", dest="cg_epsilon", type=float, default=1e-2, help="epsilon for cg")
     parser.add_argument("-L", "--log-path", dest="log_path", type=str, default="logs", help="path of logs folder")
     parser.add_argument("-C", "--checkpoint-path", dest="checkpoint_path", type=str, default="checkpoints", help="path of checkpoints folder")
     parser.add_argument("-M", "--model-path", dest="model_path", type=str, default="models", help="path of models folder")
@@ -39,8 +40,9 @@ def main():
     metric_rank = args.metric_rank
     cg_max_step = args.cg_max_step
     cg_threshold = args.cg_threshold
+    cg_epsilon = args.cg_epsilon
     if cg_max_step is None and cg_threshold is None:
-        cg_max_step = 20
+        cg_max_step = metric_rank
     log_path = args.log_path
     checkpoint_path = args.checkpoint_path
     model_path = args.model_path
@@ -140,10 +142,12 @@ def main():
                 indices = rounded_error.sort(descending=True).indices[:metric_rank]
                 plains = torch.view_as_real(log_amplitudes[indices]).view([-1])
                 jacobian = []
-                for plain in plains:
+                for j, plain in enumerate(plains):
+                    logging.info("collecting jacobian %d", j)
                     jacobian.append(torch.autograd.grad(plain, network.parameters(), retain_graph=True))
+                logging.info("jacobian has been collected")
                 gradient = torch.autograd.grad(loss, network.parameters())
-                updates = cg.cg(jacobian, gradient, max_step=cg_max_step, threshold=cg_threshold)
+                updates = cg.cg(jacobian, gradient, max_step=cg_max_step, threshold=cg_threshold, epsilon=cg_epsilon)
                 for parameter, update in zip(network.parameters(), updates):
                     parameter.grad = update
 
