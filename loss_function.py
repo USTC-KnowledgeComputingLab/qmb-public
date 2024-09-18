@@ -2,27 +2,37 @@ import torch
 
 
 @torch.jit.script
-def target_reweighted_log(a, b):
+def log(a, b):
     # b is target, a is learnable
-    log_a = a.log()
-    log_b = b.log()
-    error_real = (log_a.real - log_b.real) / (2 * torch.pi)
-    error_imag = (log_a.imag - log_b.imag) / (2 * torch.pi)
-    error_imag = error_imag - error_imag.round()
-    loss = (error_real**2) + (error_imag**2)
-    loss = loss * b.abs()
+    error = (a.log() - b.log()) / (2 * torch.pi)
+    error_real = error.real
+    error_imag = error.imag - error.imag.round()
+    loss = error_real**2 + error_imag**2
     return loss.mean()
 
 
 @torch.jit.script
-def log(a, b):
+def target_reweighted_log(a, b):
     # b is target, a is learnable
-    log_a = a.log()
-    log_b = b.log()
-    error_real = (log_a.real - log_b.real) / (2 * torch.pi)
-    error_imag = (log_a.imag - log_b.imag) / (2 * torch.pi)
-    error_imag = error_imag - error_imag.round()
-    loss = (error_real**2) + (error_imag**2)
+    error = (a.log() - b.log()) / (2 * torch.pi)
+    error_real = error.real
+    error_imag = error.imag - error.imag.round()
+    loss = error_real**2 + error_imag**2
+    abs_b = b.abs()
+    loss = loss * abs_b
+    return loss.mean()
+
+
+def target_filtered_log(a, b):
+    # b is target, a is learnable
+    error = (a.log() - b.log()) / (2 * torch.pi)
+    error_real = error.real
+    error_imag = error.imag - error.imag.round()
+    loss = error_real**2 + error_imag**2
+    abs_b = b.abs()
+    loss = loss / (1 + 1e-10 / abs_b)
+    # This function scale only for very small abs value.
+    # I think we could ignore those definitly for amplitude less than 1e-10.
     return loss.mean()
 
 
