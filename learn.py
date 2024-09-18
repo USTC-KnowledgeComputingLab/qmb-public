@@ -19,7 +19,8 @@ def main():
     parser.add_argument("-2", "--lbfgs", dest="use_lbfgs", action="store_true", help="Use LBFGS instead of Adam")
     parser.add_argument("-r", "--learning-rate", dest="lr", type=float, default=None, help="learning rate for the local optimizer")
     parser.add_argument("-s", "--local-step", dest="local_step", type=int, default=None, help="step count for the local optimizer")
-    parser.add_argument("-p", "--logging-psi-count", dest="logging_psi_count", type=int, default=30, help="psi count to be printed after local optimizer")
+    parser.add_argument("-t", "--local-loss", dest="local_loss", type=float, default=1e-6, help="early break loss threshold for local optimization")
+    parser.add_argument("-p", "--logging-psi", dest="logging_psi", type=int, default=30, help="psi count to be printed after local optimizer")
     parser.add_argument("-l", "--loss-name", dest="loss_name", type=str, default="log", help="the loss function to be used")
     parser.add_argument("-L", "--log-path", dest="log_path", type=str, default="logs", help="path of logs folder")
     parser.add_argument("-C", "--checkpoint-path", dest="checkpoint_path", type=str, default="checkpoints", help="path of checkpoints folder")
@@ -38,7 +39,8 @@ def main():
     local_step = args.local_step
     if local_step is None:
         local_step = 200 if use_lbfgs else 1000
-    logging_psi_count = args.logging_psi_count
+    local_loss = args.local_loss
+    logging_psi = args.logging_psi
     loss_name = args.loss_name
     log_path = args.log_path
     checkpoint_path = args.checkpoint_path
@@ -57,7 +59,7 @@ def main():
 
     logging.info("learn script start, with %a", sys.argv)
     logging.info("model: %s, network: %s, run name: %s", model_name, network_name, run_name)
-    logging.info("sampling count: %d, learning rate: %f, local step: %d, logging psi count: %d, loss name: %s", sampling_count, lr, local_step, logging_psi_count, loss_name)
+    logging.info("sampling count: %d, learning rate: %f, local step: %d, local loss: %f, logging psi: %d, loss name: %s", sampling_count, lr, local_step, local_loss, logging_psi, loss_name)
     logging.info("log path: %s, checkpoint path: %s, model path: %s", log_path, checkpoint_path, model_path)
     logging.info("arguments will be passed to network parser: %a", network_args)
 
@@ -146,6 +148,9 @@ def main():
         for i in range(local_step):
             optimizer.step(closure)
             logging.info("local optimizing, step %d, loss %f", i, loss.item())
+            if loss < local_loss:
+                logging.info("local optimization stop since local loss reached")
+                break
 
         logging.info("local optimization finished")
         logging.info("saving checkpoint")
@@ -163,7 +168,7 @@ def main():
         )
         logging.info("printing several largest amplitudes")
         indices = targets.abs().sort(descending=True).indices
-        for index in indices[:logging_psi_count]:
+        for index in indices[:logging_psi]:
             logging.info("config %s, target %s, final %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.4f}", f"{amplitudes[index].item():.4f}")
 
 

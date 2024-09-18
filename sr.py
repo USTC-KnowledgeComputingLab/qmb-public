@@ -18,8 +18,8 @@ def main():
     parser.add_argument("-n", "--sampling-count", dest="sampling_count", type=int, default=4000, help="sampling count")
     parser.add_argument("-r", "--learning-rate", dest="lr", type=float, default=1e-3, help="learning rate for the local optimizer")
     parser.add_argument("-s", "--local-step", dest="local_step", type=int, default=1000, help="step count for the local optimizer")
-    parser.add_argument("-l", "--local-loss", dest="local_loss", type=float, default=1e-6, help="early break loss threshold for local optimization")
-    parser.add_argument("-p", "--logging-psi-count", dest="logging_psi_count", type=int, default=30, help="psi count to be printed after local optimizer")
+    parser.add_argument("-t", "--local-loss", dest="local_loss", type=float, default=1e-6, help="early break loss threshold for local optimization")
+    parser.add_argument("-p", "--logging-psi", dest="logging_psi", type=int, default=30, help="psi count to be printed after local optimizer")
     parser.add_argument("-k", "--metric-rank", dest="metric_rank", type=int, default=128, help="the rank of metric")
     parser.add_argument("-c", "--cg-max-step", dest="cg_max_step", type=int, default=None, help="max step for cg")
     parser.add_argument("-g", "--cg-threshold", dest="cg_threshold", type=float, default=None, help="threshold for cg")
@@ -37,7 +37,7 @@ def main():
     lr = args.lr
     local_step = args.local_step
     local_loss = args.local_loss
-    logging_psi_count = args.logging_psi_count
+    logging_psi = args.logging_psi
     metric_rank = args.metric_rank
     cg_max_step = args.cg_max_step
     cg_threshold = args.cg_threshold
@@ -61,7 +61,7 @@ def main():
 
     logging.info("sr script start, with %a", sys.argv)
     logging.info("model: %s, network: %s, run name: %s", model_name, network_name, run_name)
-    logging.info("sampling count: %d, learning rate: %f, local step: %d, local loss: %f, logging psi count: %d", sampling_count, lr, local_step, local_loss, logging_psi_count)
+    logging.info("sampling count: %d, learning rate: %f, local step: %d, local loss: %f, logging psi: %d", sampling_count, lr, local_step, local_loss, logging_psi)
     logging.info("cg max step: %a, cg threshold: %a", cg_max_step, cg_threshold)
     logging.info("log path: %s, checkpoint path: %s, model path: %s", log_path, checkpoint_path, model_path)
     logging.info("arguments will be passed to network parser: %a", network_args)
@@ -182,7 +182,7 @@ def main():
         )
         logging.info("printing several largest amplitudes")
         indices = targets.abs().sort(descending=True).indices
-        for index in indices[:logging_psi_count]:
+        for index in indices[:logging_psi]:
             logging.info("config %s, target %s, final %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.4f}", f"{amplitudes[index].item():.4f}")
 
 

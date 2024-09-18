@@ -8,7 +8,6 @@ def naqs(model, input_args):
     logging.info("parsing args %a by network naqs", input_args)
     parser = argparse.ArgumentParser()
     parser.add_argument("-w", "--hidden-width", dest="hidden", type=int, default=[512], nargs="+", help="hidden width of the network")
-    parser.add_argument("--help-network", action="help")
     args = parser.parse_args(input_args)
 
     hidden = args.hidden
@@ -34,7 +33,6 @@ def attention(model, input_args):
     parser.add_argument("-m", "--heads-num", dest="heads_num", type=int, default=8, help="heads number")
     parser.add_argument("-f", "--feed-forward-dim", dest="feed_forward_dim", type=int, default=2048, help="feedforward dimension")
     parser.add_argument("-d", "--depth", dest="depth", type=int, default=6, help="network depth")
-    parser.add_argument("--help-network", action="help")
     args = parser.parse_args(input_args)
 
     embedding_dim = args.embedding_dim
