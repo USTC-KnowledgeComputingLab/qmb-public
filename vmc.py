@@ -68,7 +68,7 @@ def main():
 
     if hasattr(physical_model, "fci_energy"):
         fci_energy = physical_model.fci_energy.item()
-        logging.info("fci energy in model data is %f", fci_energy)
+        logging.info("fci energy in model data is %.10f", fci_energy)
     else:
         fci_energy = numpy.nan
         logging.info("fci energy in model data does not exist")
@@ -133,7 +133,7 @@ def main():
                 energy = ((amplitudes_i.conj() @ hamiltonian @ amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i)).real
             energy.backward()
             optimizer.step()
-            logging.info("local optimizing, step %d, energy: %f", i, energy.item())
+            logging.info("local optimizing, step %d, energy: %.10f", i, energy.item())
         logging.info("local optimization finished")
         logging.info("saving checkpoint")
         torch.save(network.state_dict(), f"{checkpoint_path}/{run_name}.pt")

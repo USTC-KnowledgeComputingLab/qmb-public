@@ -19,7 +19,7 @@ def main():
     parser.add_argument("-2", "--lbfgs", dest="use_lbfgs", action="store_true", help="Use LBFGS instead of Adam")
     parser.add_argument("-r", "--learning-rate", dest="lr", type=float, default=None, help="learning rate for the local optimizer")
     parser.add_argument("-s", "--local-step", dest="local_step", type=int, default=None, help="step count for the local optimizer")
-    parser.add_argument("-t", "--local-loss", dest="local_loss", type=float, default=1e-6, help="early break loss threshold for local optimization")
+    parser.add_argument("-t", "--local-loss", dest="local_loss", type=float, default=1e-8, help="early break loss threshold for local optimization")
     parser.add_argument("-p", "--logging-psi", dest="logging_psi", type=int, default=30, help="psi count to be printed after local optimizer")
     parser.add_argument("-l", "--loss-name", dest="loss_name", type=str, default="log", help="the loss function to be used")
     parser.add_argument("-L", "--log-path", dest="log_path", type=str, default="logs", help="path of logs folder")
@@ -38,7 +38,7 @@ def main():
         lr = 1 if use_lbfgs else 1e-3
     local_step = args.local_step
     if local_step is None:
-        local_step = 200 if use_lbfgs else 1000
+        local_step = 400 if use_lbfgs else 1000
     local_loss = args.local_loss
     logging_psi = args.logging_psi
     loss_name = args.loss_name
@@ -79,7 +79,7 @@ def main():
 
     if hasattr(physical_model, "fci_energy"):
         fci_energy = physical_model.fci_energy.item()
-        logging.info("fci energy in model data is %f", fci_energy)
+        logging.info("fci energy in model data is %.10f", fci_energy)
     else:
         fci_energy = numpy.nan
         logging.info("fci energy in model data does not exist")
@@ -119,7 +119,7 @@ def main():
         logging.info("coo matrix created")
         logging.info("estimating ground state")
         expected_energy, targets = scipy.sparse.linalg.lobpcg(hamiltonian, pre_amplitudes.cpu().reshape([-1, 1]).detach().numpy(), largest=False, maxiter=1024)
-        logging.info("estimiated, target energy is %f, fci energy is %f", expected_energy.item(), fci_energy)
+        logging.info("estimiated, target energy is %.10f, fci energy is %.10f", expected_energy.item(), fci_energy)
         logging.info("preparing learning targets")
         targets = torch.tensor(targets).view([-1]).cuda()
         max_index = targets.abs().argmax()
@@ -147,7 +147,7 @@ def main():
         amplitudes = None
         for i in range(local_step):
             optimizer.step(closure)
-            logging.info("local optimizing, step %d, loss %f", i, loss.item())
+            logging.info("local optimizing, step %d, loss %.10f", i, loss.item())
             if loss < local_loss:
                 logging.info("local optimization stop since local loss reached")
                 break
@@ -160,7 +160,7 @@ def main():
         amplitudes = amplitudes.cpu().detach().numpy()
         final_energy = ((amplitudes.conj() @ hamiltonian @ amplitudes) / (amplitudes.conj() @ amplitudes)).real
         logging.info(
-            "loss = %f during local optimization, final energy %f, target energy %f, fci energy %f",
+            "loss = %.10f during local optimization, final energy %.10f, target energy %.10f, fci energy %.10f",
             loss.item(),
             final_energy.item(),
             expected_energy.item(),
@@ -169,7 +169,7 @@ def main():
         logging.info("printing several largest amplitudes")
         indices = targets.abs().sort(descending=True).indices
         for index in indices[:logging_psi]:
-            logging.info("config %s, target %s, final %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.4f}", f"{amplitudes[index].item():.4f}")
+            logging.info("config %s, target %s, final %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.8f}", f"{amplitudes[index].item():.8f}")
 
 
 if __name__ == "__main__":
