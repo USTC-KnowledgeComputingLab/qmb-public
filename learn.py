@@ -26,7 +26,8 @@ def main():
     parser.add_argument("-M", "--model-path", dest="model_path", type=str, default="models", help="path of models folder")
     parser.add_argument("-N", "--run-name", dest="run_name", type=str, default=None, help="the run name")
     parser.add_argument("-S", "--random-seed", dest="random_seed", type=int, default=None, help="the manual random seed")
-    args, other_args = parser.parse_known_args()
+    parser.add_argument("-W", dest="network_args", type=str, default=[], nargs="*", help="arguments for network")
+    args = parser.parse_args()
     model_name = args.model
     network_name = args.network
     sampling_count = args.sampling_count
@@ -46,6 +47,7 @@ def main():
     if run_name is None:
         run_name = model_name
     random_seed = args.random_seed
+    network_args = args.network_args
 
     logging.basicConfig(
         handlers=[logging.StreamHandler(), logging.FileHandler(f"{log_path}/{run_name}.log")],
@@ -57,7 +59,7 @@ def main():
     logging.info("model: %s, network: %s, run name: %s", model_name, network_name, run_name)
     logging.info("sampling count: %d, learning rate: %f, local step: %d, logging psi count: %d, loss name: %s", sampling_count, lr, local_step, logging_psi_count, loss_name)
     logging.info("log path: %s, checkpoint path: %s, model path: %s", log_path, checkpoint_path, model_path)
-    logging.info("other arguments will be passed to network parser: %a", other_args)
+    logging.info("arguments will be passed to network parser: %a", network_args)
 
     if random_seed is not None:
         logging.info("setting random seed to %d", random_seed)
@@ -84,8 +86,8 @@ def main():
     openfermion_hamiltonian = openfermion_to_sparse.Hamiltonian(list(openfermion.transforms.get_fermion_operator(physical_model.get_molecular_hamiltonian()).terms.items()))
     logging.info("hamiltonian handle created")
 
-    logging.info("loading network %s and create network with physical model and args %s", network_name, other_args)
-    network = getattr(networks, network_name)(physical_model, other_args)
+    logging.info("loading network %s and create network with physical model and args %s", network_name, network_args)
+    network = getattr(networks, network_name)(physical_model, network_args)
     logging.info("network created")
 
     logging.info("trying to load checkpoint")
