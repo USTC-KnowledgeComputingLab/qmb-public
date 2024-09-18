@@ -16,8 +16,9 @@ def main():
     parser.add_argument("model", help="model name")
     parser.add_argument("network", help="network name")
     parser.add_argument("-n", "--sampling-count", dest="sampling_count", type=int, default=4000, help="sampling count")
-    parser.add_argument("-r", "--learning-rate", dest="lr", type=float, default=1e-3, help="learning rate for the local optimizer")
-    parser.add_argument("-s", "--local-step", dest="local_step", type=int, default=1000, help="step count for the local optimizer")
+    parser.add_argument("-2", "--lbfgs", dest="use_lbfgs", action="store_true", help="Use LBFGS instead of Adam")
+    parser.add_argument("-r", "--learning-rate", dest="lr", type=float, default=None, help="learning rate for the local optimizer")
+    parser.add_argument("-s", "--local-step", dest="local_step", type=int, default=None, help="step count for the local optimizer")
     parser.add_argument("-p", "--logging-psi-count", dest="logging_psi_count", type=int, default=30, help="psi count to be printed after local optimizer")
     parser.add_argument("-l", "--loss-name", dest="loss_name", type=str, default="log", help="the loss function to be used")
     parser.add_argument("-L", "--log-path", dest="log_path", type=str, default="logs", help="path of logs folder")
@@ -29,8 +30,13 @@ def main():
     model_name = args.model
     network_name = args.network
     sampling_count = args.sampling_count
+    use_lbfgs = args.use_lbfgs
     lr = args.lr
+    if lr is None:
+        lr = 1 if use_lbfgs else 1e-3
     local_step = args.local_step
+    if local_step is None:
+        local_step = 200 if use_lbfgs else 1000
     logging_psi_count = args.logging_psi_count
     loss_name = args.loss_name
     log_path = args.log_path
@@ -118,16 +124,27 @@ def main():
         logging.info("choosing loss function as %s", loss_name)
         loss_func = getattr(loss_function, loss_name)
         logging.info("local optimization starting")
-        optimizer = torch.optim.Adam(network.parameters(), lr=lr)
-        for i in range(local_step):
+        if use_lbfgs:
+            optimizer = torch.optim.LBFGS(network.parameters(), lr=lr)
+        else:
+            optimizer = torch.optim.Adam(network.parameters(), lr=lr)
+
+        def closure():
+            nonlocal loss, amplitudes
             with torch.enable_grad():
+                optimizer.zero_grad()
                 amplitudes = network(configs)
                 amplitudes = amplitudes / amplitudes[max_index]
                 loss = loss_func(amplitudes, targets)
                 loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
+                return loss
+
+        loss = None
+        amplitudes = None
+        for i in range(local_step):
+            optimizer.step(closure)
             logging.info("local optimizing, step %d, loss %f", i, loss.item())
+
         logging.info("local optimization finished")
         logging.info("saving checkpoint")
         torch.save(network.state_dict(), f"{checkpoint_path}/{run_name}.pt")
