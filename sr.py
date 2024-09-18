@@ -137,23 +137,30 @@ def main():
                 error = (log_amplitudes - log_targets) / (2 * torch.pi)
                 rounded_error = error.real**2 + (error.imag - error.imag.round())**2
                 loss = rounded_error.mean()
-
-                logging.info("collecting jacobian")
-                indices = rounded_error.sort(descending=True).indices[:metric_rank]
-                plains = torch.view_as_real(log_amplitudes[indices]).view([-1])
-                jacobian = []
-                for j, plain in enumerate(plains):
-                    logging.info("collecting jacobian %d", j)
-                    jacobian.append(torch.autograd.grad(plain, network.parameters(), retain_graph=True))
-                logging.info("jacobian has been collected")
                 gradient = torch.autograd.grad(loss, network.parameters())
-                updates = cg.cg(jacobian, gradient, max_step=cg_max_step, threshold=cg_threshold, epsilon=cg_epsilon)
-                for parameter, update in zip(network.parameters(), updates):
-                    parameter.grad = update
+
+            logging.info("collecting jacobian")
+            indices = rounded_error.sort(descending=True).indices[:metric_rank]
+            jacobian = []
+            for j, index in enumerate(indices):
+                logging.info("collecting jacobian %d", j)
+                with torch.enable_grad():
+                    amplitude = network(configs[index].unsqueeze(0))
+                    log_amplitude = amplitude.log()
+                    jacobian.append(torch.autograd.grad(log_amplitude.real, network.parameters(), retain_graph=True))
+                    jacobian.append(torch.autograd.grad(log_amplitude.imag, network.parameters(), retain_graph=True))
+            logging.info("jacobian has been collected")
+
+            updates = cg.cg(jacobian, gradient, max_step=cg_max_step, threshold=cg_threshold, epsilon=cg_epsilon)
+            for parameter, update in zip(network.parameters(), updates):
+                parameter.grad = update
 
             optimizer.step()
             optimizer.zero_grad()
-            logging.info("local optimizing, step %d, loss %f", i, loss.item())
+
+            amplitudes = amplitudes.cpu().detach().numpy()
+            current_energy = ((amplitudes.conj() @ hamiltonian @ amplitudes) / (amplitudes.conj() @ amplitudes)).real
+            logging.info("local optimizing, step %d, loss %f, current energy %f", i, loss.item(), current_energy.item())
             if loss < local_loss:
                 logging.info("local optimization stop since local loss reached")
                 break
