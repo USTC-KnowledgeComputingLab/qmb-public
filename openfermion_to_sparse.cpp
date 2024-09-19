@@ -117,17 +117,22 @@ class Hamiltonian {
         int64_t* configs_ptr = static_cast<int64_t*>(configs_buf.ptr);
 
         Tree<int64_t, -1> config_dict;
-        if constexpr (!outside) {
-            for (int64_t i = 0; i < batch; ++i) {
-                config_dict.set(&configs_ptr[i * sites], &configs_ptr[(i + 1) * sites], i);
-            }
-        }
-
-        int64_t prime_count = 0;
+        int64_t prime_count = batch;
         std::vector<int64_t> indices_i_and_j;
         std::vector<std::complex<double>> coefs;
         std::vector<int64_t> config_j_pool;
         std::vector<int64_t> config_j(sites);
+
+        for (int64_t i = 0; i < batch; ++i) {
+            config_dict.set(&configs_ptr[i * sites], &configs_ptr[(i + 1) * sites], i);
+        }
+        if constexpr (outside) {
+            config_j_pool.resize(batch * sites);
+            for (int64_t i = 0; i < batch * sites; ++i) {
+                config_j_pool[i] = configs_ptr[i];
+            }
+        }
+
         for (int64_t index_i = 0; index_i < batch; ++index_i) {
             for (const auto& [ops, coef] : terms) {
                 for (int64_t i = 0; i < sites; i++) {
