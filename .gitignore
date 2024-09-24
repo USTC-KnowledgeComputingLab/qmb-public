@@ -1,6 +1,7 @@
 __pycache__
 build
 env
+.idea
 *.so
 *.hdf5
 *.pt

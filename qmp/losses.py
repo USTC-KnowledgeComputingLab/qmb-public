@@ -1,7 +1,6 @@
 import torch
 
 
-@torch.jit.script
 def log(a, b):
     # b is target, a is learnable
     error = (a.log() - b.log()) / (2 * torch.pi)
@@ -11,7 +10,6 @@ def log(a, b):
     return loss.mean()
 
 
-@torch.jit.script
 def target_reweighted_log(a, b):
     # b is target, a is learnable
     error = (a.log() - b.log()) / (2 * torch.pi)
@@ -49,7 +47,6 @@ def sum_filtered_log(a, b):
     return loss.mean()
 
 
-@torch.jit.script
 def direct(a, b):
     # b is target, a is learnable
     error = a - b
