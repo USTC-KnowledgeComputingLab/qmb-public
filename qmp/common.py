@@ -3,8 +3,12 @@ import sys
 import logging
 import torch
 from . import openfermion
+from . import ising
 
-model_dict = {"openfermion": openfermion.Model}
+model_dict = {
+    "openfermion": openfermion.Model,
+    "ising": ising.Model,
+}
 
 
 def initialize_process(parser):

@@ -69,17 +69,11 @@ class Tree {
     }
 };
 
-// Hamiltonian handle for openfermion data.
-// Every term of hamiltonian is operators less or equal than 4,
-// so we use std::pair<Site, Type> to represent the term.
+// Hamiltonian handle.
 class Hamiltonian {
     using Coef = std::complex<double>;
-    using Site = int16_t;
-    using Type = int16_t; // 0 for empty, 1 for annihilation, 2 for creation
-    using Op = std::pair<Site, Type>;
-    using Ops = std::array<Op, 4>;
-    using Term = std::pair<Ops, Coef>;
-    std::vector<Term> terms;
+
+    Coef X, Y, Z, XX, YY, ZZ;
 
     // Convert c++ vector to numpy array, with given shape.
     template<typename T>
@@ -92,22 +86,7 @@ class Hamiltonian {
     }
 
   public:
-    // Analyze openfermion data, which is converted from python,
-    // It may be slow, but we only need to call this constructor once every process so it is ok.
-    Hamiltonian(const std::vector<std::tuple<std::vector<std::pair<int, int>>, std::complex<double>>>& openfermion_hamiltonian) {
-        for (const auto& [openfermion_ops, coef] : openfermion_hamiltonian) {
-            Ops ops;
-            size_t i = 0;
-            for (; i < openfermion_ops.size(); ++i) {
-                ops[i].first = openfermion_ops[i].first;
-                ops[i].second = 1 + openfermion_ops[i].second; // in openfermion, 0 for annihilation, 1 for creation
-            }
-            for (; i < 4; ++i) {
-                ops[i].second = 0; // 0 empty
-            }
-            terms.emplace_back(ops, coef);
-        }
-    }
+    Hamiltonian(Coef _X, Coef _Y, Coef _Z, Coef _XX, Coef _YY, Coef _ZZ) : X(_X), Y(_Y), Z(_Z), XX(_XX), YY(_YY), ZZ(_ZZ) { }
 
     template<bool outside>
     auto call(const py::array_t<int64_t, py::array::c_style>& configs) {
@@ -143,44 +122,69 @@ class Hamiltonian {
 
         // Loop over every batch and every hamiltonian term
         for (int64_t index_i = 0; index_i < batch; ++index_i) {
-            for (const auto& [ops, coef] : terms) {
-                // Prepare config j to be operated by hamiltonian term
-                for (int64_t i = 0; i < sites; ++i) {
-                    config_j[i] = configs_ptr[index_i * sites + i];
-                }
-                bool success = true;
-                bool parity = false;
-                // Apply operator one by one
-                for (auto i = 4; i-- > 0;) {
-                    auto [site, operation] = ops[i];
-                    if (operation == 0) {
-                        // Empty operator, nothing happens
+            for (int64_t type = 0; type < 6; ++type) {
+                for (int64_t site = 0; site < sites; ++site) {
+                    // type 0, 1, 2: X, Y, Z on site
+                    // type 3, 4, 5: XX, YY, ZZ on site and site-1
+                    if ((type >= 3) && (site == 0)) {
                         continue;
-                    } else if (operation == 1) {
-                        // Annihilation operator
-                        if (config_j[site] != 1) {
-                            success = false;
-                            break;
-                        }
-                        config_j[site] = 0;
-                        if (std::accumulate(config_j.begin(), config_j.begin() + site, 0) % 2 == 1) {
-                            parity ^= true;
-                        }
-                    } else {
-                        // Creation operator
-                        if (config_j[site] != 0) {
-                            success = false;
-                            break;
-                        }
-                        config_j[site] = 1;
-                        if (std::accumulate(config_j.begin(), config_j.begin() + site, 0) % 2 == 1) {
-                            parity ^= true;
-                        }
                     }
-                }
+                    Coef coef;
+                    switch (type) {
+                    case (0):
+                        coef = X;
+                        break;
+                    case (1):
+                        coef = Y;
+                        break;
+                    case (2):
+                        coef = Z;
+                        break;
+                    case (3):
+                        coef = XX;
+                        break;
+                    case (4):
+                        coef = YY;
+                        break;
+                    case (5):
+                        coef = ZZ;
+                        break;
+                    }
+                    if (coef == Coef()) {
+                        continue;
+                    }
+                    // Prepare config j to be operated by hamiltonian term
+                    for (int64_t i = 0; i < sites; ++i) {
+                        config_j[i] = configs_ptr[index_i * sites + i];
+                    }
+                    Coef param;
+                    switch (type) {
+                    case (0):
+                        param = 1;
+                        config_j[site] = 1 - config_j[site];
+                        break;
+                    case (1):
+                        param = config_j[site] == 0 ? Coef(0, +1) : Coef(0, -1);
+                        config_j[site] = 1 - config_j[site];
+                        break;
+                    case (2):
+                        param = config_j[site] == 0 ? +1 : -1;
+                        break;
+                    case (3):
+                        param = 1;
+                        config_j[site] = 1 - config_j[site];
+                        config_j[site - 1] = 1 - config_j[site - 1];
+                        break;
+                    case (4):
+                        param = config_j[site - 1] == config_j[site] ? -1 : +1;
+                        config_j[site] = 1 - config_j[site];
+                        config_j[site - 1] = 1 - config_j[site - 1];
+                        break;
+                    case (5):
+                        param = config_j[site - 1] == config_j[site] ? +1 : -1;
+                        break;
+                    }
 
-                if (success) {
-                    // Success, insert this term to sparse matrix
                     // Find the index j first
                     int64_t index_j = config_dict.get(config_j.begin(), config_j.end());
                     if (index_j == -1) {
@@ -201,7 +205,7 @@ class Hamiltonian {
                     }
                     indices_i_and_j.push_back(index_i);
                     indices_i_and_j.push_back(index_j);
-                    coefs.push_back(parity ? -coef : +coef);
+                    coefs.push_back(coef * param);
                 }
             }
         }
@@ -219,9 +223,15 @@ class Hamiltonian {
     }
 };
 
-PYBIND11_MODULE(_openfermion, m) {
+PYBIND11_MODULE(_ising, m) {
     py::class_<Hamiltonian>(m, "Hamiltonian", py::module_local())
-        .def(py::init<std::vector<std::tuple<std::vector<std::pair<int, int>>, std::complex<double>>>>())
+        .def(py::init<
+             std::complex<double>,
+             std::complex<double>,
+             std::complex<double>,
+             std::complex<double>,
+             std::complex<double>,
+             std::complex<double>>())
         .def("inside", &Hamiltonian::call<false>)
         .def("outside", &Hamiltonian::call<true>);
 }

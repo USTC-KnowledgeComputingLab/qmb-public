@@ -259,3 +259,166 @@ class WaveFunction(torch.nn.Module):
         # it should return configurations, amplitudes, probabilities and multiplicities
         # but it is unique generator, so last two field is none
         return x, self(x), None, None
+
+
+class WaveFunctionNormal(torch.nn.Module):
+    """
+    This module implements naqs from https://arxiv.org/pdf/2109.12606
+    No subspace restrictor.
+    """
+
+    def __init__(
+            self,
+            *,
+            sites: int,  # qubits number
+            physical_dim: int,  # is always 2 for naqs
+            is_complex: bool,  # is always true for naqs
+            hidden_size: list[int],  # hidden size for MLP
+            ordering: int | list[int],  # ordering of sites +1 for normal order, -1 for reversed order, or the order list directly
+    ) -> None:
+        super().__init__()
+        self.sites: int = sites
+        assert physical_dim == 2
+        assert is_complex == True
+        self.hidden_size: tuple[int, ...] = tuple(hidden_size)
+
+        # The amplitude and phase network for each site
+        # each of them accept qubits before them and output vector with dimension of 2 as the configuration of the qubit on the current site.
+        self.amplitude: torch.nn.ModuleList = torch.nn.ModuleList([MLP(i, 2, self.hidden_size) for i in range(self.sites)])
+        self.phase: torch.nn.ModuleList = torch.nn.ModuleList([MLP(i, 2, self.hidden_size) for i in range(self.sites)])
+
+        # ordering of sites +1 for normal order, -1 for reversed order
+        if isinstance(ordering, int) and ordering == +1:
+            ordering = list(range(self.sites))
+        if isinstance(ordering, int) and ordering == -1:
+            ordering = list(reversed(range(self.sites)))
+        self.register_buffer('ordering', torch.tensor(ordering, dtype=torch.int64))
+        self.register_buffer('ordering_reversed', torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
+
+        # used to get device and dtype
+        self.dummy_param = torch.nn.Parameter(torch.empty(0))
+
+    @torch.jit.export
+    def normalize_amplitude(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Normalize uncompleted log amplitude.
+        """
+        # x : batch_size * 2
+        # param :  batch_size
+        param = (2 * x).exp().sum(dim=[-1]).log() / 2
+        x = x - param.unsqueeze(-1)
+        # 1 = param = sqrt(sum(x.exp()^2)) now
+        return x
+
+    @torch.jit.export
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate psi of given configurations.
+        """
+        device: torch.device = self.dummy_param.device
+        dtype: torch.dtype = self.dummy_param.dtype
+
+        batch_size: int = x.shape[0]
+        # x : batch_size * sites
+        x = x.reshape([batch_size, self.sites])
+        # apply ordering
+        x = torch.index_select(x, 1, self.ordering_reversed)
+
+        x_float: torch.Tensor = x.to(dtype=dtype)
+        arange: torch.Tensor = torch.arange(batch_size, device=device)
+        total_amplitude: torch.Tensor = torch.zeros([batch_size], device=device, dtype=dtype)
+        total_phase: torch.Tensor = torch.zeros([batch_size], device=device, dtype=dtype)
+        for i, amplitude_phase_m in enumerate(zip(self.amplitude, self.phase)):
+            amplitude_m, phase_m = amplitude_phase_m
+            # delta_amplitude/phase : batch * 2
+            # delta amplitude and phase for the configurations at new site.
+            delta_amplitude: torch.Tensor = amplitude_m(x_float[:, :i].reshape([batch_size, i])).reshape([batch_size, 2])
+            delta_phase: torch.Tensor = phase_m(x_float[:, :i].reshape([batch_size, i])).reshape([batch_size, 2])
+            # normalize amplitude
+            delta_amplitude: torch.Tensor = self.normalize_amplitude(delta_amplitude)
+            # delta_amplitude/phase : batch
+            delta_amplitude: torch.Tensor = delta_amplitude[arange, x[:, i]]
+            delta_phase: torch.Tensor = delta_phase[arange, x[:, i]]
+            # calculate total amplitude and phase
+            total_amplitude = total_amplitude + delta_amplitude
+            total_phase = total_phase + delta_phase
+        return torch.view_as_complex(torch.stack([total_amplitude, total_phase], dim=-1)).exp()
+
+    @torch.jit.export
+    def binomial(self, count: torch.Tensor, probability: torch.Tensor) -> torch.Tensor:
+        """
+        Binomial sampling with given count and probability
+        """
+        # clamp probability
+        probability = torch.clamp(probability, min=0, max=1)
+        # set probability to zero for count = 0 since it may be nan when count = 0
+        probability = torch.where(count == 0, 0, probability)
+        # create dist and sample
+        result = torch.binomial(count, probability).to(dtype=torch.int64)
+        # numerical error since result is cast from float.
+        return torch.clamp(result, min=torch.zeros_like(count), max=count)
+
+    @torch.jit.export
+    def generate_unique(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, None, None]:
+        """
+        Generate configurations uniquely.
+        see https://arxiv.org/pdf/2408.07625
+        """
+        device: torch.device = self.dummy_param.device
+        dtype: torch.dtype = self.dummy_param.dtype
+
+        # x : local_batch_size * current_site
+        x: torch.Tensor = torch.empty([1, 0], device=device, dtype=torch.int64)
+        # (un)perturbed_log_probability : local_batch_size
+        unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
+        perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
+        for i, amplitude_m in enumerate(self.amplitude):
+            local_batch_size: int = x.shape[0]
+            x_float: torch.Tensor = x.to(dtype=dtype)
+            # delta_amplitude : batch * 2
+            # delta amplitude for the configurations at new site.
+            delta_amplitude: torch.Tensor = amplitude_m(x_float.reshape([local_batch_size, i])).reshape([local_batch_size, 2])
+            # normalize amplitude
+            delta_amplitude: torch.Tensor = self.normalize_amplitude(delta_amplitude)
+
+            # delta unperturbed prob for all batch and 2 adds
+            l: torch.Tensor = (2 * delta_amplitude).reshape([local_batch_size, 2])
+            # and add to get the current unperturbed prob
+            l: torch.Tensor = unperturbed_probability.view([-1, 1]) + l
+            # get perturbed prob
+            L: torch.Tensor = l - (-torch.rand_like(l).log()).log()
+            # get max perturbed prob
+            Z: torch.Tensor = L.max(dim=-1).values.reshape([-1, 1])
+            # evaluate the conditioned prob
+            L: torch.Tensor = -torch.log(torch.exp(-perturbed_probability.view([-1, 1])) - torch.exp(-Z) + torch.exp(-L))
+
+            # calculate appended configurations for 2 adds
+            # local_batch_size * current_site + local_batch_size * 1
+            x0: torch.Tensor = torch.cat([x, torch.tensor([0], device=device).expand(local_batch_size, -1)], dim=1)
+            x1: torch.Tensor = torch.cat([x, torch.tensor([1], device=device).expand(local_batch_size, -1)], dim=1)
+
+            # cat all configurations to get x : new_local_batch_size * current_size * 2
+            # (un)perturbed prob : new_local_batch_size
+            x = torch.cat([x0, x1])
+            unperturbed_probability = l.permute(1, 0).reshape([-1])
+            perturbed_probability = L.permute(1, 0).reshape([-1])
+
+            # filter new data, only used largest batch_size ones
+            selected = perturbed_probability.sort(descending=True).indices[:batch_size]
+            x = x[selected]
+            unperturbed_probability = unperturbed_probability[selected]
+            perturbed_probability = perturbed_probability[selected]
+
+            # if prob = 0, filter it forcely
+            selected = perturbed_probability != -torch.inf
+            x = x[selected]
+            unperturbed_probability = unperturbed_probability[selected]
+            perturbed_probability = perturbed_probability[selected]
+
+        # apply ordering
+        x = torch.index_select(x, 1, self.ordering)
+        # flatten site part of x
+        x = x.reshape([x.size(0), self.sites])
+        # it should return configurations, amplitudes, probabilities and multiplicities
+        # but it is unique generator, so last two field is none
+        return x, self(x), None, None
