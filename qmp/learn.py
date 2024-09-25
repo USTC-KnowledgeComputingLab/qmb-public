@@ -18,7 +18,6 @@ def main():
     parser.add_argument("-2", "--lbfgs", dest="use_lbfgs", action="store_true", help="Use LBFGS instead of Adam")
 
     args, model, network = initialize_process(parser)
-
     if args.learning_rate is None:
         args.learning_rate = 1 if args.use_lbfgs else 1e-3
     if args.local_step is None:
