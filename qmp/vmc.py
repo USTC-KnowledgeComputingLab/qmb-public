@@ -12,6 +12,7 @@ def main():
     parser.add_argument("-r", "--learning-rate", dest="learning_rate", type=float, default=None, help="learning rate for the local optimizer")
     parser.add_argument("-s", "--local-step", dest="local_step", type=int, default=1000, help="step count for the local optimizer")
     parser.add_argument("-o", "--include-outside", dest="include_outside", action="store_true", help="calculate all psi(s')")
+    parser.add_argument("-d", "--deviation", dest="deviation", action="store_true", help="Use deviation instead of energy")
     parser.add_argument("-2", "--lbfgs", dest="use_lbfgs", action="store_true", help="Use LBFGS instead of Adam")
 
     args, model, network = initialize_process(parser)
@@ -19,11 +20,12 @@ def main():
         args.learning_rate = 1 if args.use_lbfgs else 1e-3
 
     logging.info(
-        "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use lbfgs: %a",
+        "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, use lbfgs: %a",
         args.sampling_count,
         args.learning_rate,
         args.local_step,
         args.include_outside,
+        args.deviation,
         args.use_lbfgs,
     )
 
@@ -60,22 +62,42 @@ def main():
         else:
             optimizer = torch.optim.Adam(network.parameters(), lr=args.learning_rate)
 
-        def closure():
-            optimizer.zero_grad()
-            amplitudes_i = network(configs_i)
-            with torch.no_grad():
+        if args.deviation:
+
+            def closure():
+                optimizer.zero_grad()
+                amplitudes_i = network(configs_i)
                 if args.include_outside:
                     amplitudes_j = network(configs_j)
                 else:
                     amplitudes_j = amplitudes_i
-            energy = ((amplitudes_i.conj() @ (hamiltonian @ amplitudes_j.detach())) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
-            energy.backward()
-            return energy
+                deviation = (hamiltonian @ amplitudes_j / amplitudes_i).std()
+                deviation.backward()
+                return deviation
 
-        logging.info("local optimization starting")
-        for i in range(args.local_step):
-            energy = optimizer.step(closure)
-            logging.info("local optimizing, step %d, energy: %.10f", i, energy.item())
+            logging.info("local optimization for deviation starting")
+            for i in range(args.local_step):
+                deviation = optimizer.step(closure)
+                logging.info("local optimizing, step: %d, deviation: %.10f", i, deviation.item())
+        else:
+
+            def closure():
+                optimizer.zero_grad()
+                amplitudes_i = network(configs_i)
+                with torch.no_grad():
+                    if args.include_outside:
+                        amplitudes_j = network(configs_j)
+                    else:
+                        amplitudes_j = amplitudes_i
+                energy = ((amplitudes_i.conj() @ (hamiltonian @ amplitudes_j.detach())) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
+                energy.backward()
+                return energy
+
+            logging.info("local optimization for energy starting")
+            for i in range(args.local_step):
+                energy = optimizer.step(closure)
+                logging.info("local optimizing, step: %d, energy: %.10f", i, energy.item())
+
         logging.info("local optimization finished")
         logging.info("saving checkpoint")
         torch.save(network.state_dict(), f"{args.checkpoint_path}/{args.job_name}.pt")
