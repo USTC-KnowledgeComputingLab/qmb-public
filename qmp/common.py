@@ -27,6 +27,11 @@ def initialize_process(parser):
     if args.job_name is None:
         args.job_name = model_dict[args.model_name].preparse(args.physics_args)
 
+    if not os.path.exists(args.checkpoint_path):
+        os.mkdir(args.checkpoint_path)
+    if not os.path.exists(args.log_path):
+        os.mkdir(args.log_path)
+
     logging.basicConfig(
         handlers=[logging.StreamHandler(), logging.FileHandler(f"{args.log_path}/{args.job_name}.log")],
         level=logging.INFO,
