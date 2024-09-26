@@ -106,9 +106,9 @@ def main():
             logging.info("sparse matrix data created")
             outside_count = len(configs_j)
             logging.info("outside configs count is %d", outside_count)
-            logging.info("converting sparse matrix data to coo matrix")
-            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, outside_count], dtype=torch.complex128).cuda()
-            logging.info("coo matrix created")
+            logging.info("converting sparse matrix data to sparse matrix")
+            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, outside_count], dtype=torch.complex128).to_sparse_csr().cuda()
+            logging.info("sparse matrix created")
             logging.info("moving configs j to cuda")
             configs_j = torch.tensor(configs_j).cuda()
             logging.info("configs j has been moved to cuda")
@@ -116,9 +116,9 @@ def main():
             logging.info("generating hamiltonian data to create sparse matrix insidely")
             indices_i_and_j, values = openfermion_hamiltonian.inside(configs_i.cpu())
             logging.info("sparse matrix data created")
-            logging.info("converting sparse matrix data to coo matrix")
-            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).cuda()
-            logging.info("coo matrix created")
+            logging.info("converting sparse matrix data to sparse matrix")
+            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr().cuda()
+            logging.info("sparse matrix created")
 
         logging.info("local optimization starting")
         optimizer = torch.optim.Adam(network.parameters(), lr=lr)
@@ -130,7 +130,7 @@ def main():
                     amplitudes_j = network(configs_j)
                 else:
                     amplitudes_j = amplitudes_i
-                energy = ((amplitudes_i.conj() @ hamiltonian @ amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i)).real
+                energy = ((amplitudes_i.conj() @ (hamiltonian @ amplitudes_j.detach())) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
             energy.backward()
             optimizer.step()
             logging.info("local optimizing, step %d, energy: %.10f", i, energy.item())

@@ -46,9 +46,9 @@ def main():
         logging.info("generating hamiltonian data to create sparse matrix")
         indices_i_and_j, values = model.inside(configs.cpu())
         logging.info("sparse matrix data created")
-        logging.info("converting sparse matrix data to coo matrix")
-        hamiltonian = scipy.sparse.coo_matrix((values, indices_i_and_j.T), [unique_sampling_count, unique_sampling_count], dtype=numpy.complex128)
-        logging.info("coo matrix created")
+        logging.info("converting sparse matrix data to sparse matrix")
+        hamiltonian = scipy.sparse.coo_matrix((values, indices_i_and_j.T), [unique_sampling_count, unique_sampling_count], dtype=numpy.complex128).tocsr()
+        logging.info("sparse matrix created")
         logging.info("estimating ground state")
         target_energy, targets = scipy.sparse.linalg.lobpcg(hamiltonian, pre_amplitudes.cpu().reshape([-1, 1]).detach().numpy(), largest=False, maxiter=1024)
         logging.info("estimiated, target energy is %.10f, ref energy is %.10f", target_energy.item(), model.ref_energy)
@@ -91,7 +91,7 @@ def main():
         logging.info("calculating current energy")
         torch.enable_grad(closure)()
         amplitudes = amplitudes.cpu().detach().numpy()
-        final_energy = ((amplitudes.conj() @ hamiltonian @ amplitudes) / (amplitudes.conj() @ amplitudes)).real
+        final_energy = ((amplitudes.conj() @ (hamiltonian @ amplitudes)) / (amplitudes.conj() @ amplitudes)).real
         logging.info(
             "loss = %.10f during local optimization, final energy %.10f, target energy %.10f, ref energy %.10f",
             loss.item(),
