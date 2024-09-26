@@ -17,7 +17,7 @@ qmp-vmc = "qmp.vmc:main"
 qmp-iter = "qmp.iter:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
+include = ["qmp"]
 
 [tool.setuptools_scm]
 version_file = "qmp/_version.py"
