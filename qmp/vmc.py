@@ -7,7 +7,7 @@ from .common import initialize_process
 
 
 def main():
-    parser = argparse.ArgumentParser(description="approach to the ground state for the quantum chemistry many body system", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(description="approach to the ground state for the quantum manybody problem", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-n", "--sampling-count", dest="sampling_count", type=int, default=4000, help="sampling count")
     parser.add_argument("-r", "--learning-rate", dest="learning_rate", type=float, default=None, help="learning rate for the local optimizer")
     parser.add_argument("-s", "--local-step", dest="local_step", type=int, default=1000, help="step count for the local optimizer")

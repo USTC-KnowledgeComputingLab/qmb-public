@@ -12,7 +12,7 @@ import loss_function
 
 
 def main():
-    parser = argparse.ArgumentParser(description="approach to the ground state for the quantum chemistry many body system", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(description="approach to the ground state for the quantum manybody problem", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("model", help="model name")
     parser.add_argument("network", help="network name")
     parser.add_argument("-n", "--sampling-count", dest="sampling_count", type=int, default=64, help="sampling count")
