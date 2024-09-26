@@ -1,8 +1,11 @@
 __pycache__
 build
 env
+dist
+_version.py
 .idea
 *.so
 *.hdf5
 *.pt
 *.log
+*.egg-info

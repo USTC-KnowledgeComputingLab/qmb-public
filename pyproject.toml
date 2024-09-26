@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69.5", "setuptools_scm>=8.1", "pybind11>=2.13"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qmp"
+dynamic = ["version"]
+requires-python = ">=3.12"
+authors = [{ name = "Hao Zhang", email = "hzhangxyz@outlook.com" }]
+description = "Quantum Manybody Problem"
+license = {text = "GPLv3"}
+dependencies = ["numpy", "scipy", "torch", "openfermion"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools_scm]
+version_file = "qmp/_version.py"
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64", "i686", "aarch64", "ppc64le", "s390x"]
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64", "universal2"]
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64", "x86", "ARM64"]
