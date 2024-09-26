@@ -71,14 +71,17 @@ def main():
                     amplitudes_j = network(configs_j)
                 else:
                     amplitudes_j = amplitudes_i
-                deviation = (hamiltonian @ amplitudes_j / amplitudes_i).std()
+                hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j
+                deviation = (hamiltonian_amplitudes_j / amplitudes_i).std()
                 deviation.backward()
+                with torch.no_grad():
+                    deviation.energy = ((amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
                 return deviation
 
             logging.info("local optimization for deviation starting")
             for i in range(args.local_step):
                 deviation = optimizer.step(closure)
-                logging.info("local optimizing, step: %d, deviation: %.10f", i, deviation.item())
+                logging.info("local optimizing, step: %d, energy: %.10f, deviation: %.10f", i, deviation.energy.item(), deviation.item())
         else:
 
             def closure():
