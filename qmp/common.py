@@ -14,15 +14,17 @@ model_dict = {
 
 
 def initialize_process(parser):
-    parser.add_argument("model_name", help="model name")
-    parser.add_argument("network_name", help="network name")
-    parser.add_argument("-P", dest="physics_args", type=str, default=[], action="append", help="arguments for physical model")
-    parser.add_argument("-N", dest="network_args", type=str, default=[], action="append", help="arguments for network")
+    group = parser.add_argument_group("model and network")
+    group.add_argument("model_name", help="model name")
+    group.add_argument("network_name", help="network name")
+    group.add_argument("-P", dest="physics_args", type=str, default=[], action="append", help="arguments for physical model")
+    group.add_argument("-N", dest="network_args", type=str, default=[], action="append", help="arguments for network")
 
-    parser.add_argument("-J", "--job-name", dest="job_name", type=str, default=None, help="the run name")
-    parser.add_argument("-C", "--checkpoint-path", dest="checkpoint_path", type=str, default="checkpoints", help="path of checkpoints folder")
-    parser.add_argument("-L", "--log-path", dest="log_path", type=str, default="logs", help="path of logs folder")
-    parser.add_argument("-S", "--random-seed", dest="random_seed", type=int, default=None, help="the manual random seed")
+    group = parser.add_argument_group("miscellaneous")
+    group.add_argument("-J", "--job-name", dest="job_name", type=str, default=None, help="the run name")
+    group.add_argument("-C", "--checkpoint-path", dest="checkpoint_path", type=str, default="checkpoints", help="path of checkpoints folder")
+    group.add_argument("-L", "--log-path", dest="log_path", type=str, default="logs", help="path of logs folder")
+    group.add_argument("-S", "--random-seed", dest="random_seed", type=int, default=None, help="the manual random seed")
 
     args = parser.parse_args()
 
