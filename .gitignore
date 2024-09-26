@@ -6,6 +6,7 @@ _version.py
 .idea
 *.so
 *.hdf5
+*.npy
 *.pt
 *.log
 *.egg-info

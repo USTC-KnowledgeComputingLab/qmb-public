@@ -3,10 +3,12 @@ import sys
 import logging
 import torch
 from . import openfermion
+from . import openfermion_operator
 from . import ising
 
 model_dict = {
     "openfermion": openfermion.Model,
+    "openfermion_operator": openfermion_operator.Model,
     "ising": ising.Model,
 }
 

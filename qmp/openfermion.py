@@ -11,8 +11,8 @@ from . import attention as attention_m
 
 class Model:
 
-    @staticmethod
-    def preparse(input_args):
+    @classmethod
+    def preparse(cls, input_args):
         parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument("model_name", help="model name")
         parser.add_argument("-M", "--model-path", dest="model_path", type=str, default="models", help="path of models folder")
@@ -20,8 +20,8 @@ class Model:
 
         return args.model_name
 
-    @staticmethod
-    def parse(input_args):
+    @classmethod
+    def parse(cls, input_args):
         logging.info("parsing args %a by openfermion model", input_args)
         parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument("model_name", help="model name")
@@ -29,7 +29,7 @@ class Model:
         args = parser.parse_args(input_args)
         logging.info("model name: %s, model path: %s", args.model_name, args.model_path)
 
-        return Model(args.model_name, args.model_path)
+        return cls(args.model_name, args.model_path)
 
     def __init__(self, model_name, model_path):
         self.model_name = model_name

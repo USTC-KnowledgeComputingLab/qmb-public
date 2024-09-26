@@ -9,8 +9,8 @@ from . import naqs as naqs_m
 
 class Model:
 
-    @staticmethod
-    def preparse(input_args):
+    @classmethod
+    def preparse(cls, input_args):
         parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument("length", type=int, help="length of the ising chain")
         parser.add_argument("-x", dest="X", type=float, default=0, help="coefficient of X")
@@ -23,8 +23,8 @@ class Model:
 
         return f"Ising_L{args.length}_X{args.X}_Y{args.Y}_Z{args.Z}_XX{args.XX}_YY{args.YY}_ZZ{args.ZZ}"
 
-    @staticmethod
-    def parse(input_args):
+    @classmethod
+    def parse(cls, input_args):
         logging.info("parsing args %a by ising model", input_args)
         parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument("length", type=int, help="length of the ising chain")
@@ -37,7 +37,7 @@ class Model:
         args = parser.parse_args(input_args)
         logging.info("length: %d, X: %.10f, Y: %.10f, Z: %.10f, XX: %.10f, YY: %.10f, ZZ: %.10f", args.length, args.X, args.Y, args.Z, args.XX, args.YY, args.ZZ)
 
-        return Model(args.length, args.X, args.Y, args.Z, args.XX, args.YY, args.ZZ)
+        return cls(args.length, args.X, args.Y, args.Z, args.XX, args.YY, args.ZZ)
 
     def __init__(self, length, X, Y, Z, XX, YY, ZZ):
         self.length = length
