@@ -36,10 +36,8 @@ def initialize_process(parser):
     if args.job_name is None:
         args.job_name = default_job_name
 
-    if not os.path.exists(args.checkpoint_path):
-        os.mkdir(args.checkpoint_path)
-    if not os.path.exists(args.log_path):
-        os.mkdir(args.log_path)
+    os.makedirs(args.checkpoint_path, exist_ok=True)
+    os.makedirs(args.log_path, exist_ok=True)
 
     logging.basicConfig(
         handlers=[logging.StreamHandler(), logging.FileHandler(f"{args.log_path}/{args.job_name}.log")],
