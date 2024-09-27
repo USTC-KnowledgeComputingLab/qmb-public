@@ -28,8 +28,11 @@ def initialize_process(parser):
 
     args = parser.parse_args()
 
+    if "-h" in args.network_args or "--help" in args.network_args:
+        model_dict[args.model_name].naqs(object(), args.network_args)
+    default_job_name = model_dict[args.model_name].preparse(args.physics_args)
     if args.job_name is None:
-        args.job_name = model_dict[args.model_name].preparse(args.physics_args)
+        args.job_name = default_job_name
 
     if not os.path.exists(args.checkpoint_path):
         os.mkdir(args.checkpoint_path)
