@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import torch
+from .version import version
 from . import openfermion
 from . import openfermion_operator
 from . import ising
@@ -25,6 +26,7 @@ def initialize_process(parser):
     group.add_argument("-C", "--checkpoint-path", dest="checkpoint_path", type=str, default="checkpoints", help="path of checkpoints folder")
     group.add_argument("-L", "--log-path", dest="log_path", type=str, default="logs", help="path of logs folder")
     group.add_argument("-S", "--random-seed", dest="random_seed", type=int, default=None, help="the manual random seed")
+    group.add_argument("-v", "--version", action="version", version=f'%(prog)s {version}')
 
     args = parser.parse_args()
 
