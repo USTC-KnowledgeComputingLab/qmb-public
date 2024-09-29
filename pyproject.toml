@@ -5,11 +5,30 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qmp"
 dynamic = ["version"]
+dependencies = ["numpy", "scipy", "torch", "openfermion"]
 requires-python = ">=3.12"
 authors = [{ name = "Hao Zhang", email = "hzhangxyz@outlook.com" }]
 description = "Quantum Manybody Problem"
+readme = "README.md"
 license = {text = "GPLv3"}
-dependencies = ["numpy", "scipy", "torch", "openfermion"]
+keywords = ["quantum", "manybody", "quantum-chemistry", "quantum-simulation", "molecular-simulation", "algorithms", "simulation", "wave-function", "ground-state", "ansatz", "torch", "pytorch"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Mathematics",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Topic :: Scientific/Engineering :: Chemistry",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/USTC-KnowledgeComputingLab/qmp"
+Documentation = "https://github.com/USTC-KnowledgeComputingLab/qmp"
+Repository = "https://github.com/USTC-KnowledgeComputingLab/qmp.git"
+Issues = "https://github.com/USTC-KnowledgeComputingLab/qmp/issues"
 
 [project.scripts]
 qmp-learn = "qmp.learn:main"
