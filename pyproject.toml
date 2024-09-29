@@ -39,6 +39,7 @@ include = ["qmb"]
 
 [tool.setuptools_scm]
 version_file = "qmb/_version.py"
+version_scheme = "no-guess-dev"
 
 [tool.yapf]
 based_on_style = "google"
