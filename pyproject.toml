@@ -3,7 +3,7 @@ requires = ["setuptools>=69.5", "setuptools_scm>=8.1", "pybind11>=2.13"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "qmp"
+name = "qmb"
 dynamic = ["version"]
 dependencies = ["numpy", "scipy", "torch", "openfermion"]
 requires-python = ">=3.12"
@@ -25,20 +25,20 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/USTC-KnowledgeComputingLab/qmp"
-Documentation = "https://github.com/USTC-KnowledgeComputingLab/qmp"
-Repository = "https://github.com/USTC-KnowledgeComputingLab/qmp.git"
-Issues = "https://github.com/USTC-KnowledgeComputingLab/qmp/issues"
+Homepage = "https://github.com/USTC-KnowledgeComputingLab/qmb"
+Documentation = "https://github.com/USTC-KnowledgeComputingLab/qmb"
+Repository = "https://github.com/USTC-KnowledgeComputingLab/qmb.git"
+Issues = "https://github.com/USTC-KnowledgeComputingLab/qmb/issues"
 
 [project.scripts]
-qmp-learn = "qmp.learn:main"
-qmp-vmc = "qmp.vmc:main"
+qmb-learn = "qmb.learn:main"
+qmb-vmc = "qmb.vmc:main"
 
 [tool.setuptools.packages.find]
-include = ["qmp"]
+include = ["qmb"]
 
 [tool.setuptools_scm]
-version_file = "qmp/_version.py"
+version_file = "qmb/_version.py"
 
 [tool.yapf]
 based_on_style = "google"

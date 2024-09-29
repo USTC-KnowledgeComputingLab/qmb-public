@@ -1,5 +1,5 @@
-#ifndef QMP_BINARY_TREE
-#define QMP_BINARY_TREE
+#ifndef QMB_BINARY_TREE
+#define QMB_BINARY_TREE
 
 #include <memory>
 

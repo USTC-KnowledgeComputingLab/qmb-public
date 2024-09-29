@@ -1,1 +1,1 @@
-# Quantum Manybody Problem
+# Quantum-Many-Body

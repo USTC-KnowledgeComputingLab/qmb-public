@@ -3,10 +3,10 @@ import glob
 from setuptools import setup
 from pybind11.setup_helpers import Pybind11Extension
 
-cpp_files = glob.glob(os.path.join("qmp", "*.cpp"))
+cpp_files = glob.glob(os.path.join("qmb", "*.cpp"))
 
 ext_modules = [Pybind11Extension(
-    f"qmp.{os.path.splitext(os.path.basename(cpp_file))[0]}",
+    f"qmb.{os.path.splitext(os.path.basename(cpp_file))[0]}",
     [cpp_file],
     cxx_std=17,
 ) for cpp_file in cpp_files]
