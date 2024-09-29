@@ -33,7 +33,6 @@ Issues = "https://github.com/USTC-KnowledgeComputingLab/qmp/issues"
 [project.scripts]
 qmp-learn = "qmp.learn:main"
 qmp-vmc = "qmp.vmc:main"
-qmp-iter = "qmp.iter:main"
 
 [tool.setuptools.packages.find]
 include = ["qmp"]
