@@ -3,6 +3,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <tuple>
 #include <vector>
 
 #include "_binary_tree.hpp"
@@ -152,26 +153,34 @@ class Hamiltonian {
 
         int64_t term_count = coefs.size();
         if constexpr (outside) {
-            return py::make_tuple(
+            return std::make_tuple(
                 vector_to_array(indices_i_and_j, {term_count, 2}),
                 vector_to_array(coefs, {term_count}),
                 vector_to_array(config_j_pool, {prime_count, sites})
             );
         } else {
-            return py::make_tuple(vector_to_array(indices_i_and_j, {term_count, 2}), vector_to_array(coefs, {term_count}));
+            return std::make_tuple(vector_to_array(indices_i_and_j, {term_count, 2}), vector_to_array(coefs, {term_count}));
         }
     }
 };
 
 PYBIND11_MODULE(_ising, m) {
     py::class_<Hamiltonian>(m, "Hamiltonian", py::module_local())
-        .def(py::init<
-             std::complex<double>,
-             std::complex<double>,
-             std::complex<double>,
-             std::complex<double>,
-             std::complex<double>,
-             std::complex<double>>())
-        .def("inside", &Hamiltonian::call<false>)
-        .def("outside", &Hamiltonian::call<true>);
+        .def(
+            py::init<
+                std::complex<double>,
+                std::complex<double>,
+                std::complex<double>,
+                std::complex<double>,
+                std::complex<double>,
+                std::complex<double>>(),
+            py::arg("X"),
+            py::arg("Y"),
+            py::arg("Z"),
+            py::arg("XX"),
+            py::arg("YY"),
+            py::arg("ZZ")
+        )
+        .def("inside", &Hamiltonian::call<false>, py::arg("configs"))
+        .def("outside", &Hamiltonian::call<true>, py::arg("configs"));
 }
