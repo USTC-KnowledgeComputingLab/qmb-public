@@ -60,7 +60,7 @@ class WaveFunction(torch.nn.Module):
             is_complex: bool,  # is always true for naqs
             spin_up: int,  # spin up number
             spin_down: int,  # spin down number
-            hidden_size: list[int],  # hidden size for MLP
+            hidden_size: tuple[int, ...],  # hidden size for MLP
             ordering: int | list[int],  # ordering of sites +1 for normal order, -1 for reversed order, or the order list directly
     ) -> None:
         super().__init__()
@@ -71,7 +71,7 @@ class WaveFunction(torch.nn.Module):
         assert is_complex == True
         self.spin_up: int = spin_up
         self.spin_down: int = spin_down
-        self.hidden_size: tuple[int, ...] = tuple(hidden_size)
+        self.hidden_size: tuple[int, ...] = hidden_size
 
         # The amplitude and phase network for each site
         # each of them accept qubits before them and output vector with dimension of 4 as the configuration of two qubits on the current site.
@@ -273,14 +273,14 @@ class WaveFunctionNormal(torch.nn.Module):
             sites: int,  # qubits number
             physical_dim: int,  # is always 2 for naqs
             is_complex: bool,  # is always true for naqs
-            hidden_size: list[int],  # hidden size for MLP
+            hidden_size: tuple[int, ...],  # hidden size for MLP
             ordering: int | list[int],  # ordering of sites +1 for normal order, -1 for reversed order, or the order list directly
     ) -> None:
         super().__init__()
         self.sites: int = sites
         assert physical_dim == 2
         assert is_complex == True
-        self.hidden_size: tuple[int, ...] = tuple(hidden_size)
+        self.hidden_size: tuple[int, ...] = hidden_size
 
         # The amplitude and phase network for each site
         # each of them accept qubits before them and output vector with dimension of 2 as the configuration of the qubit on the current site.

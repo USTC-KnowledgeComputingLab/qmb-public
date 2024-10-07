@@ -1,40 +1,49 @@
 # This file declare transverse field ising model.
 
-import argparse
+import typing
 import logging
+import dataclasses
 import torch
+import tyro
 from . import _ising
 from . import naqs as naqs_m
+
+
+@dataclasses.dataclass
+class ModelConfig:
+    # The length of the ising chain
+    length: typing.Annotated[int, tyro.conf.Positional]
+    # The coefficient of X
+    X: typing.Annotated[float, tyro.conf.arg(aliases=["-x"])] = 0
+    # The coefficient of Y
+    Y: typing.Annotated[float, tyro.conf.arg(aliases=["-y"])] = 0
+    # The coefficient of Z
+    Z: typing.Annotated[float, tyro.conf.arg(aliases=["-z"])] = 0
+    # The coefficient of XX
+    XX: typing.Annotated[float, tyro.conf.arg(aliases=["-X"])] = 0
+    # The coefficient of YY
+    YY: typing.Annotated[float, tyro.conf.arg(aliases=["-Y"])] = 0
+    # The coefficient of ZZ
+    ZZ: typing.Annotated[float, tyro.conf.arg(aliases=["-Z"])] = 0
+
+
+@dataclasses.dataclass
+class NaqsConfig:
+    # The hidden widths of the network
+    hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (512,)
 
 
 class Model:
 
     @classmethod
     def preparse(cls, input_args):
-        parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument("length", type=int, help="length of the ising chain")
-        parser.add_argument("-x", dest="X", type=float, default=0, help="coefficient of X")
-        parser.add_argument("-y", dest="Y", type=float, default=0, help="coefficient of Y")
-        parser.add_argument("-z", dest="Z", type=float, default=0, help="coefficient of Z")
-        parser.add_argument("-X", dest="XX", type=float, default=0, help="coefficient of XX")
-        parser.add_argument("-Y", dest="YY", type=float, default=0, help="coefficient of YY")
-        parser.add_argument("-Z", dest="ZZ", type=float, default=0, help="coefficient of ZZ")
-        args = parser.parse_args(input_args)
-
+        args = tyro.cli(ModelConfig, args=input_args)
         return f"Ising_L{args.length}_X{args.X}_Y{args.Y}_Z{args.Z}_XX{args.XX}_YY{args.YY}_ZZ{args.ZZ}"
 
     @classmethod
     def parse(cls, input_args):
         logging.info("parsing args %a by ising model", input_args)
-        parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument("length", type=int, help="length of the ising chain")
-        parser.add_argument("-x", dest="X", type=float, default=0, help="coefficient of X")
-        parser.add_argument("-y", dest="Y", type=float, default=0, help="coefficient of Y")
-        parser.add_argument("-z", dest="Z", type=float, default=0, help="coefficient of Z")
-        parser.add_argument("-X", dest="XX", type=float, default=0, help="coefficient of XX")
-        parser.add_argument("-Y", dest="YY", type=float, default=0, help="coefficient of YY")
-        parser.add_argument("-Z", dest="ZZ", type=float, default=0, help="coefficient of ZZ")
-        args = parser.parse_args(input_args)
+        args = tyro.cli(ModelConfig, args=input_args)
         logging.info("length: %d, X: %.10f, Y: %.10f, Z: %.10f, XX: %.10f, YY: %.10f, ZZ: %.10f", args.length, args.X, args.Y, args.Z, args.XX, args.YY, args.ZZ)
 
         return cls(args.length, args.X, args.Y, args.Z, args.XX, args.YY, args.ZZ)
@@ -63,9 +72,7 @@ class Model:
 
     def naqs(self, input_args):
         logging.info("parsing args %a by network naqs", input_args)
-        parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument("-w", "--hidden-width", dest="hidden", type=int, default=[512], nargs="+", help="hidden width of the network")
-        args = parser.parse_args(input_args)
+        args = tyro.cli(NaqsConfig, args=input_args)
         logging.info("hidden: %a", args.hidden)
 
         network = naqs_m.WaveFunctionNormal(

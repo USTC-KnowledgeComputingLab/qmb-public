@@ -6,7 +6,6 @@ import pathlib
 import dataclasses
 import torch
 import tyro
-from .version import version
 from . import openfermion
 from . import openfermion_operator
 from . import ising
@@ -20,8 +19,6 @@ model_dict = {
 
 @dataclasses.dataclass
 class CommonConfig:
-    "Configurations for model and network"
-
     # The model name
     model_name: typing.Annotated[str, tyro.conf.Positional, tyro.conf.arg(metavar="MODEL")]
     # The network name
@@ -42,7 +39,7 @@ class CommonConfig:
 
     def main(self):
         if "-h" in self.network_args or "--help" in self.network_args:
-            model_dict[self.model_name].naqs(object(), self.network_args)
+            getattr(model_dict[self.model_name], self.network_name)(object(), self.network_args)
         default_job_name = model_dict[self.model_name].preparse(self.physics_args)
         if self.job_name is None:
             self.job_name = default_job_name

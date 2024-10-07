@@ -33,7 +33,7 @@ Issues = "https://github.com/USTC-KnowledgeComputingLab/qmb/issues"
 [project.scripts]
 qmb-learn = "qmb.learn:main"
 qmb-vmc = "qmb.vmc:main"
-qmb = "qmb.main:main"
+qmb = "qmb.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["qmb"]

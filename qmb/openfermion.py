@@ -1,32 +1,54 @@
 # This file implements interface to openfermion model.
 
-import argparse
+import typing
 import logging
+import pathlib
+import dataclasses
 import torch
+import tyro
 import openfermion
 from . import _openfermion
 from . import naqs as naqs_m
 from . import attention as attention_m
 
 
-class Model:
+@dataclasses.dataclass
+class ModelConfig:
+    # The openfermion model name
+    model_name: typing.Annotated[str, tyro.conf.Positional, tyro.conf.arg(metavar="MODEL")]
+    # The path of models folder
+    model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path("models")
+
+
+@dataclasses.dataclass
+class NaqsConfig:
+    # The hidden widths of the network
+    hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (512,)
+
+
+@dataclasses.dataclass
+class AttentionConfig:
+    # Embedding dimension
+    embedding_dim: typing.Annotated[int, tyro.conf.arg(aliases=["-e"])] = 512
+    # Heads number
+    heads_num: typing.Annotated[int, tyro.conf.arg(aliases=["-m"])] = 8
+    # Feedforward dimension
+    feed_forward_dim: typing.Annotated[int, tyro.conf.arg(aliases=["-f"])] = 2048
+    # Network depth
+    depth: typing.Annotated[int, tyro.conf.arg(aliases=["-d"])] = 6
+
+
+class Model(ModelConfig):
 
     @classmethod
     def preparse(cls, input_args):
-        parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument("model_name", help="model name")
-        parser.add_argument("-M", "--model-path", dest="model_path", type=str, default="models", help="path of models folder")
-        args = parser.parse_args(input_args)
-
+        args = tyro.cli(ModelConfig, args=input_args)
         return args.model_name
 
     @classmethod
     def parse(cls, input_args):
         logging.info("parsing args %a by openfermion model", input_args)
-        parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument("model_name", help="model name")
-        parser.add_argument("-M", "--model-path", dest="model_path", type=str, default="models", help="path of models folder")
-        args = parser.parse_args(input_args)
+        args = tyro.cli(ModelConfig, args=input_args)
         logging.info("model name: %s, model path: %s", args.model_name, args.model_path)
 
         return cls(args.model_name, args.model_path)
@@ -58,9 +80,7 @@ class Model:
 
     def naqs(self, input_args):
         logging.info("parsing args %a by network naqs", input_args)
-        parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument("-w", "--hidden-width", dest="hidden", type=int, default=[512], nargs="+", help="hidden width of the network")
-        args = parser.parse_args(input_args)
+        args = tyro.cli(NaqsConfig, args=input_args)
         logging.info("hidden: %a", args.hidden)
 
         network = naqs_m.WaveFunction(
@@ -77,12 +97,7 @@ class Model:
 
     def attention(self, input_args):
         logging.info("parsing args %a by network attention", input_args)
-        parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument("-e", "--embedding-dim", dest="embedding_dim", type=int, default=512, help="embedding dimension")
-        parser.add_argument("-m", "--heads-num", dest="heads_num", type=int, default=8, help="heads number")
-        parser.add_argument("-f", "--feed-forward-dim", dest="feed_forward_dim", type=int, default=2048, help="feedforward dimension")
-        parser.add_argument("-d", "--depth", dest="depth", type=int, default=6, help="network depth")
-        args = parser.parse_args(input_args)
+        args = tyro.cli(AttentionConfig, args=input_args)
         logging.info("embedding dim: %d, heads_num: %d, feed forward dim: %d, depth: %d", args.embedding_dim, args.heads_num, args.feed_forward_dim, args.depth)
 
         network = attention_m.WaveFunction(
