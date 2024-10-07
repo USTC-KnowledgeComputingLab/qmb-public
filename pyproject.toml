@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qmb"
 dynamic = ["version"]
-dependencies = ["numpy", "scipy", "torch", "openfermion"]
+dependencies = ["numpy", "scipy", "torch", "tyro", "openfermion"]
 requires-python = ">=3.12"
 authors = [{ name = "Hao Zhang", email = "hzhangxyz@outlook.com" }]
 description = "Quantum Manybody Problem"
@@ -33,6 +33,7 @@ Issues = "https://github.com/USTC-KnowledgeComputingLab/qmb/issues"
 [project.scripts]
 qmb-learn = "qmb.learn:main"
 qmb-vmc = "qmb.vmc:main"
+qmb = "qmb.main:main"
 
 [tool.setuptools.packages.find]
 include = ["qmb"]
