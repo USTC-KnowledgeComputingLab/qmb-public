@@ -20,6 +20,8 @@ class VmcConfig:
     include_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-o"])] = False
     # Use deviation instead of energy
     deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-d"])] = False
+    # Fix outside phase when optimizing outside deviation
+    fix_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-f"])] = False
     # Use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
 
@@ -78,7 +80,12 @@ class VmcConfig:
                     optimizer.zero_grad()
                     amplitudes_i = network(configs_i)
                     if self.include_outside:
-                        amplitudes_j = network(configs_j)
+                        if self.fix_outside:
+                            with torch.no_grad():
+                                amplitudes_j = network(configs_j)
+                            amplitudes_j = torch.cat([amplitudes_i[:unique_sampling_count], amplitudes_j[unique_sampling_count:]])
+                        else:
+                            amplitudes_j = network(configs_j)
                     else:
                         amplitudes_j = amplitudes_i
                     hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j
@@ -97,11 +104,11 @@ class VmcConfig:
                 def closure():
                     optimizer.zero_grad()
                     amplitudes_i = network(configs_i)
-                    with torch.no_grad():
-                        if self.include_outside:
+                    if self.include_outside:
+                        with torch.no_grad():
                             amplitudes_j = network(configs_j)
-                        else:
-                            amplitudes_j = amplitudes_i
+                    else:
+                        amplitudes_j = amplitudes_i
                     energy = ((amplitudes_i.conj() @ (hamiltonian @ amplitudes_j.detach())) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
                     energy.backward()
                     return energy
