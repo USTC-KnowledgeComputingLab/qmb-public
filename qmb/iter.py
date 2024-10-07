@@ -6,6 +6,7 @@ import scipy
 import torch
 import tyro
 from .common import CommonConfig
+from .subcommand_dict import subcommand_dict
 
 
 @dataclasses.dataclass
@@ -80,9 +81,4 @@ class IterConfig:
             logging.info("new core configurations has been updated")
 
 
-def main():
-    tyro.cli(IterConfig).main()
-
-
-if __name__ == "__main__":
-    main()
+subcommand_dict["iter"] = IterConfig

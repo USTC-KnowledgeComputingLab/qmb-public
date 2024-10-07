@@ -7,6 +7,7 @@ import torch
 import tyro
 from . import losses
 from .common import CommonConfig
+from .subcommand_dict import subcommand_dict
 
 
 @dataclasses.dataclass
@@ -117,9 +118,4 @@ class LearnConfig:
                 logging.info("config %s, target %s, final %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.8f}", f"{amplitudes[index].item():.8f}")
 
 
-def main():
-    tyro.cli(LearnConfig).main()
-
-
-if __name__ == "__main__":
-    main()
+subcommand_dict["learn"] = LearnConfig

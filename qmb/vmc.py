@@ -4,6 +4,7 @@ import dataclasses
 import torch
 import tyro
 from .common import CommonConfig
+from .subcommand_dict import subcommand_dict
 
 
 @dataclasses.dataclass
@@ -124,9 +125,4 @@ class VmcConfig:
             logging.info("checkpoint saved")
 
 
-def main():
-    tyro.cli(VmcConfig).main()
-
-
-if __name__ == "__main__":
-    main()
+subcommand_dict["vmc"] = VmcConfig
