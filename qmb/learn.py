@@ -29,13 +29,14 @@ class LearnConfig:
     # Use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
 
-    def main(self):
-        model, network = self.common.main()
-
+    def __post_init__(self):
         if self.learning_rate == -1:
             self.learning_rate = 1 if self.use_lbfgs else 1e-3
         if self.local_step == -1:
             self.local_step = 400 if self.use_lbfgs else 1000
+
+    def main(self):
+        model, network = self.common.main()
 
         logging.info(
             "sampling count: %d, learning rate: %f, local step: %d, local loss: %f, logging psi: %d, loss name: %s, use_lbfgs: %a",

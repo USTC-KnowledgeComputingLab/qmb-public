@@ -38,7 +38,7 @@ class AttentionConfig:
     depth: typing.Annotated[int, tyro.conf.arg(aliases=["-d"])] = 6
 
 
-class Model(ModelConfig):
+class Model:
 
     @classmethod
     def preparse(cls, input_args):

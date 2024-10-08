@@ -26,11 +26,12 @@ class VmcConfig:
     # Use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
 
-    def main(self):
-        model, network = self.common.main()
-
+    def __post_init__(self):
         if self.learning_rate == -1:
             self.learning_rate = 1 if self.use_lbfgs else 1e-3
+
+    def main(self):
+        model, network = self.common.main()
 
         logging.info(
             "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, use lbfgs: %a",
