@@ -25,6 +25,8 @@ class VmcConfig:
     fix_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-f"])] = False
     # Use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
+    # Do not calculate deviation or energy when optimizing energy or deviation
+    omit_another: typing.Annotated[bool, tyro.conf.arg(aliases=["-a"])] = False
 
     def __post_init__(self):
         if self.learning_rate == -1:
@@ -34,7 +36,7 @@ class VmcConfig:
         model, network = self.common.main()
 
         logging.info(
-            "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, fix outside: %a, use lbfgs: %a",
+            "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, fix outside: %a, use lbfgs: %a, omit another: %a",
             self.sampling_count,
             self.learning_rate,
             self.local_step,
@@ -42,6 +44,7 @@ class VmcConfig:
             self.deviation,
             self.fix_outside,
             self.use_lbfgs,
+            self.omit_another,
         )
 
         logging.info("main looping")
@@ -94,8 +97,11 @@ class VmcConfig:
                     hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j
                     deviation = (hamiltonian_amplitudes_j / amplitudes_i).std()
                     deviation.backward()
-                    with torch.no_grad():
-                        deviation.energy = ((amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
+                    if self.omit_another:
+                        deviation.energy = torch.nan
+                    else:
+                        with torch.no_grad():
+                            deviation.energy = ((amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i)).real
                     return deviation
 
                 logging.info("local optimization for deviation starting")
@@ -112,14 +118,20 @@ class VmcConfig:
                             amplitudes_j = network(configs_j)
                     else:
                         amplitudes_j = amplitudes_i
-                    energy = ((amplitudes_i.conj() @ (hamiltonian @ amplitudes_j.detach())) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
+                    hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j.detach()
+                    energy = ((amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
                     energy.backward()
+                    if self.omit_another:
+                        energy.deviation = torch.nan
+                    else:
+                        with torch.no_grad():
+                            energy.deviation = (hamiltonian_amplitudes_j / amplitudes_i).std()
                     return energy
 
                 logging.info("local optimization for energy starting")
                 for i in range(self.local_step):
                     energy = optimizer.step(closure)
-                    logging.info("local optimizing, step: %d, energy: %.10f", i, energy.item())
+                    logging.info("local optimizing, step: %d, energy: %.10f, deviation: %.10f", i, energy.item(), energy.deviation.item())
 
             logging.info("local optimization finished")
             logging.info("saving checkpoint")
