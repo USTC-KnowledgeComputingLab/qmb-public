@@ -22,6 +22,12 @@ class IterConfig:
     def main(self):
         model, network = self.common.main()
 
+        logging.info(
+            "sampling count: %d, selected sampling count: %d",
+            self.sampling_count,
+            self.selected_sampling_count,
+        )
+
         logging.info("first sampling core configurations")
         configs_core, psi_core, _, _ = network.generate_unique(self.sampling_count)
         configs_core = configs_core.cpu()

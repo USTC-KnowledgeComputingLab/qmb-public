@@ -34,12 +34,13 @@ class VmcConfig:
         model, network = self.common.main()
 
         logging.info(
-            "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, use lbfgs: %a",
+            "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, fix outside: %a, use lbfgs: %a",
             self.sampling_count,
             self.learning_rate,
             self.local_step,
             self.include_outside,
             self.deviation,
+            self.fix_outside,
             self.use_lbfgs,
         )
 
