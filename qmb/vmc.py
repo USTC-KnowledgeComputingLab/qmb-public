@@ -26,7 +26,7 @@ class VmcConfig:
     # Use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
     # Do not calculate deviation or energy when optimizing energy or deviation
-    omit_another: typing.Annotated[bool, tyro.conf.arg(aliases=["-a"])] = False
+    omit_another: typing.Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
 
     def __post_init__(self):
         if self.learning_rate == -1:
@@ -98,7 +98,7 @@ class VmcConfig:
                     deviation = (hamiltonian_amplitudes_j / amplitudes_i).std()
                     deviation.backward()
                     if self.omit_another:
-                        deviation.energy = torch.nan
+                        deviation.energy = torch.tensor(torch.nan)
                     else:
                         with torch.no_grad():
                             deviation.energy = ((amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i)).real
@@ -122,7 +122,7 @@ class VmcConfig:
                     energy = ((amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
                     energy.backward()
                     if self.omit_another:
-                        energy.deviation = torch.nan
+                        energy.deviation = torch.tensor(torch.nan)
                     else:
                         with torch.no_grad():
                             energy.deviation = (hamiltonian_amplitudes_j / amplitudes_i).std()
