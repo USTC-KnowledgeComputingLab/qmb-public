@@ -78,21 +78,19 @@ class LearnConfig:
                 optimizer = torch.optim.LBFGS(network.parameters(), lr=self.learning_rate)
             else:
                 optimizer = torch.optim.Adam(network.parameters(), lr=self.learning_rate)
-            loss = None
-            amplitudes = None
 
             def closure():
-                nonlocal loss, amplitudes
                 optimizer.zero_grad()
                 amplitudes = network(configs)
                 amplitudes = amplitudes / amplitudes[max_index]
                 loss = loss_func(amplitudes, targets)
                 loss.backward()
+                loss.amplitudes = amplitudes
                 return loss
 
             logging.info("local optimization starting")
             for i in range(self.local_step):
-                optimizer.step(closure)
+                loss = optimizer.step(closure)
                 logging.info("local optimizing, step %d, loss %.10f", i, loss.item())
                 if loss < self.local_loss:
                     logging.info("local optimization stop since local loss reached")
@@ -104,7 +102,7 @@ class LearnConfig:
             logging.info("checkpoint saved")
             logging.info("calculating current energy")
             torch.enable_grad(closure)()
-            amplitudes = amplitudes.cpu().detach().numpy()
+            amplitudes = loss.amplitudes.cpu().detach().numpy()
             final_energy = ((amplitudes.conj() @ (hamiltonian @ amplitudes)) / (amplitudes.conj() @ amplitudes)).real
             logging.info(
                 "loss = %.10f during local optimization, final energy %.10f, target energy %.10f, ref energy %.10f",
