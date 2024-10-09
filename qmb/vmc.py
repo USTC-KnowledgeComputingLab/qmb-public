@@ -25,8 +25,8 @@ class VmcConfig:
     fix_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-f"])] = False
     # Use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
-    # Do not calculate deviation or energy when optimizing energy or deviation
-    omit_another: typing.Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
+    # Do not calculate deviation when optimizing energy
+    omit_deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
 
     def __post_init__(self):
         if self.learning_rate == -1:
@@ -36,7 +36,7 @@ class VmcConfig:
         model, network = self.common.main()
 
         logging.info(
-            "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, fix outside: %a, use lbfgs: %a, omit another: %a",
+            "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, fix outside: %a, use lbfgs: %a, omit deviation: %a",
             self.sampling_count,
             self.learning_rate,
             self.local_step,
@@ -44,7 +44,7 @@ class VmcConfig:
             self.deviation,
             self.fix_outside,
             self.use_lbfgs,
-            self.omit_another,
+            self.omit_deviation,
         )
 
         logging.info("main looping")
@@ -83,7 +83,14 @@ class VmcConfig:
             if self.deviation:
 
                 def closure():
+                    # Optimizing deviation
                     optimizer.zero_grad()
+                    # Calculate amplitudes i and amplitudes j
+                    # When including outside, amplitudes j should be calculated individually, otherwise, it equals to amplitudes i
+                    # It should be notices that sometimes we do not want to optimize small configurations
+                    # So we calculate amplitudes j in no grad mode
+                    # but the first several configurations in amplitudes j are duplicated with those in amplitudes i
+                    # So cat them manually
                     amplitudes_i = network(configs_i)
                     if self.include_outside:
                         if self.fix_outside:
@@ -94,14 +101,23 @@ class VmcConfig:
                             amplitudes_j = network(configs_j)
                     else:
                         amplitudes_j = amplitudes_i
+                    # <s|H|psi> will be used multiple times, calculate it first
+                    # as we want to optimize deviation, every value should be calculated in grad mode, so we do not detach anything
                     hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j
-                    deviation = (hamiltonian_amplitudes_j / amplitudes_i).std()
+                    # energy is just <psi|s> <s|H|psi> / <psi|s> <s|psi>
+                    energy = (amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i)
+                    # we want to estimate variance of E_s - E with weight <psi|s><s|psi>
+                    # where E_s = <s|H|psi>/<s|psi>
+                    # the variance is (E_s - E).conj() @ (E_s - E) * <psi|s> <s|psi> / ... = (E_s <s|psi> - E <s|psi>).conj() @ (E_s <s|psi> - E <s|psi>) / ...
+                    # so we calculate E_s <s|psi> - E <s|psi> first, which is just <s|H|psi> - <s|psi> E, we name it as `difference'
+                    difference = hamiltonian_amplitudes_j - amplitudes_i * energy
+                    # the numerator calculated, the following is the variance
+                    variance = (difference.conj() @ difference) / (amplitudes_i.conj() @ amplitudes_i)
+                    # calculate the deviation
+                    deviation = variance.real.sqrt()
                     deviation.backward()
-                    if self.omit_another:
-                        deviation.energy = torch.tensor(torch.nan)
-                    else:
-                        with torch.no_grad():
-                            deviation.energy = ((amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i)).real
+                    # As we have already calculated energy, embed it in deviation for logging
+                    deviation.energy = energy.real
                     return deviation
 
                 logging.info("local optimization for deviation starting")
@@ -111,21 +127,38 @@ class VmcConfig:
             else:
 
                 def closure():
+                    # Optimizing energy
                     optimizer.zero_grad()
+                    # Calculate amplitudes i and amplitudes j
+                    # When including outside, amplitudes j should be calculated individually, otherwise, it equals to amplitudes i
+                    # Because of gradient formula, we always calculate amplitudes j in no grad mode
                     amplitudes_i = network(configs_i)
                     if self.include_outside:
                         with torch.no_grad():
                             amplitudes_j = network(configs_j)
                     else:
-                        amplitudes_j = amplitudes_i
-                    hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j.detach()
-                    energy = ((amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i.detach())).real
-                    energy.backward()
-                    if self.omit_another:
-                        energy.deviation = torch.tensor(torch.nan)
+                        amplitudes_j = amplitudes_i.detach()
+                    # <s|H|psi> will be used multiple times, calculate it first
+                    # it should be notices that this <s|H|psi> is totally detached, since both hamiltonian and amplitudes j is detached
+                    hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j
+                    # energy is just <psi|s> <s|H|psi> / <psi|s> <s|psi>
+                    # we only calculate gradient on <psi|s>, both <s|H|psi> and <s|psi> should be detached
+                    # since <s|H|psi> has been detached already, we detach <s|psi> here manually
+                    energy = (amplitudes_i.conj() @ hamiltonian_amplitudes_j) / (amplitudes_i.conj() @ amplitudes_i.detach())
+                    # Calculate deviation
+                    # The variance is (E_s <s|psi> - E <s|psi>).conj() @ (E_s <s|psi> - E <s|psi>) / <psi|s> <s|psi>
+                    # Calculate E_s <s|psi> - E <s|psi> first and name it as difference
+                    if self.omit_deviation:
+                        deviation = torch.tensor(torch.nan)
                     else:
                         with torch.no_grad():
-                            energy.deviation = (hamiltonian_amplitudes_j / amplitudes_i).std()
+                            difference = hamiltonian_amplitudes_j - amplitudes_i * energy
+                            variance = (difference.conj() @ difference) / (amplitudes_i.conj() @ amplitudes_i)
+                            deviation = variance.real.sqrt()
+                    energy = energy.real
+                    energy.backward()
+                    # Embed the deviation which has been calculated in energy for logging
+                    energy.deviation = deviation
                     return energy
 
                 logging.info("local optimization for energy starting")
