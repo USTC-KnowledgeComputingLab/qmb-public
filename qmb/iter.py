@@ -13,11 +13,11 @@ from .subcommand_dict import subcommand_dict
 class IterConfig:
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
-    # The sampling count
-    sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 128
+    # sampling count
+    sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1024
 
-    # The selected extended sampling count
-    selected_sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 4000
+    # selected extended sampling count
+    selected_sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 65536
 
     def main(self):
         model, network = self.common.main()

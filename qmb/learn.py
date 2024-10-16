@@ -26,7 +26,7 @@ class LearnConfig:
     logging_psi: typing.Annotated[int, tyro.conf.arg(aliases=["-p"])] = 30
     # the loss function to be used
     loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "log"
-    # Use LBFGS instead of Adam
+    # use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
 
     def __post_init__(self):

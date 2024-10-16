@@ -19,13 +19,13 @@ class VmcConfig:
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 1000
     # calculate all psi(s)')
     include_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-o"])] = False
-    # Use deviation instead of energy
+    # use deviation instead of energy
     deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-d"])] = False
-    # Fix outside phase when optimizing outside deviation
+    # fix outside phase when optimizing outside deviation
     fix_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-f"])] = False
-    # Use LBFGS instead of Adam
+    # use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
-    # Do not calculate deviation when optimizing energy
+    # do not calculate deviation when optimizing energy
     omit_deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
 
     def __post_init__(self):
