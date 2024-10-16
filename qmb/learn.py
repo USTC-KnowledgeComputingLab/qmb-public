@@ -15,7 +15,9 @@ class LearnConfig:
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
     # sampling count
-    sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
+    sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1024
+    # selected sampling count
+    selected_sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-b"])] = 65536
     # learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
     # step count for the local optimizer
@@ -51,23 +53,55 @@ class LearnConfig:
 
         logging.info("main looping")
         while True:
-            logging.info("sampling configurations")
-            configs, pre_amplitudes, _, _ = network.generate_unique(self.sampling_count)
-            logging.info("sampling done")
-            unique_sampling_count = len(configs)
-            logging.info("unique sampling count is %d", unique_sampling_count)
+            logging.info("core sampling configurations")
+            configs_core, psi_core, _, _ = network.generate_unique(self.sampling_count)
+            configs_core = configs_core.cpu()
+            psi_core = psi_core.cpu()
+            sampling_count_core = len(configs_core)
+            logging.info("sampling count core is %d", sampling_count_core)
 
-            logging.info("generating hamiltonian data to create sparse matrix")
-            indices_i_and_j, values = model.inside(configs.cpu())
-            logging.info("sparse matrix data created")
+            logging.info("calculating extended configurations")
+            indices_i_and_j, values, configs_extended = model.outside(configs_core)
+            logging.info("extended configurations created")
+            sampling_count_extended = len(configs_extended)
+            logging.info("extended configurations count is %d", sampling_count_extended)
+
+            logging.info("converting sparse extending matrix data to sparse matrix")
+            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [sampling_count_core, sampling_count_extended], dtype=torch.complex128).to_sparse_csr()
+            logging.info("sparse extending matrix created")
+
+            logging.info("estimating the importance of extended configurations")
+            importance = (psi_core.conj() * psi_core).abs() @ (hamiltonian.conj() * hamiltonian).abs()
+            importance[:sampling_count_core] += importance.max()
+            logging.info("importance of extended configurations created")
+
+            logging.info("selecting extended configurations by importance")
+            selected_indices = importance.sort(descending=True).indices[:self.selected_sampling_count].sort().values
+            logging.info("extended configurations selected indices prepared")
+
+            logging.info("selecting extended configurations")
+            configs_extended = configs_extended[selected_indices]
+            logging.info("extended configurations selected")
+            sampling_count_extended = len(configs_extended)
+            logging.info("selected extended configurations count is %d", sampling_count_extended)
+
+            logging.info("calculating sparse data of hamiltonian on extended configurations")
+            indices_i_and_j, values = model.inside(configs_extended)
             logging.info("converting sparse matrix data to sparse matrix")
-            hamiltonian = scipy.sparse.coo_matrix((values, indices_i_and_j.T), [unique_sampling_count, unique_sampling_count], dtype=numpy.complex128).tocsr()
-            logging.info("sparse matrix created")
-            logging.info("estimating ground state")
-            target_energy, targets = scipy.sparse.linalg.lobpcg(hamiltonian, pre_amplitudes.cpu().reshape([-1, 1]).detach().numpy(), largest=False, maxiter=1024)
-            logging.info("estimiated, target energy is %.10f, ref energy is %.10f", target_energy.item(), model.ref_energy)
+            hamiltonian = scipy.sparse.coo_matrix((values, indices_i_and_j.T), [sampling_count_extended, sampling_count_extended], dtype=numpy.complex128).tocsr()
+            logging.info("sparse matrix on extended configurations created")
+
+            logging.info("preparing initial psi used in lobpcg")
+            psi_extended = numpy.pad(psi_core, (0, sampling_count_extended - sampling_count_core)).reshape([-1, 1])
+            logging.info("initial psi used in lobpcg has been created")
+
+            logging.info("calculating minimum energy on extended configurations")
+            target_energy, psi_extended = scipy.sparse.linalg.lobpcg(hamiltonian, psi_extended, largest=False, maxiter=1024)
+            logging.info("energy on extended configurations is %.10f, ref energy is %.10f, error is %.10f", target_energy.item(), model.ref_energy, target_energy.item() - model.ref_energy)
+
             logging.info("preparing learning targets")
-            targets = torch.tensor(targets).view([-1]).cuda()
+            configs = torch.tensor(configs_extended).cuda()
+            targets = torch.tensor(psi_extended).view([-1]).cuda()
             max_index = targets.abs().argmax()
             targets = targets / targets[max_index]
 
