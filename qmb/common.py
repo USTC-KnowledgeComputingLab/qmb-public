@@ -7,13 +7,13 @@ import dataclasses
 import torch
 import tyro
 from . import openfermion
-from . import openfermion_operator
 from . import ising
+from . import fcidump
 
 model_dict = {
     "openfermion": openfermion.Model,
-    "openfermion_operator": openfermion_operator.Model,
     "ising": ising.Model,
+    "fcidump": fcidump.Model,
 }
 
 
