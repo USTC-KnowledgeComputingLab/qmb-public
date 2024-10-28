@@ -1,11 +1,10 @@
 import logging
 import typing
 import dataclasses
-import numpy
-import scipy
 import torch
 import tyro
 from . import losses
+from .lobpcg import lobpcg
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
 
@@ -59,15 +58,17 @@ class LearnConfig:
 
             logging.info("generating hamiltonian data to create sparse matrix")
             indices_i_and_j, values = model.inside(configs.cpu())
+            indices_i_and_j = torch.as_tensor(indices_i_and_j).cuda()
+            values = torch.as_tensor(values).cuda()
             logging.info("sparse matrix data created")
             logging.info("converting sparse matrix data to sparse matrix")
-            hamiltonian = scipy.sparse.coo_matrix((values, indices_i_and_j.T), [unique_sampling_count, unique_sampling_count], dtype=numpy.complex128).tocsr()
+            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
             logging.info("sparse matrix created")
             logging.info("estimating ground state")
-            target_energy, targets = scipy.sparse.linalg.lobpcg(hamiltonian, pre_amplitudes.cpu().reshape([-1, 1]).detach().numpy(), largest=False, maxiter=1024)
+            target_energy, targets = lobpcg(hamiltonian, pre_amplitudes.view([-1, 1]), maxiter=1024)
             logging.info("estimiated, target energy is %.10f, ref energy is %.10f", target_energy.item(), model.ref_energy)
             logging.info("preparing learning targets")
-            targets = torch.tensor(targets).view([-1]).cuda()
+            targets = targets.view([-1])
             max_index = targets.abs().argmax()
             targets = targets / targets[max_index]
 
@@ -101,8 +102,8 @@ class LearnConfig:
             torch.save(network.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.pt")
             logging.info("checkpoint saved")
             logging.info("calculating current energy")
-            torch.enable_grad(closure)()
-            amplitudes = loss.amplitudes.cpu().detach().numpy()
+            loss = torch.enable_grad(closure)()
+            amplitudes = loss.amplitudes
             final_energy = ((amplitudes.conj() @ (hamiltonian @ amplitudes)) / (amplitudes.conj() @ amplitudes)).real
             logging.info(
                 "loss = %.10f during local optimization, final energy %.10f, target energy %.10f, ref energy %.10f",

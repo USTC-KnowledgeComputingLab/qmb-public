@@ -1,10 +1,9 @@
 import logging
 import typing
 import dataclasses
-import numpy
-import scipy
 import torch
 import tyro
+from .lobpcg import lobpcg
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
 
@@ -30,8 +29,6 @@ class IterConfig:
 
         logging.info("first sampling core configurations")
         configs_core, psi_core, _, _ = network.generate_unique(self.sampling_count)
-        configs_core = configs_core.cpu()
-        psi_core = psi_core.cpu()
         logging.info("core configurations sampled")
 
         while True:
@@ -39,7 +36,10 @@ class IterConfig:
             logging.info("core configurations count is %d", sampling_count_core)
 
             logging.info("calculating extended configurations")
-            indices_i_and_j, values, configs_extended = model.outside(configs_core)
+            indices_i_and_j, values, configs_extended = model.outside(configs_core.cpu())
+            indices_i_and_j = torch.as_tensor(indices_i_and_j).cuda()
+            values = torch.as_tensor(values).cuda()
+            configs_extended = torch.as_tensor(configs_extended).cuda()
             logging.info("extended configurations created")
             sampling_count_extended = len(configs_extended)
             logging.info("extended configurations count is %d", sampling_count_extended)
@@ -64,26 +64,28 @@ class IterConfig:
             logging.info("selected extended configurations count is %d", sampling_count_extended)
 
             logging.info("calculating sparse data of hamiltonian on extended configurations")
-            indices_i_and_j, values = model.inside(configs_extended)
+            indices_i_and_j, values = model.inside(configs_extended.cpu())
+            indices_i_and_j = torch.as_tensor(indices_i_and_j).cuda()
+            values = torch.as_tensor(values).cuda()
             logging.info("converting sparse matrix data to sparse matrix")
-            hamiltonian = scipy.sparse.coo_matrix((values, indices_i_and_j.T), [sampling_count_extended, sampling_count_extended], dtype=numpy.complex128).tocsr()
+            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [sampling_count_extended, sampling_count_extended], dtype=torch.complex128).to_sparse_csr()
             logging.info("sparse matrix on extended configurations created")
 
             logging.info("preparing initial psi used in lobpcg")
-            psi_extended = numpy.pad(psi_core, (0, sampling_count_extended - sampling_count_core)).reshape([-1, 1])
+            psi_extended = torch.cat([psi_core, torch.zeros([sampling_count_extended - sampling_count_core], dtype=psi_core.dtype, device=psi_core.device)], dim=0).view([-1, 1])
             logging.info("initial psi used in lobpcg has been created")
 
             logging.info("calculating minimum energy on extended configurations")
-            energy, psi_extended = scipy.sparse.linalg.lobpcg(hamiltonian, psi_extended, largest=False, maxiter=1024)
+            energy, psi_extended = lobpcg(hamiltonian, psi_extended, maxiter=1024)
             logging.info("energy on extended configurations is %.10f, ref energy is %.10f, error is %.10f", energy.item(), model.ref_energy, energy.item() - model.ref_energy)
 
             logging.info("calculating indices of new core configurations")
-            indices = numpy.argsort(numpy.abs(psi_extended).flatten())[-self.sampling_count:]
+            indices = torch.argsort(psi_extended.abs().flatten())[-self.sampling_count:]
             logging.info("indices of new core configurations has been obtained")
 
             logging.info("update new core configurations")
             configs_core = configs_extended[indices]
-            psi_core = torch.tensor(psi_extended[indices].flatten())
+            psi_core = psi_extended[indices].flatten()
             logging.info("new core configurations has been updated")
 
 
