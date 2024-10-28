@@ -2,6 +2,7 @@ __pycache__
 build
 env
 dist
+models
 _version.py
 .idea
 *.so
