@@ -42,7 +42,7 @@ class LearnConfig:
         model, network = self.common.main()
 
         logging.info(
-            "sampling count: %d, learning rate: %f, local step: %d, local loss: %f, logging psi: %d, loss name: %s, use_lbfgs: %a",
+            "sampling count: %d, learning rate: %f, local step: %d, local loss: %f, logging psi: %d, loss name: %s, use_lbfgs: %a, post sampling iteration: %d, post sampling count: %d",
             self.sampling_count,
             self.learning_rate,
             self.local_step,
@@ -50,6 +50,8 @@ class LearnConfig:
             self.logging_psi,
             self.loss_name,
             self.use_lbfgs,
+            self.post_sampling_iteration,
+            self.post_sampling_count,
         )
 
         logging.info("main looping")
@@ -66,7 +68,6 @@ class LearnConfig:
                 logging.info("lobpcg and select start")
                 _, _, configs, psi = lobpcg_and_select(model, configs, psi, self.sampling_count)
                 logging.info("lobpcg and select finished")
-
 
             logging.info("lobpcg start")
             target_energy, hamiltonian, _, targets = lobpcg_and_select(model, configs, psi)
