@@ -4,9 +4,9 @@ import dataclasses
 import torch
 import tyro
 from . import losses
-from .lobpcg import lobpcg
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
+from .utility import lobpcg_and_select
 
 
 @dataclasses.dataclass
@@ -51,22 +51,13 @@ class LearnConfig:
         logging.info("main looping")
         while True:
             logging.info("sampling configurations")
-            configs, pre_amplitudes, _, _ = network.generate_unique(self.sampling_count)
+            configs, psi, _, _ = network.generate_unique(self.sampling_count)
             logging.info("sampling done")
-            unique_sampling_count = len(configs)
-            logging.info("unique sampling count is %d", unique_sampling_count)
 
-            logging.info("generating hamiltonian data to create sparse matrix")
-            indices_i_and_j, values = model.inside(configs.cpu())
-            indices_i_and_j = torch.as_tensor(indices_i_and_j).cuda()
-            values = torch.as_tensor(values).cuda()
-            logging.info("sparse matrix data created")
-            logging.info("converting sparse matrix data to sparse matrix")
-            hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
-            logging.info("sparse matrix created")
-            logging.info("estimating ground state")
-            target_energy, targets = lobpcg(hamiltonian, pre_amplitudes.view([-1, 1]), maxiter=1024)
-            logging.info("estimiated, target energy is %.10f, ref energy is %.10f", target_energy.item(), model.ref_energy)
+            logging.info("lobpcg start")
+            target_energy, hamiltonian, _, targets = lobpcg_and_select(model, configs, psi)
+            logging.info("lobpcg finished")
+
             logging.info("preparing learning targets")
             targets = targets.view([-1])
             max_index = targets.abs().argmax()
