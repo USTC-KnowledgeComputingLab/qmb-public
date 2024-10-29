@@ -6,7 +6,7 @@ import tyro
 from . import losses
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
-from .utility import lobpcg_and_select
+from .utility import extend_and_select, lobpcg_and_select
 
 
 @dataclasses.dataclass
@@ -27,6 +27,10 @@ class LearnConfig:
     loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "log"
     # use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
+    # the post sampling iteration
+    post_sampling_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-i"])] = 0
+    # the post sampling count
+    post_sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 50000
 
     def __post_init__(self):
         if self.learning_rate == -1:
@@ -53,6 +57,16 @@ class LearnConfig:
             logging.info("sampling configurations")
             configs, psi, _, _ = network.generate_unique(self.sampling_count)
             logging.info("sampling done")
+
+            for _ in range(self.post_sampling_iteration):
+                logging.info("extend and select start")
+                configs, psi = extend_and_select(model, configs, psi, self.post_sampling_count)
+                logging.info("extend and select finished")
+
+                logging.info("lobpcg and select start")
+                _, _, configs, psi = lobpcg_and_select(model, configs, psi, self.sampling_count)
+                logging.info("lobpcg and select finished")
+
 
             logging.info("lobpcg start")
             target_energy, hamiltonian, _, targets = lobpcg_and_select(model, configs, psi)
