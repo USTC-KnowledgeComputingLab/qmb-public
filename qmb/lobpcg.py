@@ -2,6 +2,7 @@
 # See https://github.com/pytorch/pytorch/issues/135860
 # This file is copied from SciPy 1.14.1.
 
+import warnings
 import scipy
 import torch
 
@@ -16,13 +17,21 @@ def _eigh(A: torch.Tensor, B: torch.Tensor | None) -> tuple[torch.Tensor, torch.
     device = A.device
     A = A.cpu().numpy()
     B = B.cpu().numpy() if B is not None else None
-    eigvals, eigvecs = scipy.linalg.eigh(A, B)
+    try:
+        eigvals, eigvecs = scipy.linalg.eigh(A, B)
+    except scipy.linalg.LinAlgError:
+        return torch.empty(0, device=device), torch.empty(0, device=device)
     return torch.tensor(eigvals).to(device=device), torch.tensor(eigvecs).to(device=device)
 
 
 @torch.jit.ignore
 def _eps(A: torch.Tensor) -> float:
     return torch.finfo(A.dtype).eps
+
+
+@torch.jit.ignore
+def _warn(msg: str) -> None:
+    warnings.warn(msg, UserWarning, stacklevel=3)
 
 
 @torch.jit.script
@@ -91,14 +100,24 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
 
         activeBlockVectorR = activeBlockVectorR - (blockVectorX @ (blockVectorX.T.conj() @ activeBlockVectorR))
 
-        activeBlockVectorR = activeBlockVectorR / torch.norm(activeBlockVectorR)
+        aux = torch.norm(activeBlockVectorR)
+        if aux == 0:
+            _warn(f"Failed at iteration {iterationNumber} with accuracies "
+                  f"{residualNorms}\n not reaching the requested "
+                  f"tolerance {residualTolerance}.")
+            break
+        activeBlockVectorR = activeBlockVectorR / aux
         activeBlockVectorAR = A @ activeBlockVectorR
 
         if iterationNumber > 0:
-            aux = 1 / torch.norm(activeBlockVectorP)
-            activeBlockVectorP = activeBlockVectorP * aux
-            activeBlockVectorAP = activeBlockVectorAP * aux
-            restart = forcedRestart
+            aux = torch.norm(activeBlockVectorP)
+            if aux == 0:
+                restart = True
+            else:
+                aux = 1 / aux
+                activeBlockVectorP = activeBlockVectorP * aux
+                activeBlockVectorAP = activeBlockVectorAP * aux
+                restart = forcedRestart
 
         if residualNorms.max() > myeps and not explicitGramFlag:
             explicitGramFlag = False
@@ -143,6 +162,8 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
                               dim=0)
 
             _lambda, eigBlockVector = _eigh(gramA, gramB)
+            if _lambda.numel() == 0:
+                restart = True
 
         if restart:
             gramA = torch.cat([torch.cat([gramXAX, gramXAR], dim=1), torch.cat([gramXAR.T.conj(), gramRAR], dim=1)], dim=0)
@@ -150,6 +171,9 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
             gramB = torch.cat([torch.cat([gramXBX, gramXBR], dim=1), torch.cat([gramXBR.T.conj(), gramRBR], dim=1)], dim=0)
 
             _lambda, eigBlockVector = _eigh(gramA, gramB)
+            if _lambda.numel() == 0:
+                _warn(f"eigh failed at iteration {iterationNumber} with error\n")
+                break
 
         ii = torch.argsort(_lambda)[:sizeX]
         _lambda = _lambda[ii]
