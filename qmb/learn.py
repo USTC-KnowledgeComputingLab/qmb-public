@@ -60,14 +60,24 @@ class LearnConfig:
             configs, psi, _, _ = network.generate_unique(self.sampling_count)
             logging.info("sampling done")
 
-            for _ in range(self.post_sampling_iteration):
-                logging.info("extend and select start")
-                configs, psi = extend_and_select(model, configs, psi, self.post_sampling_count)
-                logging.info("extend and select finished")
+            if self.post_sampling_iteration != 0:
+                logging.info("post sampling start")
+                configs_backup = configs
+                psi_backup = psi
+                for _ in range(self.post_sampling_iteration):
+                    logging.info("extend and select start")
+                    configs, psi = extend_and_select(model, configs, psi, self.post_sampling_count)
+                    logging.info("extend and select finished")
 
-                logging.info("lobpcg and select start")
-                _, _, configs, psi = lobpcg_and_select(model, configs, psi, self.sampling_count)
-                logging.info("lobpcg and select finished")
+                    logging.info("lobpcg and select start")
+                    _, _, configs, psi = lobpcg_and_select(model, configs, psi, self.sampling_count)
+                    logging.info("lobpcg and select finished")
+                logging.info("post sampling finished")
+                too_small_in_backup = torch.all(torch.any(configs_backup.unsqueeze(1) - configs.unsqueeze(0) != 0, dim=-1), dim=-1)
+                too_small_configs = configs_backup[too_small_in_backup]
+                too_small_psi = psi_backup[too_small_in_backup] / 100
+                configs = torch.cat([configs, too_small_configs], dim=0)
+                psi = torch.cat([psi, too_small_psi], dim=0)
 
             logging.info("lobpcg start")
             target_energy, hamiltonian, _, targets = lobpcg_and_select(model, configs, psi)
