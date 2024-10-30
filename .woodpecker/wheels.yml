@@ -1,0 +1,16 @@
+when:
+  - event: push
+
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      depth: 0
+
+steps:
+  - name: wheels
+    image: python:3.12
+    commands:
+      - pip install pipx
+      - pipx run build --sdist
+      - pipx run build --wheel
