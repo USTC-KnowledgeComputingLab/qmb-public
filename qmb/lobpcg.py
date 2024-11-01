@@ -40,6 +40,7 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
     dtype = A.dtype
     eps = _eps(A)
     myeps = eps**(1 / 2)
+    bestIterationNumber = maxiter
 
     blockVectorX = X
     bestblockVectorX = blockVectorX
@@ -70,16 +71,20 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
     blockVectorP = blockVectorAP = activeBlockVectorP = activeBlockVectorAP = torch.empty([0, 0], device=device)
     smallestResidualNorm = 0.0
 
+    iterationNumber = -1
     restart = True
     forcedRestart = False
     explicitGramFlag = False
-    for iterationNumber in range(maxiter):
+    while iterationNumber < maxiter:
+        iterationNumber += 1
+
         blockVectorR = blockVectorAX - blockVectorX * _lambda[None, :]
         residualNorms = torch.sqrt(torch.abs(torch.sum(blockVectorR.conj() * blockVectorR, dim=0)))
         residualNorm = torch.sum(torch.abs(residualNorms)) / sizeX
 
         if iterationNumber == 0 or residualNorm < smallestResidualNorm:
             smallestResidualNorm = residualNorm
+            bestIterationNumber = iterationNumber
             bestblockVectorX = blockVectorX
         elif residualNorm > 2**restartControl * smallestResidualNorm:
             forcedRestart = True
@@ -207,13 +212,19 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
 
     if residualNorm < smallestResidualNorm:
         smallestResidualNorm = residualNorm
+        bestIterationNumber = iterationNumber + 1
         bestblockVectorX = blockVectorX
 
-    blockVectorX = bestblockVectorX
+    if torch.max(torch.abs(residualNorms)) > residualTolerance:
+        _warn(f"Exited at iteration {iterationNumber} with accuracies \n"
+              f"{residualNorms}\n"
+              f"not reaching the requested tolerance {residualTolerance}.\n"
+              f"Use iteration {bestIterationNumber} instead with accuracy \n"
+              f"{smallestResidualNorm}.\n")
 
+    blockVectorX = bestblockVectorX
     blockVectorAX = A @ blockVectorX
     gramXAX = blockVectorX.T.conj() @ blockVectorAX
-
     gramXBX = blockVectorX.T.conj() @ blockVectorX
     gramXAX = (gramXAX + gramXAX.T.conj()) / 2
     gramXBX = (gramXBX + gramXBX.T.conj()) / 2
