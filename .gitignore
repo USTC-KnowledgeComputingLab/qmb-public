@@ -5,6 +5,7 @@ dist
 models
 _version.py
 .idea
+.vscode
 *.so
 *.hdf5
 *.npy

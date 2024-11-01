@@ -4,8 +4,7 @@ import re
 import logging
 import torch
 import openfermion
-from . import _openfermion
-from .openfermion import Model as OpenFermionModel
+from .openfermion import Model as OpenFermionModel, get_openfermion_extension
 
 
 def read_fcidump(file_name):
@@ -83,6 +82,10 @@ class Model(OpenFermionModel):
         self.ref_energy = torch.nan
         logging.info("reference energy is unknown")
 
+        logging.info("compiling torch extension")
+        _openfermion = get_openfermion_extension()
+        logging.info("torch extension compiled")
+
         logging.info("converting openfermion handle to hamiltonian handle")
-        self.hamiltonian = _openfermion.Hamiltonian(list(self.openfermion.terms.items()))
+        self.hamiltonian = _openfermion.Hamiltonian(self.openfermion.terms)
         logging.info("hamiltonian handle has been created")
