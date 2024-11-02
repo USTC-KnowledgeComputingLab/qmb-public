@@ -81,6 +81,20 @@ class Model:
         self.hamiltonian = _openfermion.Hamiltonian(openfermion.transforms.get_fermion_operator(self.openfermion.get_molecular_hamiltonian()).terms)
         logging.info("hamiltonian handle has been created")
 
+    def relative(self, configs_i):
+        # this function is equivalent to return self.hamiltonian.relative(configs_i)
+        # but split configs_i into pieces to avoid out of memory
+        batch_size = configs_i.shape[0]
+        index_i_pool = []
+        configs_j_pool = []
+        coefs_pool = []
+        for i in range(batch_size):
+            index_i, configs_j, coefs = self.hamiltonian.relative(configs_i[i:i + 1])
+            index_i_pool.append(index_i + i)
+            configs_j_pool.append(configs_j)
+            coefs_pool.append(coefs)
+        return torch.cat(index_i_pool, dim=0), torch.cat(configs_j_pool, dim=0), torch.cat(coefs_pool, dim=0)
+
     def inside(self, configs_i):
         configs_i = configs_i.cuda().to(dtype=torch.bool)
         # Parameters
@@ -90,7 +104,7 @@ class Model:
         # coefs : complex128[...]
 
         batch_size = configs_i.shape[0]
-        valid_index_i, valid_configs_j, valid_coefs = self.hamiltonian.relative(configs_i)
+        valid_index_i, valid_configs_j, valid_coefs = self.relative(configs_i)
         # configs_i : bool[batch_size, n_qubits]
         # valid_configs_j : bool[valid_size, n_qubits]
         # valid_index_i : int64[valid_size]
@@ -131,7 +145,7 @@ class Model:
         # coefs : complex128[...]
 
         batch_size = configs_i.shape[0]
-        valid_index_i, valid_configs_j, valid_coefs = self.hamiltonian.relative(configs_i)
+        valid_index_i, valid_configs_j, valid_coefs = self.relative(configs_i)
         # configs_i : bool[batch_size, n_qubits]
         # valid_configs_j : bool[valid_size, n_qubits]
         # valid_index_i : int64[valid_size]

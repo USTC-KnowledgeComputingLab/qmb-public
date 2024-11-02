@@ -79,20 +79,34 @@ void launch_search_kernel(
     torch::PackedTensorAccessor64<bool, 3>& configs_j_matrix_accesor,
     torch::PackedTensorAccessor64<double, 3>& coefs_matrix_accesor
 ) {
-    auto threads_per_block = dim3{16, 16};
-    auto num_blocks = dim3{
-        (std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x,
-        (std::int32_t(batch_size) + threads_per_block.y - 1) / threads_per_block.y
-    };
-    search_kernel_interface<<<num_blocks, threads_per_block>>>(
-        term_number,
-        batch_size,
-        site_accesor,
-        kind_accesor,
-        coef_accesor,
-        configs_j_matrix_accesor,
-        coefs_matrix_accesor
-    );
+    if (batch_size == 1) {
+        auto threads_per_block = dim3{256, 1};
+        auto num_blocks = dim3{(std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x, 1};
+        search_kernel_interface<<<num_blocks, threads_per_block>>>(
+            term_number,
+            batch_size,
+            site_accesor,
+            kind_accesor,
+            coef_accesor,
+            configs_j_matrix_accesor,
+            coefs_matrix_accesor
+        );
+    } else {
+        auto threads_per_block = dim3{16, 16};
+        auto num_blocks = dim3{
+            (std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x,
+            (std::int32_t(batch_size) + threads_per_block.y - 1) / threads_per_block.y
+        };
+        search_kernel_interface<<<num_blocks, threads_per_block>>>(
+            term_number,
+            batch_size,
+            site_accesor,
+            kind_accesor,
+            coef_accesor,
+            configs_j_matrix_accesor,
+            coefs_matrix_accesor
+        );
+    }
     cudaDeviceSynchronize();
 }
 
