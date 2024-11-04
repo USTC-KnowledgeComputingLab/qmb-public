@@ -70,105 +70,17 @@ class Model:
         logging.info("reference energy in openfermion data is %.10f", self.ref_energy)
 
         logging.info("converting openfermion handle to hamiltonian handle")
-        self.hamiltonian = hamiltonian.FermiHamiltonian(openfermion.transforms.get_fermion_operator(self.openfermion.get_molecular_hamiltonian()).terms)
+        self.hamiltonian = hamiltonian.Hamiltonian(
+            openfermion.transforms.get_fermion_operator(self.openfermion.get_molecular_hamiltonian()).terms,
+            kind="fermi",
+        )
         logging.info("hamiltonian handle has been created")
 
-    def relative(self, configs_i):
-        # this function is equivalent to return self.hamiltonian.relative(configs_i)
-        # but split configs_i into pieces to avoid out of memory
-        batch_size = configs_i.shape[0]
-        index_i_pool = []
-        configs_j_pool = []
-        coefs_pool = []
-        for i in range(batch_size):
-            index_i, configs_j, coefs = self.hamiltonian.relative(configs_i[i:i + 1])
-            index_i_pool.append(index_i + i)
-            configs_j_pool.append(configs_j)
-            coefs_pool.append(coefs)
-        return torch.cat(index_i_pool, dim=0), torch.cat(configs_j_pool, dim=0), torch.cat(coefs_pool, dim=0)
-
     def inside(self, configs_i):
-        configs_i = configs_i.cuda().to(dtype=torch.int8)
-        # Parameters
-        # configs_i : bool[batch_size, n_qubits]
-        # Returns
-        # index_i_and_j : int64[..., 2]
-        # coefs : complex128[...]
-
-        batch_size = configs_i.shape[0]
-        valid_index_i, valid_configs_j, valid_coefs = self.relative(configs_i)
-        # configs_i : bool[batch_size, n_qubits]
-        # valid_configs_j : bool[valid_size, n_qubits]
-        # valid_index_i : int64[valid_size]
-        # valid_coefs : float64[valid_size, 2]
-
-        # map from valid to pool first, and then map pool to target.
-
-        configs_i_and_j = torch.cat([configs_i, valid_configs_j], dim=0)
-        # pool : bool[pool_size, n_qubits]
-        # v_to_p : int64[batch_size + valid_size]
-        pool, v_to_p = torch.unique(configs_i_and_j, dim=0, sorted=False, return_inverse=True, return_counts=False)
-        pool_size = pool.shape[0]
-
-        # p_to_v : int64[pool_size]
-        p_to_t = torch.full([pool_size], -1, dtype=torch.int64, device=configs_i.device)
-        p_to_t[v_to_p[:batch_size]] = torch.arange(batch_size, device=configs_i.device)
-
-        # usable data
-        # valid_index_j : int64[valid_size] -> -1 or 0...batch_size-1
-        # it is v_to_t in fact
-        valid_index_j = p_to_t[v_to_p[batch_size:]]
-
-        # usable : int64[]
-        usable = valid_index_j >= 0
-
-        index_i_target = valid_index_i[usable]
-        index_j_target = valid_index_j[usable]
-        coefs_target = valid_coefs[usable]
-
-        return torch.stack([index_i_target, index_j_target], dim=1), torch.view_as_complex(coefs_target)
+        return self.hamiltonian.inside(configs_i)
 
     def outside(self, configs_i):
-        configs_i = configs_i.cuda().to(dtype=torch.int8)
-        # Parameters
-        # configs_i : bool[batch_size, n_qubits]
-        # Returns
-        # index_i_and_j : int64[..., 2]
-        # coefs : complex128[...]
-
-        batch_size = configs_i.shape[0]
-        valid_index_i, valid_configs_j, valid_coefs = self.relative(configs_i)
-        # configs_i : bool[batch_size, n_qubits]
-        # valid_configs_j : bool[valid_size, n_qubits]
-        # valid_index_i : int64[valid_size]
-        # valid_coefs : float64[valid_size, 2]
-
-        # map from valid to pool first, and then map pool to target.
-
-        configs_i_and_j = torch.cat([configs_i, valid_configs_j], dim=0)
-        # pool : bool[pool_size, n_qubits]
-        # v_to_p : int64[batch_size + valid_size]
-        pool, v_to_p = torch.unique(configs_i_and_j, dim=0, sorted=False, return_inverse=True, return_counts=False)
-        pool_size = pool.shape[0]
-
-        # p_to_v : int64[pool_size]
-        p_to_t = torch.full([pool_size], -1, dtype=torch.int64, device=configs_i.device)
-        p_to_t[v_to_p[:batch_size]] = torch.arange(batch_size, device=configs_i.device)
-        p_to_t[p_to_t == -1] = torch.arange(batch_size, pool_size, device=configs_i.device)
-
-        # usable data
-        # valid_index_j : int64[valid_size] -> -1 or 0...batch_size-1
-        # it is v_to_t in fact
-        valid_index_j = p_to_t[v_to_p[batch_size:]]
-
-        index_i_target = valid_index_i
-        index_j_target = valid_index_j
-        coefs_target = valid_coefs
-
-        configs_target = torch.empty_like(pool)
-        configs_target[p_to_t] = pool
-
-        return torch.stack([index_i_target, index_j_target], dim=1), torch.view_as_complex(coefs_target), configs_target.to(dtype=torch.int64)
+        return self.hamiltonian.outside(configs_i)
 
     def naqs(self, input_args):
         logging.info("parsing args %a by network naqs", input_args)

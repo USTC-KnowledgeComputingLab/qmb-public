@@ -209,12 +209,12 @@ class Hamiltonian {
         self.term_number = hamiltonian.size();
 
         std::int64_t index = 0;
-        torch::Tensor cpu_site = torch::zeros({self.term_number, max_op_number}, torch::kInt16);
-        torch::Tensor cpu_kind = torch::zeros({self.term_number, max_op_number}, torch::kInt8);
-        torch::Tensor cpu_coef = torch::zeros({self.term_number, 2}, torch::kDouble);
-        auto cpu_site_accessor = cpu_site.accessor<std::int16_t, 2>();
-        auto cpu_kind_accessor = cpu_kind.accessor<std::int8_t, 2>();
-        auto cpu_coef_accessor = cpu_coef.accessor<double, 2>();
+        auto cpu_site = torch::zeros({self.term_number, max_op_number}, torch::kInt16);
+        auto cpu_kind = torch::zeros({self.term_number, max_op_number}, torch::kInt8);
+        auto cpu_coef = torch::zeros({self.term_number, 2}, torch::kDouble);
+        auto cpu_site_accessor = cpu_site.template accessor<std::int16_t, 2>();
+        auto cpu_kind_accessor = cpu_kind.template accessor<std::int8_t, 2>();
+        auto cpu_coef_accessor = cpu_coef.template accessor<double, 2>();
 
         for (auto item : hamiltonian) {
             auto key = item.first.cast<py::tuple>();
@@ -309,10 +309,10 @@ using FermiHamiltonian = Hamiltonian</*max_op_number=*/4, /*particle_cut=*/1>;
 using Bose2Hamiltonian = Hamiltonian</*max_op_number=*/4, /*particle_cut=*/2>;
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    py::class_<FermiHamiltonian>(m, "FermiHamiltonian", py::module_local())
+    py::class_<FermiHamiltonian>(m, "fermi", py::module_local())
         .def(py::init<py::dict>(), py::arg("hamiltonian"))
         .def("relative", &FermiHamiltonian::relative, py::arg("configs_i"));
-    py::class_<Bose2Hamiltonian>(m, "Bose2Hamiltonian", py::module_local())
+    py::class_<Bose2Hamiltonian>(m, "bose2", py::module_local())
         .def(py::init<py::dict>(), py::arg("hamiltonian"))
         .def("relative", &Bose2Hamiltonian::relative, py::arg("configs_i"));
 }

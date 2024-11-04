@@ -76,7 +76,7 @@ class Model(OpenFermionModel):
         logging.info("reference energy is unknown")
 
         logging.info("converting openfermion handle to hamiltonian handle")
-        self.hamiltonian = hamiltonian.FermiHamiltonian(self.openfermion.terms)
+        self.hamiltonian = hamiltonian.Hamiltonian(self.openfermion.terms, kind="fermi")
         logging.info("hamiltonian handle has been created")
 
 
