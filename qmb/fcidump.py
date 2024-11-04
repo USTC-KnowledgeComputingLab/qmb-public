@@ -17,8 +17,8 @@ def read_fcidump(file_name):
                 n_orbit = int(match.group(1))
             if "&end" in data:
                 break
-        energy_1 = torch.zeros([n_orbit, n_orbit])
-        energy_2 = torch.zeros([n_orbit, n_orbit, n_orbit, n_orbit])
+        energy_1 = torch.zeros([n_orbit, n_orbit], dtype=torch.float64)
+        energy_2 = torch.zeros([n_orbit, n_orbit, n_orbit, n_orbit], dtype=torch.float64)
         for line in file:
             data = line.split()
             coefficient = float(data[0])
@@ -41,28 +41,19 @@ def read_fcidump(file_name):
                 case _:
                     raise ValueError(f"Invalid FCIDUMP format: {sites}")
 
-    H = openfermion.FermionOperator()
-    H += energy_0
-    for p in range(n_orbit):
-        for q in range(n_orbit):
-            coef = energy_1[p, q].item()
-            for i, j in ((2 * p, 2 * q), (2 * p + 1, 2 * q + 1)):
-                H += openfermion.FermionOperator(((i, 1), (j, 0)), coef)
-    for p in range(n_orbit):
-        for q in range(n_orbit):
-            for r in range(n_orbit):
-                for s in range(n_orbit):
-                    coef = energy_2[p, s, q, r].item() / 2
-                    for i, j, k, l in (
-                        ((2 * p), (2 * q), (2 * r), (2 * s)),
-                        ((2 * p + 1), (2 * q + 1), (2 * r + 1), (2 * s + 1)),
-                        ((2 * p + 1), (2 * q), (2 * r), (2 * s + 1)),
-                        ((2 * p), (2 * q + 1), (2 * r + 1), (2 * s)),
-                    ):
-                        H += openfermion.FermionOperator(((i, 1), (j, 1), (k, 0), (l, 0)), coef)
+    energy_2 = energy_2.permute(0, 2, 3, 1).contiguous() / 2
+    energy_1_b = torch.zeros([n_orbit * 2, n_orbit * 2], dtype=torch.float64)
+    energy_2_b = torch.zeros([n_orbit * 2, n_orbit * 2, n_orbit * 2, n_orbit * 2], dtype=torch.float64)
+    energy_1_b[0::2, 0::2] = energy_1
+    energy_1_b[1::2, 1::2] = energy_1
+    energy_2_b[0::2, 0::2, 0::2, 0::2] = energy_2
+    energy_2_b[0::2, 1::2, 1::2, 0::2] = energy_2
+    energy_2_b[1::2, 0::2, 0::2, 1::2] = energy_2
+    energy_2_b[1::2, 1::2, 1::2, 1::2] = energy_2
 
-    H = openfermion.normal_ordered(H)
-    return H
+    interaction_operator = openfermion.ops.InteractionOperator(energy_0, energy_1_b.numpy(), energy_2_b.numpy())
+    fermion_operator = openfermion.transforms.get_fermion_operator(interaction_operator)
+    return openfermion.normal_ordered(fermion_operator)
 
 
 class Model(OpenFermionModel):
