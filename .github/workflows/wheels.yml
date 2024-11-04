@@ -3,38 +3,22 @@ name: Build
 on: [push, pull_request]
 
 jobs:
-  build_wheels:
-    name: Build wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  build_wheel:
+    name: Build wheel
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        if: runner.os == 'Linux'
-        uses: docker/setup-qemu-action@v3
         with:
-          platforms: all
+          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install cibuildwheel
-        run: python -m pip install cibuildwheel==2.21.1
-
-      - name: Build wheels
-        run: python -m cibuildwheel --output-dir wheelhouse
-        env:
-          CIBW_TEST_SKIP: "*-win_arm64"
+      - name: Build wheel
+        run: pipx run build --wheel
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
-          path: ./wheelhouse/*.whl
+          name: build-wheel
+          path: dist/*.whl
 
   build_sdist:
     name: Build source distribution
@@ -42,19 +26,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Build sdist
         run: pipx run build --sdist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cibw-sdist
+          name: build-sdist
           path: dist/*.tar.gz
 
   upload_pypi:
     name: Upload wheels to pypi
     runs-on: ubuntu-latest
-    needs: [build_wheels, build_sdist]
+    needs: [build_wheel, build_sdist]
     environment:
       name: release
       url: https://pypi.org/project/qmb/
@@ -65,7 +51,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: cibw-*
+          pattern: build-*
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
