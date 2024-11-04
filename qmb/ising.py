@@ -5,8 +5,8 @@ import logging
 import dataclasses
 import torch
 import tyro
-from . import _ising
 from . import naqs as naqs_m
+from . import hamiltonian
 
 
 @dataclasses.dataclass
@@ -61,7 +61,7 @@ class Model:
         self.ref_energy = torch.nan
 
         logging.info("creating ising hamiltonian handle")
-        self.hamiltonian = _ising.Hamiltonian(self.X, self.Y, self.Z, self.XX, self.YY, self.ZZ)
+        self.hamiltonian = hamiltonian.Hamiltonian(self.X, self.Y, self.Z, self.XX, self.YY, self.ZZ)
         logging.info("hamiltonian handle has been created")
 
     def inside(self, configs):

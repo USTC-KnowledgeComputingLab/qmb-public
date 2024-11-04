@@ -1,11 +1,17 @@
 [build-system]
-requires = ["setuptools>=69.5", "setuptools_scm>=8.1", "pybind11>=2.13"]
+requires = ["setuptools>=69.5,<70.0", "setuptools_scm>=8.1,<9.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "qmb"
 dynamic = ["version"]
-dependencies = ["numpy", "scipy", "torch", "tyro", "openfermion"]
+dependencies = [
+  "numpy>=1.26.4,<2.0.0",
+  "scipy>=1.14.1,<2.0.0",
+  "torch>=2.5.1,<3.0.0",
+  "tyro>=0.8.14,<0.9.0",
+  "openfermion>=1.6.1,<2.0.0",
+]
 requires-python = ">=3.12"
 authors = [{ name = "Hao Zhang", email = "hzhangxyz@outlook.com" }]
 description = "Quantum Manybody Problem"

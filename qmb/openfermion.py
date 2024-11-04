@@ -1,20 +1,15 @@
 # This file implements interface to openfermion model.
 
-import os
 import typing
 import logging
 import pathlib
 import dataclasses
 import torch
-import torch.utils.cpp_extension
 import tyro
 import openfermion
 from . import naqs as naqs_m
 from . import attention as attention_m
-
-
-def get_openfermion_extension():
-    return torch.utils.cpp_extension.load(name="_openfermion", sources=f"{os.path.dirname(__file__)}/_openfermion.cu")
+from . import hamiltonian
 
 
 @dataclasses.dataclass
@@ -73,12 +68,8 @@ class Model:
         self.ref_energy = self.openfermion.fci_energy.item()
         logging.info("reference energy in openfermion data is %.10f", self.ref_energy)
 
-        logging.info("compiling torch extension")
-        _openfermion = get_openfermion_extension()
-        logging.info("torch extension compiled")
-
         logging.info("converting openfermion handle to hamiltonian handle")
-        self.hamiltonian = _openfermion.Hamiltonian(openfermion.transforms.get_fermion_operator(self.openfermion.get_molecular_hamiltonian()).terms)
+        self.hamiltonian = hamiltonian.FermiHamiltonian(openfermion.transforms.get_fermion_operator(self.openfermion.get_molecular_hamiltonian()).terms)
         logging.info("hamiltonian handle has been created")
 
     def relative(self, configs_i):
@@ -96,7 +87,7 @@ class Model:
         return torch.cat(index_i_pool, dim=0), torch.cat(configs_j_pool, dim=0), torch.cat(coefs_pool, dim=0)
 
     def inside(self, configs_i):
-        configs_i = configs_i.cuda().to(dtype=torch.bool)
+        configs_i = configs_i.cuda().to(dtype=torch.int8)
         # Parameters
         # configs_i : bool[batch_size, n_qubits]
         # Returns
@@ -137,7 +128,7 @@ class Model:
         return torch.stack([index_i_target, index_j_target], dim=1), torch.view_as_complex(coefs_target)
 
     def outside(self, configs_i):
-        configs_i = configs_i.cuda().to(dtype=torch.bool)
+        configs_i = configs_i.cuda().to(dtype=torch.int8)
         # Parameters
         # configs_i : bool[batch_size, n_qubits]
         # Returns
