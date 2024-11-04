@@ -6,6 +6,7 @@ import torch
 import openfermion
 from . import hamiltonian
 from .openfermion import Model as OpenFermionModel
+from .model_dict import model_dict
 
 
 def read_fcidump(file_name):
@@ -77,3 +78,6 @@ class Model(OpenFermionModel):
         logging.info("converting openfermion handle to hamiltonian handle")
         self.hamiltonian = hamiltonian.FermiHamiltonian(self.openfermion.terms)
         logging.info("hamiltonian handle has been created")
+
+
+model_dict["fcidump"] = Model

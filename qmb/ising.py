@@ -7,6 +7,7 @@ import torch
 import tyro
 from . import naqs as naqs_m
 from . import hamiltonian
+from .model_dict import model_dict
 
 
 @dataclasses.dataclass
@@ -84,3 +85,6 @@ class Model:
         ).double()
 
         return torch.jit.script(network)
+
+
+model_dict["ising"] = Model

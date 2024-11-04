@@ -6,15 +6,7 @@ import pathlib
 import dataclasses
 import torch
 import tyro
-from . import openfermion
-from . import ising
-from . import fcidump
-
-model_dict = {
-    "openfermion": openfermion.Model,
-    "ising": ising.Model,
-    "fcidump": fcidump.Model,
-}
+from .model_dict import model_dict
 
 
 @dataclasses.dataclass

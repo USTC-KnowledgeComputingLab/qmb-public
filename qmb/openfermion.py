@@ -10,6 +10,7 @@ import openfermion
 from . import naqs as naqs_m
 from . import attention as attention_m
 from . import hamiltonian
+from .model_dict import model_dict
 
 
 @dataclasses.dataclass
@@ -205,3 +206,6 @@ class Model:
         ).double()
 
         return torch.jit.script(network)
+
+
+model_dict["openfermion"] = Model
