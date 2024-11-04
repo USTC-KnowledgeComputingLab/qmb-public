@@ -4,6 +4,7 @@ env
 dist
 models
 _version.py
+.coverage
 .idea
 .vscode
 *.so
