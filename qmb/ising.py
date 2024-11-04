@@ -1,5 +1,6 @@
-# This file declare transverse field ising model.
+# This file declare ising-like model on two dimensional lattice.
 
+from collections import defaultdict
 import typing
 import logging
 import dataclasses
@@ -12,20 +13,41 @@ from .model_dict import model_dict
 
 @dataclasses.dataclass
 class ModelConfig:
-    # The length of the ising chain
-    length: typing.Annotated[int, tyro.conf.Positional]
+    # The width of the ising lattice
+    m: typing.Annotated[int, tyro.conf.Positional]
+    # The height of the ising lattice
+    n: typing.Annotated[int, tyro.conf.Positional]
+
     # The coefficient of X
-    X: typing.Annotated[float, tyro.conf.arg(aliases=["-x"])] = 0
+    x: typing.Annotated[float, tyro.conf.arg(aliases=["-xe"])] = 0
     # The coefficient of Y
-    Y: typing.Annotated[float, tyro.conf.arg(aliases=["-y"])] = 0
+    y: typing.Annotated[float, tyro.conf.arg(aliases=["-ye"])] = 0
     # The coefficient of Z
-    Z: typing.Annotated[float, tyro.conf.arg(aliases=["-z"])] = 0
-    # The coefficient of XX
-    XX: typing.Annotated[float, tyro.conf.arg(aliases=["-X"])] = 0
-    # The coefficient of YY
-    YY: typing.Annotated[float, tyro.conf.arg(aliases=["-Y"])] = 0
-    # The coefficient of ZZ
-    ZZ: typing.Annotated[float, tyro.conf.arg(aliases=["-Z"])] = 0
+    z: typing.Annotated[float, tyro.conf.arg(aliases=["-ze"])] = 0
+    # The coefficient of XX for horizontal bond
+    hx: typing.Annotated[float, tyro.conf.arg(aliases=["-xh"])] = 0
+    # The coefficient of YY for horizontal bond
+    hy: typing.Annotated[float, tyro.conf.arg(aliases=["-yh"])] = 0
+    # The coefficient of ZZ for horizontal bond
+    hz: typing.Annotated[float, tyro.conf.arg(aliases=["-zh"])] = 0
+    # The coefficient of XX for vertical bond
+    vx: typing.Annotated[float, tyro.conf.arg(aliases=["-xv"])] = 0
+    # The coefficient of YY for vertical bond
+    vy: typing.Annotated[float, tyro.conf.arg(aliases=["-yv"])] = 0
+    # The coefficient of ZZ for vertical bond
+    vz: typing.Annotated[float, tyro.conf.arg(aliases=["-zv"])] = 0
+    # The coefficient of XX for diagonal bond
+    dx: typing.Annotated[float, tyro.conf.arg(aliases=["-xd"])] = 0
+    # The coefficient of YY for diagonal bond
+    dy: typing.Annotated[float, tyro.conf.arg(aliases=["-yd"])] = 0
+    # The coefficient of ZZ for diagonal bond
+    dz: typing.Annotated[float, tyro.conf.arg(aliases=["-zd"])] = 0
+    # The coefficient of XX for antidiagonal bond
+    ax: typing.Annotated[float, tyro.conf.arg(aliases=["-xa"])] = 0
+    # The coefficient of YY for antidiagonal bond
+    ay: typing.Annotated[float, tyro.conf.arg(aliases=["-ya"])] = 0
+    # The coefficient of ZZ for antidiagonal bond
+    az: typing.Annotated[float, tyro.conf.arg(aliases=["-za"])] = 0
 
 
 @dataclasses.dataclass
@@ -39,37 +61,237 @@ class Model:
     @classmethod
     def preparse(cls, input_args):
         args = tyro.cli(ModelConfig, args=input_args)
-        return f"Ising_L{args.length}_X{args.X}_Y{args.Y}_Z{args.Z}_XX{args.XX}_YY{args.YY}_ZZ{args.ZZ}"
+        x = f"_hx{args.x}" if args.x != 0 else ""
+        y = f"_hy{args.y}" if args.y != 0 else ""
+        z = f"_hz{args.z}" if args.z != 0 else ""
+        hx = f"_hx{args.hx}" if args.hx != 0 else ""
+        hy = f"_hy{args.hy}" if args.hy != 0 else ""
+        hz = f"_hz{args.hz}" if args.hz != 0 else ""
+        vx = f"_vx{args.vx}" if args.vx != 0 else ""
+        vy = f"_vy{args.vy}" if args.vy != 0 else ""
+        vz = f"_vz{args.vz}" if args.vz != 0 else ""
+        dx = f"_dx{args.dx}" if args.dx != 0 else ""
+        dy = f"_dy{args.dy}" if args.dy != 0 else ""
+        dz = f"_dz{args.dz}" if args.dz != 0 else ""
+        ax = f"_ax{args.ax}" if args.ax != 0 else ""
+        ay = f"_ay{args.ay}" if args.ay != 0 else ""
+        az = f"_az{args.az}" if args.az != 0 else ""
+        desc = x + y + z + hx + hy + hz + vx + vy + vz + dx + dy + dz + ax + ay + az
+        return f"Ising_{args.m}_{args.n}" + desc
 
     @classmethod
     def parse(cls, input_args):
         logging.info("parsing args %a by ising model", input_args)
         args = tyro.cli(ModelConfig, args=input_args)
-        logging.info("length: %d, X: %.10f, Y: %.10f, Z: %.10f, XX: %.10f, YY: %.10f, ZZ: %.10f", args.length, args.X, args.Y, args.Z, args.XX, args.YY, args.ZZ)
+        logging.info("width: %d, height: %d", args.m, args.n)
+        logging.info("elementwise x: %.10f, y: %.10f, z: %.10f", args.x, args.y, args.z)
+        logging.info("horizontal x: %.10f, y: %.10f, z: %.10f", args.hx, args.hy, args.hz)
+        logging.info("vertical x: %.10f, y: %.10f, z: %.10f", args.vx, args.vy, args.vz)
+        logging.info("diagonal x: %.10f, y: %.10f, z: %.10f", args.dx, args.dy, args.dz)
+        logging.info("antidiagonal x: %.10f, y: %.10f, z: %.10f", args.ax, args.ay, args.az)
 
-        return cls(args.length, args.X, args.Y, args.Z, args.XX, args.YY, args.ZZ)
+        return cls(args)
 
-    def __init__(self, length, X, Y, Z, XX, YY, ZZ):
-        self.length = length
-        self.X = X
-        self.Y = Y
-        self.Z = Z
-        self.XX = XX
-        self.YY = YY
-        self.ZZ = ZZ
-        logging.info("creating ising model with length = %d, X = %.10f, Y = %.10f, Z = %.10f, XX = %.10f, YY = %.10f, ZZ = %.10f", self.length, self.X, self.Y, self.Z, self.XX, self.YY, self.ZZ)
+    @classmethod
+    def _prepare_hamiltonian(cls, args: ModelConfig):
+
+        def _index(i, j):
+            return i + j * args.m
+
+        def _x(i, j):
+            return (((_index(i, j), 1),), +1), (((_index(i, j), 0),), +1)
+
+        def _y(i, j):
+            return (((_index(i, j), 1),), +1j), (((_index(i, j), 0),), +1j)
+
+        def _z(i, j):
+            return (((_index(i, j), 1), (_index(i, j), 0)), +1), (((_index(i, j), 0), (_index(i, j), 1)), -1)
+
+        hamiltonian = defaultdict(lambda: 0)
+        # Express spin pauli matrix in hard core boson language.
+        for i in range(args.m):
+            for j in range(args.n):
+                if True:
+                    if args.x != 0:
+                        for k, v in _x(i, j):
+                            hamiltonian[k] += v * args.x
+                    if args.y != 0:
+                        for k, v in _y(i, j):
+                            hamiltonian[k] += v * args.y
+                    if args.z != 0:
+                        for k, v in _z(i, j):
+                            hamiltonian[k] += v * args.z
+                if i != 0:
+                    if args.hx != 0:
+                        for k1, v1 in _x(i, j):
+                            for k2, v2 in _x(i - 1, j):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.hx
+                    if args.hy != 0:
+                        for k1, v1 in _y(i, j):
+                            for k2, v2 in _y(i - 1, j):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.hy
+                    if args.hz != 0:
+                        for k1, v1 in _z(i, j):
+                            for k2, v2 in _z(i - 1, j):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.hz
+                if j != 0:
+                    if args.vx != 0:
+                        for k1, v1 in _x(i, j):
+                            for k2, v2 in _x(i, j - 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.vx
+                    if args.vy != 0:
+                        for k1, v1 in _y(i, j):
+                            for k2, v2 in _y(i, j - 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.vy
+                    if args.vz != 0:
+                        for k1, v1 in _z(i, j):
+                            for k2, v2 in _z(i, j - 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.vz
+                if i != 0 and j != 0:
+                    if args.dx != 0:
+                        for k1, v1 in _x(i, j):
+                            for k2, v2 in _x(i - 1, j - 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.dx
+                    if args.dy != 0:
+                        for k1, v1 in _y(i, j):
+                            for k2, v2 in _y(i - 1, j - 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.dy
+                    if args.dz != 0:
+                        for k1, v1 in _z(i, j):
+                            for k2, v2 in _z(i - 1, j - 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.dz
+                if i != 0 and j != args.n - 1:
+                    if args.ax != 0:
+                        for k1, v1 in _x(i, j):
+                            for k2, v2 in _x(i - 1, j + 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.ax
+                    if args.ay != 0:
+                        for k1, v1 in _y(i, j):
+                            for k2, v2 in _y(i - 1, j + 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.ay
+                    if args.az != 0:
+                        for k1, v1 in _z(i, j):
+                            for k2, v2 in _z(i - 1, j + 1):
+                                hamiltonian[(*k1, *k2)] += v1 * v2 * args.az
+        return hamiltonian
+
+    def __init__(self, args: ModelConfig):
+        self.args = args
+        self.m = self.args.m
+        self.n = self.args.n
+        logging.info("creating Ising model with width = %d, height = %d", self.m, self.n)
+        logging.info("elementwise coefficients: x = %.10f, y = %.10f, z = %.10f", self.args.x, self.args.y, self.args.z)
+        logging.info("horizontal bond coefficients: x = %.10f, y = %.10f, z = %.10f", self.args.hx, self.args.hy, self.args.hz)
+        logging.info("vertical bond coefficients: x = %.10f, y = %.10f, z = %.10f", self.args.vx, self.args.vy, self.args.vz)
+        logging.info("diagonal bond coefficients: x = %.10f, y = %.10f, z = %.10f", self.args.dx, self.args.dy, self.args.dz)
+        logging.info("antidiagonal bond coefficients: x = %.10f, y = %.10f, z = %.10f", self.args.ax, self.args.ay, self.args.az)
+
+        logging.info("preparing hamiltonian on the lattice")
+        hamiltonian_dict = self._prepare_hamiltonian(args)
+        logging.info("the hamiltonian has been prepared")
 
         self.ref_energy = torch.nan
 
         logging.info("creating ising hamiltonian handle")
-        self.hamiltonian = hamiltonian.Hamiltonian(self.X, self.Y, self.Z, self.XX, self.YY, self.ZZ)
+        self.hamiltonian = hamiltonian.Bose2Hamiltonian(hamiltonian_dict)
         logging.info("hamiltonian handle has been created")
 
-    def inside(self, configs):
-        return self.hamiltonian.inside(configs)
+    def relative(self, configs_i):
+        # this function is equivalent to return self.hamiltonian.relative(configs_i)
+        # but split configs_i into pieces to avoid out of memory
+        batch_size = configs_i.shape[0]
+        index_i_pool = []
+        configs_j_pool = []
+        coefs_pool = []
+        for i in range(batch_size):
+            index_i, configs_j, coefs = self.hamiltonian.relative(configs_i[i:i + 1])
+            index_i_pool.append(index_i + i)
+            configs_j_pool.append(configs_j)
+            coefs_pool.append(coefs)
+        return torch.cat(index_i_pool, dim=0), torch.cat(configs_j_pool, dim=0), torch.cat(coefs_pool, dim=0)
 
-    def outside(self, configs):
-        return self.hamiltonian.outside(configs)
+    def inside(self, configs_i):
+        configs_i = configs_i.cuda().to(dtype=torch.int8)
+        # Parameters
+        # configs_i : bool[batch_size, n_qubits]
+        # Returns
+        # index_i_and_j : int64[..., 2]
+        # coefs : complex128[...]
+
+        batch_size = configs_i.shape[0]
+        valid_index_i, valid_configs_j, valid_coefs = self.relative(configs_i)
+        # configs_i : bool[batch_size, n_qubits]
+        # valid_configs_j : bool[valid_size, n_qubits]
+        # valid_index_i : int64[valid_size]
+        # valid_coefs : float64[valid_size, 2]
+
+        # map from valid to pool first, and then map pool to target.
+
+        configs_i_and_j = torch.cat([configs_i, valid_configs_j], dim=0)
+        # pool : bool[pool_size, n_qubits]
+        # v_to_p : int64[batch_size + valid_size]
+        pool, v_to_p = torch.unique(configs_i_and_j, dim=0, sorted=False, return_inverse=True, return_counts=False)
+        pool_size = pool.shape[0]
+
+        # p_to_v : int64[pool_size]
+        p_to_t = torch.full([pool_size], -1, dtype=torch.int64, device=configs_i.device)
+        p_to_t[v_to_p[:batch_size]] = torch.arange(batch_size, device=configs_i.device)
+
+        # usable data
+        # valid_index_j : int64[valid_size] -> -1 or 0...batch_size-1
+        # it is v_to_t in fact
+        valid_index_j = p_to_t[v_to_p[batch_size:]]
+
+        # usable : int64[]
+        usable = valid_index_j >= 0
+
+        index_i_target = valid_index_i[usable]
+        index_j_target = valid_index_j[usable]
+        coefs_target = valid_coefs[usable]
+
+        return torch.stack([index_i_target, index_j_target], dim=1), torch.view_as_complex(coefs_target)
+
+    def outside(self, configs_i):
+        configs_i = configs_i.cuda().to(dtype=torch.int8)
+        # Parameters
+        # configs_i : bool[batch_size, n_qubits]
+        # Returns
+        # index_i_and_j : int64[..., 2]
+        # coefs : complex128[...]
+
+        batch_size = configs_i.shape[0]
+        valid_index_i, valid_configs_j, valid_coefs = self.relative(configs_i)
+        # configs_i : bool[batch_size, n_qubits]
+        # valid_configs_j : bool[valid_size, n_qubits]
+        # valid_index_i : int64[valid_size]
+        # valid_coefs : float64[valid_size, 2]
+
+        # map from valid to pool first, and then map pool to target.
+
+        configs_i_and_j = torch.cat([configs_i, valid_configs_j], dim=0)
+        # pool : bool[pool_size, n_qubits]
+        # v_to_p : int64[batch_size + valid_size]
+        pool, v_to_p = torch.unique(configs_i_and_j, dim=0, sorted=False, return_inverse=True, return_counts=False)
+        pool_size = pool.shape[0]
+
+        # p_to_v : int64[pool_size]
+        p_to_t = torch.full([pool_size], -1, dtype=torch.int64, device=configs_i.device)
+        p_to_t[v_to_p[:batch_size]] = torch.arange(batch_size, device=configs_i.device)
+        p_to_t[p_to_t == -1] = torch.arange(batch_size, pool_size, device=configs_i.device)
+
+        # usable data
+        # valid_index_j : int64[valid_size] -> -1 or 0...batch_size-1
+        # it is v_to_t in fact
+        valid_index_j = p_to_t[v_to_p[batch_size:]]
+
+        index_i_target = valid_index_i
+        index_j_target = valid_index_j
+        coefs_target = valid_coefs
+
+        configs_target = torch.empty_like(pool)
+        configs_target[p_to_t] = pool
+
+        return torch.stack([index_i_target, index_j_target], dim=1), torch.view_as_complex(coefs_target), configs_target.to(dtype=torch.int64)
 
     def naqs(self, input_args):
         logging.info("parsing args %a by network naqs", input_args)
@@ -77,7 +299,7 @@ class Model:
         logging.info("hidden: %a", args.hidden)
 
         network = naqs_m.WaveFunctionNormal(
-            sites=self.length,
+            sites=self.m * self.n,
             physical_dim=2,
             is_complex=True,
             hidden_size=args.hidden,
