@@ -1,14 +1,22 @@
+// This file implements a PyTorch operator designed to efficiently iterate over Hamiltonian terms in quantum many-body systems on CUDA devices.
+// It is tailored to support both fermion and boson systems, with specific optimizations for different particle cutoffs.
+// It utilizes several template arguments to tailor the computation:
+//   - max_op_number: Specifies the maximum number of operations for all terms in the Hamiltonian, typically set to 4.
+//   - particle_cut: Determines the system type; particle_cut >= 2 indicates a boson system with a specific number cut,
+//                   while particle_cut = 1 signifies a fermion system.
+// This file encompasses multiple functions designed to achieve the following objectives:
+// 1. `search_kernel`: A device function responsible for processing a single term and a single configuration within the Hamiltonian.
+// 2. `search_kernel_interface`: A global function that orchestrates the invocation of `search_kernel`. It determines which term and configuration
+//    each thread should process based on the thread and grid indices.
+// 3. `launch_search_kernel`: A host function dedicated to launching the `search_kernel_interface`. It strategically allocates grid and thread
+//    dimensions to ensure all terms and configurations are processed efficiently.
+// 4. `python_interface`: The PyTorch operator interface, which integrates the CUDA kernels into the PyTorch framework.
+
 #include <cuda_runtime.h>
 #include <torch/extension.h>
 
-// This file implements the iteration over Hamiltonian terms for quantum many-body systems.
-// It utilizes several template arguments to tailor the computation:
-//   - max_op_number: Specifies the maximum number of operations for all terms in the Hamiltonian.
-//   - particle_cut: Determines the system type; particle_cut >= 2 indicates a boson system with a specific number cut,
-//                   while particle_cut = 1 signifies a fermion system.
+namespace qmb_hamiltonian_cuda {
 
-// The device is currently set to CUDA, which may be subject to change in the future.
-// If we decide to transition to a different device, it will necessitate modifications to the kernel code.
 constexpr torch::DeviceType device = torch::kCUDA;
 
 // The search kernel is designed for iterating over Hamiltonian terms in quantum many-body systems.
@@ -26,7 +34,7 @@ constexpr torch::DeviceType device = torch::kCUDA;
 // The `configs_j_matrix` and `coefs_matrix` tensors are output matrices.
 // The `configs_j_matrix` has a shape of [batch_size, term_number, n_qubits],
 // The `coefs_matrix` tensor is structured as [batch_size, term_number, 2],
-// where the final dimension delineates the real and imaginary components of the coefficients.
+// where the last dimension delineates the real and imaginary components of the coefficients.
 template<std::int64_t max_op_number, std::int64_t particle_cut>
 __device__ void search_kernel(
     std::int64_t term_index,
@@ -131,14 +139,22 @@ __global__ void search_kernel_interface(
     }
 }
 
+std::int64_t int_sqrt(std::int64_t x) {
+    for (std::int64_t i = 0;; ++i) {
+        if (1 << (2 * i) > x) {
+            return 1 << (i - 1);
+        }
+    }
+}
+
 // Launch the search kernel, specifying the grid and block dimensions.
 // We have two distinct data scenarios:
 // 1. Processing multiple batch configurations and numerous Hamiltonian terms.
 //    In this case, we utilize the term index for the x-axis and the batch index for the y-axis.
-//    Each block consists of 16 threads along the x-axis and 16 threads along the y-axis.
+//    Each block consists of sqrt(max_threads_per_block) threads along the x-axis and sqrt(max_threads_per_block) threads along the y-axis.
 // 2. Handling a single configuration.
 //    Here, we only use the term index for the x-axis.
-//    Each block is set to 256 threads to maximize throughput.
+//    Each block is set to max_threads_per_block threads to maximize throughput.
 template<std::int64_t max_op_number, std::int64_t particle_cut>
 void launch_search_kernel(
     std::int64_t term_number,
@@ -147,10 +163,16 @@ void launch_search_kernel(
     torch::PackedTensorAccessor64<std::int8_t, 2>& kind_accesor,
     torch::PackedTensorAccessor64<double, 2>& coef_accesor,
     torch::PackedTensorAccessor64<std::int8_t, 3>& configs_j_matrix_accesor,
-    torch::PackedTensorAccessor64<double, 3>& coefs_matrix_accesor
+    torch::PackedTensorAccessor64<double, 3>& coefs_matrix_accesor,
+    std::int64_t device_id
 ) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device_id);
+    std::int64_t max_threads_per_block = prop.maxThreadsPerBlock;
+    std::int64_t sqrt_max_threads_per_block = int_sqrt(max_threads_per_block);
+
     if (batch_size != 1) {
-        auto threads_per_block = dim3{16, 16};
+        auto threads_per_block = dim3{sqrt_max_threads_per_block, sqrt_max_threads_per_block};
         auto num_blocks = dim3{
             (std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x,
             (std::int32_t(batch_size) + threads_per_block.y - 1) / threads_per_block.y
@@ -165,7 +187,7 @@ void launch_search_kernel(
             coefs_matrix_accesor
         );
     } else {
-        auto threads_per_block = dim3{256, 1};
+        auto threads_per_block = dim3{max_threads_per_block, 1};
         auto num_blocks = dim3{(std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x, 1};
         search_kernel_interface<max_op_number, particle_cut><<<num_blocks, threads_per_block>>>(
             term_number,
@@ -180,63 +202,13 @@ void launch_search_kernel(
     cudaDeviceSynchronize();
 }
 
-// The argument `hamiltonian` should be a dictionary where:
-// - The keys are tuples of tuples, each representing a sequence of operations for a term.
-// - The values are complex numbers representing the coefficient of the corresponding term.
-// Each inner tuple represents a single operator, with the first integer indicating the site index
-// and the second integer indicating the kind of operator (0 for annihilation, 1 for creation).
-// The return value of this function will be stored on the Python side and utilized in subsequent calls to the `relative` function.
-template<std::int64_t max_op_number>
-auto prepare(py::dict hamiltonian) {
-    std::int64_t term_number = hamiltonian.size();
-    auto cpu_site = torch::empty({term_number, max_op_number}, torch::kInt16);
-    auto cpu_kind = torch::full({term_number, max_op_number}, 2, torch::kInt8);
-    auto cpu_coef = torch::zeros({term_number, 2}, torch::kDouble);
-    auto cpu_site_accessor = cpu_site.template accessor<std::int16_t, 2>();
-    auto cpu_kind_accessor = cpu_kind.template accessor<std::int8_t, 2>();
-    auto cpu_coef_accessor = cpu_coef.template accessor<double, 2>();
-
-    std::int64_t index = 0;
-    for (auto item : hamiltonian) {
-        auto key = item.first.cast<py::tuple>();
-        auto value_is_float = py::isinstance<py::float_>(item.second);
-        auto value = value_is_float ? std::complex<double>(item.second.cast<double>()) : item.second.cast<std::complex<double>>();
-
-        std::int64_t op_number = key.size();
-        for (auto i = 0; i < op_number; ++i) {
-            cpu_site_accessor[index][i] = key[i].cast<py::tuple>()[0].cast<std::int16_t>();
-            cpu_kind_accessor[index][i] = key[i].cast<py::tuple>()[1].cast<std::int8_t>();
-        }
-
-        cpu_coef_accessor[index][0] = value.real();
-        cpu_coef_accessor[index][1] = value.imag();
-
-        ++index;
-    }
-
-    // site stores the site indices for each operation in the Hamiltonian terms
-    // shape: [max_op_number, term_number], dtype: int16
-    // kind stores the kind of each operation in the Hamiltonian terms
-    // shape: [max_op_number, term_number], dtype: int8
-    // coef stores the coefficients (real and imaginary parts) for each Hamiltonian term
-    // shape: [term_number, 2], dtype: float64
-    return std::make_tuple(cpu_site, cpu_kind, cpu_coef);
-}
-
-// This function computes the relative configurations and coefficients for a given set of input configurations.
+// This function computes the relative configurations and coefficients based on a given set of input configurations.
 // It applies the Hamiltonian terms to the input configurations and evaluate the coefficients accordingly.
-// The function returns the indices of the valid input configurations, the corresponding output configurations, and the updated coefficients.
+// The function returns the indices of the valid input configurations, the corresponding output configurations, and the coefficients.
 // The last three arguments are prepared by the `prepare` function and stored on the Python side.
+// Refer to `_hamiltonian.cpp` for additional details and context.
 template<std::int64_t max_op_number, std::int64_t particle_cut>
-auto relative(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
-    // Parameters:
-    // configs_i: A int8 tensor of shape [batch_size, n_qubits] representing the input configurations.
-    //
-    // Returns:
-    // valid_index_i: A tensor of shape [...] containing the indices of valid input configurations.
-    // valid_configs_j: A int8 tensor of shape [..., n_qubits] representing the output configurations.
-    // valid_coefs: A tensor of shape [..., 2] containing the updated coefficients.
-
+auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
     std::int64_t batch_size = configs_i.size(0);
     std::int64_t n_qubits = configs_i.size(1);
     std::int64_t term_number = site.size(0);
@@ -261,7 +233,8 @@ auto relative(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, t
         kind_accesor,
         coef_accesor,
         configs_j_matrix_accesor,
-        coefs_matrix_accesor
+        coefs_matrix_accesor,
+        configs_i.device().index()
     );
 
     // index_i : int64[batch_size]
@@ -288,16 +261,32 @@ auto relative(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, t
     return std::make_tuple(valid_index_i, valid_configs_j, valid_coefs);
 }
 
-PYBIND11_MODULE(_hamiltonian, m) {
-    m.def("prepare", prepare</*max_op_number=*/4>, py::arg("hamiltonian"));
+// This function encapsulates the `python_interface` to facilitate job splitting, thereby mitigating potential memory leaks.
+// It partitions the input tensor into pieces, invokes the `python_interface` on each segment, and subsequently merges the results.
+template<std::int64_t max_op_number, std::int64_t particle_cut>
+auto python_interface_with_batch_split(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
+    std::int64_t batch_size = configs_i.size(0);
+    std::vector<torch::Tensor> index_i_pool;
+    std::vector<torch::Tensor> configs_j_pool;
+    std::vector<torch::Tensor> coefs_pool;
+    for (std::int64_t i = 0; i < batch_size; ++i) {
+        auto [index_i, configs_j, coefs] = python_interface<max_op_number, particle_cut>(
+            configs_i.index({torch::indexing::Slice(i, i + 1, torch::indexing::None)}),
+            site,
+            kind,
+            coef
+        );
+        index_i_pool.push_back(index_i + i);
+        configs_j_pool.push_back(configs_j);
+        coefs_pool.push_back(coefs);
+    }
+    return std::make_tuple(torch::cat(index_i_pool, /*dim=*/0), torch::cat(configs_j_pool, /*dim=*/0), torch::cat(coefs_pool, /*dim=*/0));
 }
 
-TORCH_LIBRARY(_hamiltonian, m) {
-    m.def("fermi(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
-    m.def("bose2(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
-}
-
+// Definition of the CUDA kernel implementation for operators.
 TORCH_LIBRARY_IMPL(_hamiltonian, CUDA, m) {
-    m.impl("fermi", relative</*max_op_number=*/4, /*particle_cut=*/1>);
-    m.impl("bose2", relative</*max_op_number=*/4, /*particle_cut=*/2>);
+    m.impl("fermi", python_interface_with_batch_split</*max_op_number=*/4, /*particle_cut=*/1>);
+    m.impl("bose2", python_interface_with_batch_split</*max_op_number=*/4, /*particle_cut=*/2>);
 }
+
+} // namespace qmb_hamiltonian_cuda

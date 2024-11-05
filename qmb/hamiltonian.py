@@ -1,52 +1,77 @@
+"""
+This file contains the Hamiltonian class, which is used to store the Hamiltonian and process iteration over each term in the Hamiltonian for given configurations.
+"""
+
 import os
 import typing
 import torch
 import torch.utils.cpp_extension
 
-extension: object = None
-
-
-def get_extension() -> object:
-    global extension
-    if extension is None:
-        extension = torch.utils.cpp_extension.load(name="_hamiltonian", sources=f"{os.path.dirname(__file__)}/_hamiltonian.cu")
-    return extension
-
 
 class Hamiltonian:
+    """
+    The Hamiltonian type, which stores the Hamiltonian and processes iteration over each term in the Hamiltonian for given configurations.
+    """
+
+    _extension: object = None
+
+    @classmethod
+    def _get_extension(cls) -> object:
+        if cls._extension is None:
+            folder = os.path.dirname(__file__)
+            cls._extension = torch.utils.cpp_extension.load(
+                name="_hamiltonian",
+                sources=[
+                    f"{folder}/_hamiltonian.cpp",
+                    f"{folder}/_hamiltonian_cuda.cu",
+                ],
+            )
+        return cls._extension
 
     def __init__(self, hamiltonian: dict[tuple[tuple[int, int], ...], complex], *, kind: typing.Literal["fermi", "bose2"]) -> None:
-        cpu_site: torch.Tensor
-        cpu_kind: torch.Tensor
-        cpu_coef: torch.Tensor
-        cpu_site, cpu_kind, cpu_coef = getattr(get_extension(), "prepare")(hamiltonian)
-        self.site: torch.Tensor = cpu_site.cuda()
-        self.kind: torch.Tensor = cpu_kind.cuda()
-        self.coef: torch.Tensor = cpu_coef.cuda()
-        self._relative: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
-        self._relative = getattr(torch.ops._hamiltonian, kind)
+        self.site: torch.Tensor
+        self.kind: torch.Tensor
+        self.coef: torch.Tensor
+        self.site, self.kind, self.coef = getattr(self._get_extension(), "prepare")(hamiltonian)
+        self._relative_impl: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
+        self._relative_impl = getattr(torch.ops._hamiltonian, kind)
 
-    def relative(
+    def _relative(
         self,
         configs_i: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # this function is equivalent to return self._relative(configs_i, site, kind, coef)
-        # but split configs_i into pieces to avoid out of memory
-        batch_size: int = configs_i.shape[0]
-        index_i_pool: list[torch.Tensor] = []
-        configs_j_pool: list[torch.Tensor] = []
-        coefs_pool: list[torch.Tensor] = []
-        for i in range(batch_size):
-            index_i: torch.Tensor
-            configs_j: torch.Tensor
-            coefs: torch.Tensor
-            index_i, configs_j, coefs = self._relative(configs_i[i:i + 1], self.site, self.kind, self.coef)
-            index_i_pool.append(index_i + i)
-            configs_j_pool.append(configs_j)
-            coefs_pool.append(coefs)
-        return torch.cat(index_i_pool, dim=0), torch.cat(configs_j_pool, dim=0), torch.cat(coefs_pool, dim=0)
+        device: torch.device = configs_i.device
+        self.site = self.site.to(device=device)
+        self.kind = self.kind.to(device=device)
+        self.coef = self.coef.to(device=device)
+        return self._relative_impl(configs_i, self.site, self.kind, self.coef)
 
     def inside(self, configs_i_int64: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
+        This function only considers the terms that are within the configuration subspace.
+
+        Parameters
+        ----------
+        configs_i_int64 : torch.Tensor
+            A tensor of shape [batch_size, n_qubits] representing the input configurations.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            A tuple containing two tensors:
+                - index_i_and_j: A tensor of shape [..., 2] representing the indices (i, j) for the non-zero Hamiltonian terms.
+                - coefs: A tensor of shape [...] representing the corresponding complex coefficients for the indices.
+
+        The function performs the following steps:
+        1. Converts the input configurations to dtype `torch.int8`.
+        2. Calls the `_relative` method to obtain valid indices (`valid_index_i`), valid configurations (`valid_configs_j`), and valid coefficients (`valid_coefs`).
+        3. Concatenates the input configurations and valid configurations to form a pool of configurations.
+        4. Uses `torch.unique` to find the unique configurations in the pool and their corresponding indices.
+        5. Maps the valid configurations to the target configurations, updating the indices accordingly.
+        6. Filters out the usable configurations and their corresponding coefficients.
+        7. Returns the valid indices and coefficients.
+        """
         configs_i: torch.Tensor = configs_i_int64.to(dtype=torch.int8)
         # Parameters
         # configs_i : bool[batch_size, n_qubits]
@@ -58,7 +83,7 @@ class Hamiltonian:
         valid_index_i: torch.Tensor
         valid_configs_j: torch.Tensor
         valid_coefs: torch.Tensor
-        valid_index_i, valid_configs_j, valid_coefs = self.relative(configs_i)
+        valid_index_i, valid_configs_j, valid_coefs = self._relative(configs_i)
         # configs_i : bool[batch_size, n_qubits]
         # valid_configs_j : bool[valid_size, n_qubits]
         # valid_index_i : int64[valid_size]
@@ -86,13 +111,36 @@ class Hamiltonian:
         # usable : int64[]
         usable: torch.Tensor = valid_index_j >= 0
 
-        index_i_target: torch.Tensor = valid_index_i[usable]
-        index_j_target: torch.Tensor = valid_index_j[usable]
-        coefs_target: torch.Tensor = valid_coefs[usable]
-
-        return torch.stack([index_i_target, index_j_target], dim=1), torch.view_as_complex(coefs_target)
+        return torch.stack([valid_index_i[usable], valid_index_j[usable]], dim=1), torch.view_as_complex(valid_coefs[usable])
 
     def outside(self, configs_i_int64: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
+        This function considers both the inside and outside configurations, ensuring that the input configurations are the first `batch_size` configurations in the result.
+
+        Parameters
+        ----------
+        configs_i_int64 : torch.Tensor
+            A tensor of shape [batch_size, n_qubits] representing the input configurations.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+            A tuple containing three tensors:
+                - index_i_and_j: A tensor of shape [..., 2] representing the indices (i, j) for the non-zero Hamiltonian terms.
+                - coefs: A tensor of shape [...] representing the corresponding complex coefficients for the indices.
+                - configs_target: A tensor of shape [pool_size, n_qubits] representing the target configurations after processing.
+                  The first `batch_size` configurations are guaranteed to be identical to the input `configs_i`.
+
+        The function performs the following steps:
+        1. Converts the input configurations to dtype `torch.int8`.
+        2. Calls the `_relative` method to obtain valid indices (`valid_index_i`), valid configurations (`valid_configs_j`), and valid coefficients (`valid_coefs`).
+        3. Concatenates the input configurations and valid configurations to form a pool of configurations.
+        4. Uses `torch.unique` to find the unique configurations in the pool and their corresponding indices.
+        5. Maps the valid configurations to the target configurations, updating the indices accordingly.
+        6. Reorder the configurations to obtain the target configuration.
+        7. Returns the valid indices, coefficients, and target configurations.
+        """
         configs_i: torch.Tensor = configs_i_int64.to(dtype=torch.int8)
         # Parameters
         # configs_i : bool[batch_size, n_qubits]
@@ -104,7 +152,7 @@ class Hamiltonian:
         valid_index_i: torch.Tensor
         valid_configs_j: torch.Tensor
         valid_coefs: torch.Tensor
-        valid_index_i, valid_configs_j, valid_coefs = self.relative(configs_i)
+        valid_index_i, valid_configs_j, valid_coefs = self._relative(configs_i)
         # configs_i : bool[batch_size, n_qubits]
         # valid_configs_j : bool[valid_size, n_qubits]
         # valid_index_i : int64[valid_size]
@@ -130,11 +178,7 @@ class Hamiltonian:
         # it is v_to_t in fact
         valid_index_j: torch.Tensor = p_to_t[v_to_p[batch_size:]]
 
-        index_i_target: torch.Tensor = valid_index_i
-        index_j_target: torch.Tensor = valid_index_j
-        coefs_target: torch.Tensor = valid_coefs
-
         configs_target: torch.Tensor = torch.empty_like(pool)
         configs_target[p_to_t] = pool
 
-        return torch.stack([index_i_target, index_j_target], dim=1), torch.view_as_complex(coefs_target), configs_target.to(dtype=torch.int64)
+        return torch.stack([valid_index_i, valid_index_j], dim=1), torch.view_as_complex(valid_coefs), configs_target.to(dtype=torch.int64)

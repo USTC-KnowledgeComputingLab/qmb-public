@@ -1,9 +1,13 @@
-# The LOBPCG implementation in Torch has a bug, so we will implement it again here.
-# See https://github.com/pytorch/pytorch/issues/135860
-# This file is copied from SciPy 1.14.1.
+"""
+The LOBPCG implementation in Torch has a bug, so we will implement it again here.
+See https://github.com/pytorch/pytorch/issues/135860
+This file is copied from SciPy 1.14.1.
+"""
+
+# pylint: disable=invalid-name
 
 import warnings
-import scipy
+import scipy  # type: ignore
 import torch
 
 __all__ = ["lobpcg"]
@@ -15,10 +19,10 @@ def _eigh(A: torch.Tensor, B: torch.Tensor | None) -> tuple[torch.Tensor, torch.
     # This function handles the generalized eigenvalue problem by converting the tensors to NumPy arrays and using SciPy's `scipy.linalg.eigh` function.
     # The results are then converted back to PyTorch tensors and returned.
     device = A.device
-    A = A.cpu().numpy()
-    B = B.cpu().numpy() if B is not None else None
+    numpy_A = A.cpu().numpy()
+    numpy_B = B.cpu().numpy() if B is not None else None
     try:
-        eigvals, eigvecs = scipy.linalg.eigh(A, B)
+        eigvals, eigvecs = scipy.linalg.eigh(numpy_A, numpy_B)
     except scipy.linalg.LinAlgError:
         return torch.empty(0, device=device), torch.empty(0, device=device)
     return torch.tensor(eigvals).to(device=device), torch.tensor(eigvecs).to(device=device)
@@ -36,6 +40,44 @@ def _warn(msg: str) -> None:
 
 @torch.jit.script
 def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: int = 20, restartControl: int = 20) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Locally Optimal Block Preconditioned Conjugate Gradient Method (LOBPCG).
+
+    LOBPCG is a preconditioned eigensolver for large real symmetric and complex
+    Hermitian definite generalized eigenproblems.
+
+    This function is copied from SciPy 1.14.1, with the following modifications:
+    - Removed support for additional parameters B, M, Y, verbosityLevel, retLambdaHistory, and retResidualNormsHistory.
+    - The parameter 'largest' is now always set to False.
+    - The input matrix X is expected to be a column vector, meaning sizeX is always 1.
+
+    Parameters
+    ----------
+    A : torch.Tensor
+        The Hermitian linear operator of the problem.
+    X : torch.Tensor
+        Initial approximation to the ``k=1`` eigenvectors (non-sparse).
+        If `A` has ``shape=(n,n)`` then `X` must have ``shape=(n,k=1)``.
+    tol : float, optional
+        The default is ``tol=n*sqrt(eps)``.
+        Solver tolerance for the stopping criterion.
+    maxiter : int, default: 20
+        Maximum number of iterations.
+    restartControl : int, default: 20.
+        Iterations restart if the residuals jump ``2**restartControl`` times
+        compared to the smallest recorded in ``retResidualNormsHistory``.
+
+    Returns
+    -------
+    lambda : torch.Tensor of the shape ``(k=1, )``.
+        Array of ``k=1`` approximate eigenvalues.
+    v : torch.Tensor of the same shape as ``X.shape``.
+        An array of ``k=1`` approximate eigenvectors.
+    """
+    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-statements
+
     device = A.device
     dtype = A.dtype
     eps = _eps(A)
@@ -69,7 +111,7 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
     activeMask = torch.ones([sizeX], dtype=torch.bool, device=device)
 
     blockVectorP = blockVectorAP = activeBlockVectorP = activeBlockVectorAP = torch.empty([0, 0], device=device)
-    smallestResidualNorm = 0.0
+    smallestResidualNorm = torch.tensor(0.0, device=device)
 
     iterationNumber = -1
     restart = True
@@ -142,7 +184,7 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
         else:
             gramXAX = torch.diag(_lambda).to(dtype)
             gramXBX = torch.eye(sizeX, dtype=dtype, device=device)
-            gramRBR = torch.eye(currentBlockSize, dtype=dtype, device=device)
+            gramRBR = torch.eye(int(currentBlockSize), dtype=dtype, device=device)
             gramXBR = torch.zeros([sizeX, int(currentBlockSize)], dtype=dtype, device=device)
 
         if not restart:
@@ -155,7 +197,7 @@ def lobpcg(A: torch.Tensor, X: torch.Tensor, tol: float | None = None, maxiter: 
                 gramPAP = (gramPAP + gramPAP.T.conj()) / 2
                 gramPBP = activeBlockVectorP.T.conj() @ activeBlockVectorP
             else:
-                gramPBP = torch.eye(currentBlockSize, dtype=dtype, device=device)
+                gramPBP = torch.eye(int(currentBlockSize), dtype=dtype, device=device)
 
             gramA = torch.cat([torch.cat([gramXAX, gramXAR, gramXAP], dim=1),
                                torch.cat([gramXAR.T.conj(), gramRAR, gramRAP], dim=1),
