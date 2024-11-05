@@ -47,7 +47,7 @@ class Hamiltonian:
         return torch.cat(index_i_pool, dim=0), torch.cat(configs_j_pool, dim=0), torch.cat(coefs_pool, dim=0)
 
     def inside(self, configs_i_int64: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        configs_i: torch.Tensor = configs_i_int64.cuda().to(dtype=torch.int8)
+        configs_i: torch.Tensor = configs_i_int64.to(dtype=torch.int8)
         # Parameters
         # configs_i : bool[batch_size, n_qubits]
         # Returns
@@ -93,7 +93,7 @@ class Hamiltonian:
         return torch.stack([index_i_target, index_j_target], dim=1), torch.view_as_complex(coefs_target)
 
     def outside(self, configs_i_int64: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        configs_i: torch.Tensor = configs_i_int64.cuda().to(dtype=torch.int8)
+        configs_i: torch.Tensor = configs_i_int64.to(dtype=torch.int8)
         # Parameters
         # configs_i : bool[batch_size, n_qubits]
         # Returns

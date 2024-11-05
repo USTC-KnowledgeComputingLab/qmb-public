@@ -57,10 +57,7 @@ class VmcConfig:
 
             if self.include_outside:
                 logging.info("generating hamiltonian data to create sparse matrix outsidely")
-                indices_i_and_j, values, configs_j = model.outside(configs_i.cpu())
-                indices_i_and_j = torch.as_tensor(indices_i_and_j).cuda()
-                values = torch.as_tensor(values).cuda()
-                configs_j = torch.as_tensor(configs_j).cuda()
+                indices_i_and_j, values, configs_j = model.outside(configs_i)
                 logging.info("sparse matrix data created")
                 outside_count = len(configs_j)
                 logging.info("outside configs count is %d", outside_count)
@@ -69,9 +66,7 @@ class VmcConfig:
                 logging.info("sparse matrix created")
             else:
                 logging.info("generating hamiltonian data to create sparse matrix insidely")
-                indices_i_and_j, values = model.inside(configs_i.cpu())
-                indices_i_and_j = torch.as_tensor(indices_i_and_j).cuda()
-                values = torch.as_tensor(values).cuda()
+                indices_i_and_j, values = model.inside(configs_i)
                 logging.info("sparse matrix data created")
                 logging.info("converting sparse matrix data to sparse matrix")
                 hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()

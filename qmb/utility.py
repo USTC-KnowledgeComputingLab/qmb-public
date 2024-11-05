@@ -10,10 +10,7 @@ def extend_and_select(model, configs_core, psi_core, count_selected):
     logging.info("count of core configuration is %d", count_core)
 
     logging.info("calculate extended configurations")
-    indices_i_and_j, values, configs_extended = model.outside(configs_core.cpu())
-    indices_i_and_j = torch.as_tensor(indices_i_and_j).cuda()
-    values = torch.as_tensor(values).cuda()
-    configs_extended = torch.as_tensor(configs_extended).cuda()
+    indices_i_and_j, values, configs_extended = model.outside(configs_core)
     logging.info("extended configurations created")
     count_extended = len(configs_extended)
     logging.info("count of extended configurations count is %d", count_extended)
@@ -51,9 +48,7 @@ def lobpcg_and_select(model, configs, psi, count_selected=None):
     logging.info("count of configuration is %d", count)
 
     logging.info("calculating sparse data of hamiltonian on configurations")
-    indices_i_and_j, values = model.inside(configs.cpu())
-    indices_i_and_j = torch.as_tensor(indices_i_and_j).cuda()
-    values = torch.as_tensor(values).cuda()
+    indices_i_and_j, values = model.inside(configs)
     logging.info("converting sparse matrix data to sparse matrix")
     hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count, count], dtype=torch.complex128).to_sparse_csr()
     logging.info("sparse matrix on configurations created")
