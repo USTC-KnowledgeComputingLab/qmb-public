@@ -13,23 +13,24 @@ def get_extension() -> object:
     return extension
 
 
-@typing.runtime_checkable
-class RelativeProto(typing.Protocol):
-
-    def relative(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        ...
-
-
 class Hamiltonian:
 
     def __init__(self, hamiltonian: dict[tuple[tuple[int, int], ...], complex], *, kind: typing.Literal["fermi", "bose2"]) -> None:
-        self.hamiltonian: RelativeProto = getattr(get_extension(), kind)(hamiltonian)
+        cpu_site: torch.Tensor
+        cpu_kind: torch.Tensor
+        cpu_coef: torch.Tensor
+        cpu_site, cpu_kind, cpu_coef = getattr(get_extension(), "prepare")(hamiltonian)
+        self.site: torch.Tensor = cpu_site.cuda()
+        self.kind: torch.Tensor = cpu_kind.cuda()
+        self.coef: torch.Tensor = cpu_coef.cuda()
+        self._relative: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+        self._relative = getattr(torch.ops._hamiltonian, kind)
 
     def relative(
         self,
         configs_i: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # this function is equivalent to return self.hamiltonian.relative(configs_i)
+        # this function is equivalent to return self._relative(configs_i, site, kind, coef)
         # but split configs_i into pieces to avoid out of memory
         batch_size: int = configs_i.shape[0]
         index_i_pool: list[torch.Tensor] = []
@@ -39,7 +40,7 @@ class Hamiltonian:
             index_i: torch.Tensor
             configs_j: torch.Tensor
             coefs: torch.Tensor
-            index_i, configs_j, coefs = self.hamiltonian.relative(configs_i[i:i + 1])
+            index_i, configs_j, coefs = self._relative(configs_i[i:i + 1], self.site, self.kind, self.coef)
             index_i_pool.append(index_i + i)
             configs_j_pool.append(configs_j)
             coefs_pool.append(coefs)

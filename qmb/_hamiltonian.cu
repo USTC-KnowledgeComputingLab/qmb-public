@@ -180,139 +180,124 @@ void launch_search_kernel(
     cudaDeviceSynchronize();
 }
 
-template<std::int64_t max_op_number, std::int64_t particle_cut>
-class Hamiltonian {
-  public:
-    // Number of terms in the Hamiltonian
-    std::int64_t term_number;
+// The argument `hamiltonian` should be a dictionary where:
+// - The keys are tuples of tuples, each representing a sequence of operations for a term.
+// - The values are complex numbers representing the coefficient of the corresponding term.
+// Each inner tuple represents a single operator, with the first integer indicating the site index
+// and the second integer indicating the kind of operator (0 for annihilation, 1 for creation).
+// The return value of this function will be stored on the Python side and utilized in subsequent calls to the `relative` function.
+template<std::int64_t max_op_number>
+auto prepare(py::dict hamiltonian) {
+    std::int64_t term_number = hamiltonian.size();
+    auto cpu_site = torch::empty({term_number, max_op_number}, torch::kInt16);
+    auto cpu_kind = torch::full({term_number, max_op_number}, 2, torch::kInt8);
+    auto cpu_coef = torch::zeros({term_number, 2}, torch::kDouble);
+    auto cpu_site_accessor = cpu_site.template accessor<std::int16_t, 2>();
+    auto cpu_kind_accessor = cpu_kind.template accessor<std::int8_t, 2>();
+    auto cpu_coef_accessor = cpu_coef.template accessor<double, 2>();
 
-    // Tensor storing the site indices for each operation in the Hamiltonian terms
-    // Shape: [max_op_number, term_number], dtype: int16
-    torch::Tensor site;
+    std::int64_t index = 0;
+    for (auto item : hamiltonian) {
+        auto key = item.first.cast<py::tuple>();
+        auto value_is_float = py::isinstance<py::float_>(item.second);
+        auto value = value_is_float ? std::complex<double>(item.second.cast<double>()) : item.second.cast<std::complex<double>>();
 
-    // Tensor storing the kind of each operation in the Hamiltonian terms
-    // Shape: [max_op_number, term_number], dtype: int8
-    torch::Tensor kind;
-
-    // Tensor storing the coefficients (real and imaginary parts) for each Hamiltonian term
-    // Shape: [term_number, 2], dtype: float64
-    torch::Tensor coef;
-
-    // The argument `hamiltonian` should be a dictionary where:
-    // - The keys are tuples of tuples, each representing a sequence of operations for a term.
-    // - The values are complex numbers representing the coefficient of the corresponding term.
-    // Each inner tuple represents a single operator, with the first integer indicating the site index
-    // and the second integer indicating the kind of operator (0 for annihilation, 1 for creation).
-    Hamiltonian(py::dict hamiltonian) {
-        auto& self = *this;
-
-        self.term_number = hamiltonian.size();
-
-        std::int64_t index = 0;
-        auto cpu_site = torch::zeros({self.term_number, max_op_number}, torch::kInt16);
-        auto cpu_kind = torch::zeros({self.term_number, max_op_number}, torch::kInt8);
-        auto cpu_coef = torch::zeros({self.term_number, 2}, torch::kDouble);
-        auto cpu_site_accessor = cpu_site.template accessor<std::int16_t, 2>();
-        auto cpu_kind_accessor = cpu_kind.template accessor<std::int8_t, 2>();
-        auto cpu_coef_accessor = cpu_coef.template accessor<double, 2>();
-
-        for (auto item : hamiltonian) {
-            auto key = item.first.cast<py::tuple>();
-            auto value_is_float = py::isinstance<py::float_>(item.second);
-            auto value = value_is_float ? std::complex<double>(item.second.cast<double>()) : item.second.cast<std::complex<double>>();
-
-            std::int64_t op_number = key.size();
-            for (auto i = 0; i < op_number; ++i) {
-                cpu_site_accessor[index][i] = key[i].cast<py::tuple>()[0].cast<std::int16_t>();
-                cpu_kind_accessor[index][i] = key[i].cast<py::tuple>()[1].cast<std::int8_t>();
-            }
-            for (auto i = op_number; i < max_op_number; ++i) {
-                cpu_kind_accessor[index][i] = 2;
-            }
-
-            cpu_coef_accessor[index][0] = value.real();
-            cpu_coef_accessor[index][1] = value.imag();
-
-            ++index;
+        std::int64_t op_number = key.size();
+        for (auto i = 0; i < op_number; ++i) {
+            cpu_site_accessor[index][i] = key[i].cast<py::tuple>()[0].cast<std::int16_t>();
+            cpu_kind_accessor[index][i] = key[i].cast<py::tuple>()[1].cast<std::int8_t>();
         }
 
-        site = cpu_site.to(device);
-        kind = cpu_kind.to(device);
-        coef = cpu_coef.to(device);
+        cpu_coef_accessor[index][0] = value.real();
+        cpu_coef_accessor[index][1] = value.imag();
+
+        ++index;
     }
 
-    // This function computes the relative configurations and coefficients for a given set of input configurations.
-    // It applies the Hamiltonian terms to the input configurations and evaluate the coefficients accordingly.
-    // The function returns the indices of the valid input configurations, the corresponding output configurations, and the updated coefficients.
-    auto relative(torch::Tensor configs_i) {
-        auto& self = *this;
-        // Parameters:
-        // configs_i: A int8 tensor of shape [batch_size, n_qubits] representing the input configurations.
-        //
-        // Returns:
-        // valid_index_i: A tensor of shape [...] containing the indices of valid input configurations.
-        // valid_configs_j: A int8 tensor of shape [..., n_qubits] representing the output configurations.
-        // valid_coefs: A tensor of shape [..., 2] containing the updated coefficients.
+    // site stores the site indices for each operation in the Hamiltonian terms
+    // shape: [max_op_number, term_number], dtype: int16
+    // kind stores the kind of each operation in the Hamiltonian terms
+    // shape: [max_op_number, term_number], dtype: int8
+    // coef stores the coefficients (real and imaginary parts) for each Hamiltonian term
+    // shape: [term_number, 2], dtype: float64
+    return std::make_tuple(cpu_site, cpu_kind, cpu_coef);
+}
 
-        std::int64_t batch_size = configs_i.size(0);
-        std::int64_t n_qubits = configs_i.size(1);
+// This function computes the relative configurations and coefficients for a given set of input configurations.
+// It applies the Hamiltonian terms to the input configurations and evaluate the coefficients accordingly.
+// The function returns the indices of the valid input configurations, the corresponding output configurations, and the updated coefficients.
+// The last three arguments are prepared by the `prepare` function and stored on the Python side.
+template<std::int64_t max_op_number, std::int64_t particle_cut>
+auto relative(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
+    // Parameters:
+    // configs_i: A int8 tensor of shape [batch_size, n_qubits] representing the input configurations.
+    //
+    // Returns:
+    // valid_index_i: A tensor of shape [...] containing the indices of valid input configurations.
+    // valid_configs_j: A int8 tensor of shape [..., n_qubits] representing the output configurations.
+    // valid_coefs: A tensor of shape [..., 2] containing the updated coefficients.
 
-        // configs_j_matrix: A int8 tensor of shape [term_number, batch_size, n_qubits],
-        // that captures the modifications to the input configurations by applying each term in the Hamiltonian.
-        auto configs_j_matrix = configs_i.unsqueeze(0).repeat(std::initializer_list<std::int64_t>{self.term_number, 1, 1});
-        // coefs_matrix: A tensor of shape [term_number, batch_size, 2] initialized to zero.
-        auto coefs_matrix = torch::zeros({self.term_number, batch_size, 2}, torch::TensorOptions().dtype(torch::kDouble).device(device));
-        // Obtain accessors for each relevant tensor to facilitate efficient data access within the kernel.
-        auto site_accesor = self.site.template packed_accessor64<std::int16_t, 2>();
-        auto kind_accesor = self.kind.template packed_accessor64<std::int8_t, 2>();
-        auto coef_accesor = self.coef.template packed_accessor64<double, 2>();
-        auto configs_j_matrix_accesor = configs_j_matrix.template packed_accessor64<std::int8_t, 3>();
-        auto coefs_matrix_accesor = coefs_matrix.template packed_accessor64<double, 3>();
-        // Apply all Hamiltonian terms to the configurations in configs_j_matrix(copyied from configs_i),
-        // and evaluate the corresponding coefficients in coefs_matrix.
-        launch_search_kernel<max_op_number, particle_cut>(
-            self.term_number,
-            batch_size,
-            site_accesor,
-            kind_accesor,
-            coef_accesor,
-            configs_j_matrix_accesor,
-            coefs_matrix_accesor
-        );
+    std::int64_t batch_size = configs_i.size(0);
+    std::int64_t n_qubits = configs_i.size(1);
+    std::int64_t term_number = site.size(0);
 
-        // index_i : int64[batch_size]
-        auto index_i = torch::arange(batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device));
-        // index_i_matrix : int64[term_number, batch_size]
-        auto index_i_matrix = index_i.unsqueeze(0).repeat({term_number, 1});
-        // non_zero_matrix : bool[term_number, batch_size]
-        auto non_zero_matrix = torch::any(coefs_matrix != 0, -1);
+    // configs_j_matrix: A int8 tensor of shape [term_number, batch_size, n_qubits],
+    // that captures the modifications to the input configurations by applying each term in the Hamiltonian.
+    auto configs_j_matrix = configs_i.unsqueeze(0).repeat(std::initializer_list<std::int64_t>{term_number, 1, 1});
+    // coefs_matrix: A tensor of shape [term_number, batch_size, 2] initialized to zero.
+    auto coefs_matrix = torch::zeros({term_number, batch_size, 2}, torch::TensorOptions().dtype(torch::kDouble).device(device));
+    // Obtain accessors for each relevant tensor to facilitate efficient data access within the kernel.
+    auto site_accesor = site.template packed_accessor64<std::int16_t, 2>();
+    auto kind_accesor = kind.template packed_accessor64<std::int8_t, 2>();
+    auto coef_accesor = coef.template packed_accessor64<double, 2>();
+    auto configs_j_matrix_accesor = configs_j_matrix.template packed_accessor64<std::int8_t, 3>();
+    auto coefs_matrix_accesor = coefs_matrix.template packed_accessor64<double, 3>();
+    // Apply all Hamiltonian terms to the configurations in configs_j_matrix(copyied from configs_i),
+    // and evaluate the corresponding coefficients in coefs_matrix.
+    launch_search_kernel<max_op_number, particle_cut>(
+        term_number,
+        batch_size,
+        site_accesor,
+        kind_accesor,
+        coef_accesor,
+        configs_j_matrix_accesor,
+        coefs_matrix_accesor
+    );
 
-        // View configs_j_matrix, coefs_matrix, index_i_matrix, and non_zero_matrix into vector form
-        auto configs_j_vector = configs_j_matrix.view({-1, n_qubits});
-        auto coefs_vector = coefs_matrix.view({-1, 2});
-        auto index_i_vector = index_i_matrix.view({-1});
-        auto non_zero_vector = non_zero_matrix.view({-1});
+    // index_i : int64[batch_size]
+    auto index_i = torch::arange(batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device));
+    // index_i_matrix : int64[term_number, batch_size]
+    auto index_i_matrix = index_i.unsqueeze(0).repeat({term_number, 1});
+    // non_zero_matrix : bool[term_number, batch_size]
+    auto non_zero_matrix = torch::any(coefs_matrix != 0, -1);
 
-        // Identify the indices of non-zero elements for further processing
-        auto non_zero_indices = non_zero_vector.nonzero().squeeze(1);
+    // View configs_j_matrix, coefs_matrix, index_i_matrix, and non_zero_matrix into vector form
+    auto configs_j_vector = configs_j_matrix.view({-1, n_qubits});
+    auto coefs_vector = coefs_matrix.view({-1, 2});
+    auto index_i_vector = index_i_matrix.view({-1});
+    auto non_zero_vector = non_zero_matrix.view({-1});
 
-        // Select the valid configurations, coefficients, and indices based on non-zero elements
-        auto valid_configs_j = configs_j_vector.index_select(0, non_zero_indices);
-        auto valid_coefs = coefs_vector.index_select(0, non_zero_indices);
-        auto valid_index_i = index_i_vector.index_select(0, non_zero_indices);
+    // Identify the indices of non-zero elements for further processing
+    auto non_zero_indices = non_zero_vector.nonzero().squeeze(1);
 
-        return std::make_tuple(valid_index_i, valid_configs_j, valid_coefs);
-    }
-};
+    // Select the valid configurations, coefficients, and indices based on non-zero elements
+    auto valid_configs_j = configs_j_vector.index_select(0, non_zero_indices);
+    auto valid_coefs = coefs_vector.index_select(0, non_zero_indices);
+    auto valid_index_i = index_i_vector.index_select(0, non_zero_indices);
 
-using FermiHamiltonian = Hamiltonian</*max_op_number=*/4, /*particle_cut=*/1>;
-using Bose2Hamiltonian = Hamiltonian</*max_op_number=*/4, /*particle_cut=*/2>;
+    return std::make_tuple(valid_index_i, valid_configs_j, valid_coefs);
+}
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    py::class_<FermiHamiltonian>(m, "fermi", py::module_local())
-        .def(py::init<py::dict>(), py::arg("hamiltonian"))
-        .def("relative", &FermiHamiltonian::relative, py::arg("configs_i"));
-    py::class_<Bose2Hamiltonian>(m, "bose2", py::module_local())
-        .def(py::init<py::dict>(), py::arg("hamiltonian"))
-        .def("relative", &Bose2Hamiltonian::relative, py::arg("configs_i"));
+PYBIND11_MODULE(_hamiltonian, m) {
+    m.def("prepare", prepare</*max_op_number=*/4>, py::arg("hamiltonian"));
+}
+
+TORCH_LIBRARY(_hamiltonian, m) {
+    m.def("fermi(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
+    m.def("bose2(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
+}
+
+TORCH_LIBRARY_IMPL(_hamiltonian, CUDA, m) {
+    m.impl("fermi", relative</*max_op_number=*/4, /*particle_cut=*/1>);
+    m.impl("bose2", relative</*max_op_number=*/4, /*particle_cut=*/2>);
 }
