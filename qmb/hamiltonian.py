@@ -44,6 +44,7 @@ class Hamiltonian:
         self.site = self.site.to(device=device)
         self.kind = self.kind.to(device=device)
         self.coef = self.coef.to(device=device)
+        assert configs_i.is_contiguous() and self.site.is_contiguous() and self.kind.is_contiguous() and self.coef.is_contiguous()
         return self._relative_impl(configs_i, self.site, self.kind, self.coef)
 
     def inside(self, configs_i_int64: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

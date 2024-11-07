@@ -54,6 +54,7 @@ __device__ void search_kernel(
         // The parity is crucial when applying fermion operators to the state, due to the anti-commutation rules of fermions.
         bool parity = false;
         // Apply the operators in reverse order to the state.
+#pragma unroll
         for (auto op_index = max_op_number; op_index-- > 0;) {
             auto site_single = site_accesor[term_index][op_index];
             auto kind_single = kind_accesor[term_index][op_index];
@@ -87,6 +88,7 @@ __device__ void search_kernel(
         // For the boson case with a particle cutoff of 2, the operations are identical to those in the fermion case,
         // with the notable exception that parity considerations are not required.
         bool success = true;
+#pragma unroll
         for (auto op_index = max_op_number; op_index-- > 0;) {
             auto site_single = site_accesor[term_index][op_index];
             auto kind_single = kind_accesor[term_index][op_index];
@@ -283,10 +285,33 @@ auto python_interface_with_batch_split(torch::Tensor configs_i, torch::Tensor si
     return std::make_tuple(torch::cat(index_i_pool, /*dim=*/0), torch::cat(configs_j_pool, /*dim=*/0), torch::cat(coefs_pool, /*dim=*/0));
 }
 
+// This function encapsulates the `python_interface` to facilitate job splitting, thereby mitigating potential memory leaks.
+// It partitions the input tensor into pieces, invokes the `python_interface` on each segment, and subsequently merges the results.
+template<std::int64_t max_op_number, std::int64_t particle_cut, std::int64_t group_size>
+auto python_interface_with_term_group(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
+    std::int64_t batch_size = configs_i.size(0);
+    std::int64_t term_number = site.size(0);
+    std::vector<torch::Tensor> index_i_pool;
+    std::vector<torch::Tensor> configs_j_pool;
+    std::vector<torch::Tensor> coefs_pool;
+    for (std::int64_t i = 0; i < term_number; i += group_size) {
+        auto [index_i, configs_j, coefs] = python_interface<max_op_number, particle_cut>(
+            configs_i,
+            site.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)}),
+            kind.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)}),
+            coef.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)})
+        );
+        index_i_pool.push_back(index_i);
+        configs_j_pool.push_back(configs_j);
+        coefs_pool.push_back(coefs);
+    }
+    return std::make_tuple(torch::cat(index_i_pool, /*dim=*/0), torch::cat(configs_j_pool, /*dim=*/0), torch::cat(coefs_pool, /*dim=*/0));
+}
+
 // Definition of the CUDA kernel implementation for operators.
 TORCH_LIBRARY_IMPL(_hamiltonian, CUDA, m) {
-    m.impl("fermi", python_interface_with_batch_split</*max_op_number=*/4, /*particle_cut=*/1>);
-    m.impl("bose2", python_interface_with_batch_split</*max_op_number=*/4, /*particle_cut=*/2>);
+    m.impl("fermi", python_interface_with_term_group</*max_op_number=*/4, /*particle_cut=*/1, /*group_size=*/256>);
+    m.impl("bose2", python_interface_with_term_group</*max_op_number=*/4, /*particle_cut=*/2, /*group_size=*/256>);
 }
 
 } // namespace qmb_hamiltonian_cuda
