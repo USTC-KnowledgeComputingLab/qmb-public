@@ -8,7 +8,7 @@ from . import iter as _
 from .subcommand_dict import subcommand_dict
 
 
-def main():
+def main() -> None:
     tyro.extras.subcommand_cli_from_dict(subcommand_dict).main()
 
 
