@@ -8,7 +8,7 @@ import torch
 import tyro
 from . import naqs as naqs_m
 from . import hamiltonian
-from .model_dict import model_dict
+from .model_dict import model_dict, ModelProto, NetworkProto
 
 
 @dataclasses.dataclass
@@ -50,13 +50,9 @@ class ModelConfig:
     az: typing.Annotated[float, tyro.conf.arg(aliases=["-za"])] = 0
 
 
-@dataclasses.dataclass
-class NaqsConfig:
-    # The hidden widths of the network
-    hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (512,)
+class Model(ModelProto["Model"]):
 
-
-class Model:
+    network_dict: dict[str, typing.Callable[["Model", tuple[str, ...]], NetworkProto]] = {}
 
     @classmethod
     def preparse(cls, input_args):
@@ -202,13 +198,23 @@ class Model:
     def outside(self, configs_i):
         return self.hamiltonian.outside(configs_i)
 
-    def naqs(self, input_args):
+
+model_dict["ising"] = Model
+
+
+@dataclasses.dataclass
+class NaqsConfig:
+    # The hidden widths of the network
+    hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (512,)
+
+    @classmethod
+    def create(cls, model, input_args):
         logging.info("parsing args %a by network naqs", input_args)
         args = tyro.cli(NaqsConfig, args=input_args)
         logging.info("hidden: %a", args.hidden)
 
         network = naqs_m.WaveFunctionNormal(
-            sites=self.m * self.n,
+            sites=model.m * model.n,
             physical_dim=2,
             is_complex=True,
             hidden_size=args.hidden,
@@ -218,4 +224,4 @@ class Model:
         return torch.jit.script(network)
 
 
-model_dict["ising"] = Model
+Model.network_dict["naqs"] = NaqsConfig.create

@@ -31,7 +31,7 @@ class CommonConfig:
 
     def main(self):
         if "-h" in self.network_args or "--help" in self.network_args:
-            getattr(model_dict[self.model_name], self.network_name)(object(), self.network_args)
+            model_dict[self.model_name].network_dict[self.network_name](object(), self.network_args)
         default_job_name = model_dict[self.model_name].preparse(self.physics_args)
         if self.job_name is None:
             self.job_name = default_job_name
@@ -65,7 +65,7 @@ class CommonConfig:
         logging.info("the physical model has been loaded")
 
         logging.info("loading network %s and create network with physical model and args %s", self.network_name, self.network_args)
-        network = getattr(model, self.network_name)(self.network_args)
+        network = model_dict[self.model_name].network_dict[self.network_name](model, self.network_args)
         logging.info("network created")
 
         logging.info("trying to load checkpoint")

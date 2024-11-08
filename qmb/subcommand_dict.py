@@ -6,7 +6,7 @@ Other packages can register their subcommands by adding entries to this dictiona
 import typing
 
 
-class DataclassWithMain(typing.Protocol):
+class SubcommandProto(typing.Protocol):
     """
     This protocol defines a dataclass with a `main` method, which will be called when the subcommand is executed.
     """
@@ -19,4 +19,4 @@ class DataclassWithMain(typing.Protocol):
         """
 
 
-subcommand_dict: dict[str, typing.Callable[..., DataclassWithMain]] = {}
+subcommand_dict: dict[str, typing.Callable[..., SubcommandProto]] = {}
