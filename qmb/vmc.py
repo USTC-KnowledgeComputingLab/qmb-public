@@ -1,3 +1,7 @@
+"""
+This file implements a variational Monte Carlo method for solving quantum many-body problems.
+"""
+
 import logging
 import typing
 import dataclasses
@@ -9,6 +13,12 @@ from .subcommand_dict import subcommand_dict
 
 @dataclasses.dataclass
 class VmcConfig:
+    """
+    The VMC optimization for solving quantum many-body problems.
+    """
+
+    # pylint: disable=too-many-instance-attributes
+
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
     # sampling count
@@ -28,11 +38,16 @@ class VmcConfig:
     # do not calculate deviation when optimizing energy
     omit_deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.learning_rate == -1:
             self.learning_rate = 1 if self.use_lbfgs else 1e-3
 
-    def main(self):
+    def main(self) -> None:
+        """
+        The main function for the VMC optimization.
+        """
+        # pylint: disable=too-many-statements
+
         model, network = self.common.main()
 
         logging.info(
@@ -72,6 +87,7 @@ class VmcConfig:
                 hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
                 logging.info("sparse matrix created")
 
+            optimizer: torch.optim.Optimizer
             if self.use_lbfgs:
                 optimizer = torch.optim.LBFGS(network.parameters(), lr=self.learning_rate)
             else:
@@ -79,7 +95,7 @@ class VmcConfig:
 
             if self.deviation:
 
-                def closure():
+                def closure() -> torch.Tensor:
                     # Optimizing deviation
                     optimizer.zero_grad()
                     # Calculate amplitudes i and amplitudes j
@@ -112,18 +128,18 @@ class VmcConfig:
                     variance = (difference.conj() @ difference) / (amplitudes_i.conj() @ amplitudes_i)
                     # calculate the deviation
                     deviation = variance.real.sqrt()
-                    deviation.backward()
+                    deviation.backward()  # type: ignore[no-untyped-call]
                     # As we have already calculated energy, embed it in deviation for logging
-                    deviation.energy = energy.real
+                    deviation.energy = energy.real  # type: ignore[attr-defined]
                     return deviation
 
                 logging.info("local optimization for deviation starting")
                 for i in range(self.local_step):
-                    deviation = optimizer.step(closure)
-                    logging.info("local optimizing, step: %d, energy: %.10f, deviation: %.10f", i, deviation.energy.item(), deviation.item())
+                    deviation: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
+                    logging.info("local optimizing, step: %d, energy: %.10f, deviation: %.10f", i, deviation.energy.item(), deviation.item())  # type: ignore[attr-defined]
             else:
 
-                def closure():
+                def closure() -> torch.Tensor:
                     # Optimizing energy
                     optimizer.zero_grad()
                     # Calculate amplitudes i and amplitudes j
@@ -153,15 +169,15 @@ class VmcConfig:
                             variance = (difference.conj() @ difference) / (amplitudes_i.conj() @ amplitudes_i)
                             deviation = variance.real.sqrt()
                     energy = energy.real
-                    energy.backward()
+                    energy.backward()  # type: ignore[no-untyped-call]
                     # Embed the deviation which has been calculated in energy for logging
-                    energy.deviation = deviation
+                    energy.deviation = deviation  # type: ignore[attr-defined]
                     return energy
 
                 logging.info("local optimization for energy starting")
                 for i in range(self.local_step):
-                    energy = optimizer.step(closure)
-                    logging.info("local optimizing, step: %d, energy: %.10f, deviation: %.10f", i, energy.item(), energy.deviation.item())
+                    energy: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
+                    logging.info("local optimizing, step: %d, energy: %.10f, deviation: %.10f", i, energy.item(), energy.deviation.item())  # type: ignore[attr-defined]
 
             logging.info("local optimization finished")
             logging.info("saving checkpoint")

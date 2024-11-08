@@ -23,10 +23,16 @@ class NetworkProto(typing.Protocol):
         """
 
     def load_state_dict(self, data: dict[str, torch.Tensor]) -> typing.Any:
-        ...
+        """torch.nn.Module function"""
+
+    def state_dict(self) -> dict[str, torch.Tensor]:
+        """torch.nn.Module function"""
 
     def cuda(self) -> typing.Any:
-        ...
+        """torch.nn.Module function"""
+
+    def parameters(self) -> typing.Iterable[torch.Tensor]:
+        """torch.nn.Module function"""
 
 
 _Model = typing.TypeVar('_Model')

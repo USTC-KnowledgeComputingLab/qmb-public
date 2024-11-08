@@ -1,3 +1,7 @@
+"""
+This file implements a two-step optimization process for solving quantum many-body problems.
+"""
+
 import logging
 import typing
 import dataclasses
@@ -11,6 +15,12 @@ from .utility import extend_and_select, lobpcg_and_select
 
 @dataclasses.dataclass
 class LearnConfig:
+    """
+    The two-step optimization process for solving quantum many-body problems.
+    """
+
+    # pylint: disable=too-many-instance-attributes
+
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
     # sampling count
@@ -32,13 +42,19 @@ class LearnConfig:
     # the post sampling count
     post_sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 50000
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.learning_rate == -1:
             self.learning_rate = 1 if self.use_lbfgs else 1e-3
         if self.local_step == -1:
             self.local_step = 400 if self.use_lbfgs else 1000
 
-    def main(self):
+    def main(self) -> None:
+        """
+        The main function of the two-step optimization process.
+        """
+        # pylint: disable=too-many-locals
+        # pylint: disable=too-many-statements
+
         model, network = self.common.main()
 
         logging.info(
@@ -89,25 +105,27 @@ class LearnConfig:
             targets = targets / targets[max_index]
 
             logging.info("choosing loss function as %s", self.loss_name)
-            loss_func = getattr(losses, self.loss_name)
+            loss_func: typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = getattr(losses, self.loss_name)
 
+            optimizer: torch.optim.Optimizer
             if self.use_lbfgs:
                 optimizer = torch.optim.LBFGS(network.parameters(), lr=self.learning_rate)
             else:
                 optimizer = torch.optim.Adam(network.parameters(), lr=self.learning_rate)
 
-            def closure():
+            def closure() -> torch.Tensor:
                 optimizer.zero_grad()
                 amplitudes = network(configs)
                 amplitudes = amplitudes / amplitudes[max_index]
-                loss = loss_func(amplitudes, targets)
-                loss.backward()
-                loss.amplitudes = amplitudes
+                loss: torch.Tensor = loss_func(amplitudes, targets)
+                loss.backward()  # type: ignore[no-untyped-call]
+                loss.amplitudes = amplitudes  # type: ignore[attr-defined]
                 return loss
 
             logging.info("local optimization starting")
+            loss: torch.Tensor
             for i in range(self.local_step):
-                loss = optimizer.step(closure)
+                loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                 logging.info("local optimizing, step %d, loss %.10f", i, loss.item())
                 if loss < self.local_loss:
                     logging.info("local optimization stop since local loss reached")
@@ -118,8 +136,8 @@ class LearnConfig:
             torch.save(network.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.pt")
             logging.info("checkpoint saved")
             logging.info("calculating current energy")
-            loss = torch.enable_grad(closure)()
-            amplitudes = loss.amplitudes
+            loss = closure()
+            amplitudes = loss.amplitudes  # type: ignore[attr-defined]
             final_energy = ((amplitudes.conj() @ (hamiltonian @ amplitudes)) / (amplitudes.conj() @ amplitudes)).real
             logging.info(
                 "loss = %.10f during local optimization, final energy %.10f, target energy %.10f, ref energy %.10f",

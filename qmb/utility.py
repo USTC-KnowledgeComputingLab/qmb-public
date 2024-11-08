@@ -62,8 +62,8 @@ def lobpcg_and_select(
     psi: torch.Tensor,
     count_selected: int | None = None,
 ) -> tuple[
-        torch.Tensor | None,
-        torch.Tensor | None,
+        torch.Tensor,
+        torch.Tensor,
         torch.Tensor,
         torch.Tensor,
 ]:
@@ -85,7 +85,7 @@ def lobpcg_and_select(
     psi = psi.flatten()
     logging.info("energy on configurations is %.10f, ref energy is %.10f, error is %.10f", energy.item(), model.ref_energy, energy.item() - model.ref_energy)
 
-    if count_selected is not None:  # pylint: disable=no-else-return
+    if count_selected is not None:
         logging.info("calculating indices of new configurations")
         indices = torch.argsort(psi.abs())[-count_selected:]
         logging.info("indices of new configurations has been obtained")
@@ -95,6 +95,4 @@ def lobpcg_and_select(
         psi = psi[indices]
         logging.info("new configurations has been updated")
 
-        return None, None, configs, psi
-    else:
-        return energy, hamiltonian, configs, psi
+    return energy, hamiltonian, configs, psi

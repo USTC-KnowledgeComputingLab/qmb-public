@@ -1,3 +1,7 @@
+"""
+This file implements the direct iterative method for solving quantum many-body problems.
+"""
+
 import logging
 import typing
 import dataclasses
@@ -9,6 +13,10 @@ from .utility import extend_and_select, lobpcg_and_select
 
 @dataclasses.dataclass
 class IterConfig:
+    """
+    The direct iterative method for solving quantum many-body problems.
+    """
+
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
     # sampling count
@@ -17,7 +25,11 @@ class IterConfig:
     # selected extended sampling count
     selected_sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 65536
 
-    def main(self):
+    def main(self) -> None:
+        """
+        The main function of the direct iterative method.
+        """
+
         model, network = self.common.main()
 
         logging.info(
