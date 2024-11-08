@@ -68,7 +68,6 @@ def lobpcg_process(
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
-        torch.Tensor,
 ]:
     """
     Perform LOBPCG on the configurations.
@@ -92,7 +91,7 @@ def lobpcg_process(
 
     logging.info("LOBPCG process completed.")
 
-    return energy, hamiltonian, configs, psi
+    return energy, hamiltonian, psi
 
 
 def select_by_lobpcg(
@@ -110,7 +109,7 @@ def select_by_lobpcg(
 
     logging.info("Starting LOBPCG-based selection process.")
 
-    _, _, configs, psi = lobpcg_process(model, configs, psi)
+    _, _, psi = lobpcg_process(model, configs, psi)
 
     logging.info("Identifying the indices of the most significant configurations.")
     indices = torch.argsort(psi.abs())[-count_selected:]

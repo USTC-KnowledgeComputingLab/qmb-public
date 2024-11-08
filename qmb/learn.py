@@ -104,7 +104,7 @@ class LearnConfig:
                 logging.info("Post-sampling process successfully completed")
 
             logging.info("Solving the equation within the configuration subspace")
-            target_energy, hamiltonian, _, targets = lobpcg_process(model, configs, psi)
+            target_energy, hamiltonian, targets = lobpcg_process(model, configs, psi)
             targets = targets.view([-1])
             max_index = targets.abs().argmax()
             targets = targets / targets[max_index]
