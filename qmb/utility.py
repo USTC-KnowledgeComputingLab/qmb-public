@@ -1,10 +1,25 @@
+"""
+This file contains common steps used in other scripts.
+"""
+
 import logging
 import torch
+from .model_dict import ModelProto
 from .lobpcg import lobpcg
 
 
-def extend_and_select(model, configs_core, psi_core, count_selected):
-    # Extend configs_core based on the model, calculate their importance based on psi_core and select them based on count_selected.
+def extend_and_select(
+    model: ModelProto,
+    configs_core: torch.Tensor,
+    psi_core: torch.Tensor,
+    count_selected: int,
+) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+]:
+    """
+    Extend configs_core based on the model, calculate their importance based on psi_core and select them based on count_selected.
+    """
 
     count_core = len(configs_core)
     logging.info("count of core configuration is %d", count_core)
@@ -41,8 +56,20 @@ def extend_and_select(model, configs_core, psi_core, count_selected):
     return configs_extended, psi_extended
 
 
-def lobpcg_and_select(model, configs, psi, count_selected=None):
-    # Perform LOBPCG on the configurations and select the most important ones.
+def lobpcg_and_select(
+    model: ModelProto,
+    configs: torch.Tensor,
+    psi: torch.Tensor,
+    count_selected: int | None = None,
+) -> tuple[
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor,
+        torch.Tensor,
+]:
+    """
+    Perform LOBPCG on the configurations and select the most important ones.
+    """
 
     count = len(configs)
     logging.info("count of configuration is %d", count)
@@ -58,7 +85,7 @@ def lobpcg_and_select(model, configs, psi, count_selected=None):
     psi = psi.flatten()
     logging.info("energy on configurations is %.10f, ref energy is %.10f, error is %.10f", energy.item(), model.ref_energy, energy.item() - model.ref_energy)
 
-    if count_selected is not None:
+    if count_selected is not None:  # pylint: disable=no-else-return
         logging.info("calculating indices of new configurations")
         indices = torch.argsort(psi.abs())[-count_selected:]
         logging.info("indices of new configurations has been obtained")

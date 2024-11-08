@@ -1,3 +1,7 @@
+"""
+This file contains the common step to create a model and network for various scripts.
+"""
+
 import os
 import sys
 import logging
@@ -6,11 +10,17 @@ import pathlib
 import dataclasses
 import torch
 import tyro
-from .model_dict import model_dict
+from .model_dict import model_dict, ModelProto, NetworkProto
 
 
 @dataclasses.dataclass
 class CommonConfig:
+    """
+    This class defines the common settings needed to create a model and network.
+    """
+
+    # pylint: disable=too-many-instance-attributes
+
     # The model name
     model_name: typing.Annotated[str, tyro.conf.Positional, tyro.conf.arg(metavar="MODEL")]
     # The network name
@@ -29,10 +39,14 @@ class CommonConfig:
     # The manual random seed, leave empty for set seed automatically
     random_seed: typing.Annotated[int | None, tyro.conf.arg(aliases=["-S"])] = None
 
-    def main(self):
+    def main(self) -> tuple[ModelProto, NetworkProto]:
+        """
+        The main function to create the model and network.
+        """
+
         if "-h" in self.network_args or "--help" in self.network_args:
             model_dict[self.model_name].network_dict[self.network_name](object(), self.network_args)
-        default_job_name = model_dict[self.model_name].preparse(self.physics_args)
+        default_job_name: str = model_dict[self.model_name].preparse(self.physics_args)
         if self.job_name is None:
             self.job_name = default_job_name
 
@@ -61,11 +75,11 @@ class CommonConfig:
         torch.set_grad_enabled(False)
 
         logging.info("loading %s model as physical model", self.model_name)
-        model = model_dict[self.model_name].parse(self.physics_args)
+        model: ModelProto = model_dict[self.model_name].parse(self.physics_args)
         logging.info("the physical model has been loaded")
 
         logging.info("loading network %s and create network with physical model and args %s", self.network_name, self.network_args)
-        network = model_dict[self.model_name].network_dict[self.network_name](model, self.network_args)
+        network: NetworkProto = model_dict[self.model_name].network_dict[self.network_name](model, self.network_args)
         logging.info("network created")
 
         logging.info("trying to load checkpoint")

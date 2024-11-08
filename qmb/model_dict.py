@@ -22,6 +22,12 @@ class NetworkProto(typing.Protocol):
         Generate a batch of unique configurations.
         """
 
+    def load_state_dict(self, data: dict[str, torch.Tensor]) -> typing.Any:
+        ...
+
+    def cuda(self) -> typing.Any:
+        ...
+
 
 _Model = typing.TypeVar('_Model')
 
@@ -32,6 +38,8 @@ class ModelProto(typing.Protocol[_Model]):
     """
 
     network_dict: dict[str, typing.Callable[[_Model, tuple[str, ...]], NetworkProto]]
+
+    ref_energy: float
 
     @classmethod
     def preparse(cls, input_args: tuple[str, ...]) -> str:
