@@ -1,5 +1,6 @@
 """
-This dictionary is used to store subcommands. Other parts of the program can register their subcommands here.
+This module is used to store a dictionary that maps subcommand names to their corresponding dataclass types.
+Other packages can register their subcommands by adding entries to this dictionary.
 """
 
 import typing
