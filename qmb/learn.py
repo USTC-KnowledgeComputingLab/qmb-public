@@ -10,7 +10,7 @@ import tyro
 from . import losses
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
-from .utility import extend_and_select, lobpcg_and_select
+from .utility import extend_with_select, lobpcg_process, select_by_lobpcg
 
 
 @dataclasses.dataclass
@@ -58,53 +58,58 @@ class LearnConfig:
         model, network = self.common.main()
 
         logging.info(
-            "sampling count: %d, learning rate: %f, local step: %d, local loss: %f, logging psi: %d, loss name: %s, use_lbfgs: %a, post sampling iteration: %d, post sampling count: %d",
+            "Arguments Summary: "
+            "Sampling Count: %d, "
+            "Learning Rate: %.10f, "
+            "Local Step: %d, "
+            "Local Loss Threshold: %.10f, "
+            "Logging Psi Count: %d, "
+            "Loss Function: %s, "
+            "Using LBFGS: %s, "
+            "Post Sampling Iteration: %d, "
+            "Post Sampling Count: %d",
             self.sampling_count,
             self.learning_rate,
             self.local_step,
             self.local_loss,
             self.logging_psi,
             self.loss_name,
-            self.use_lbfgs,
+            "Yes" if self.use_lbfgs else "No",
             self.post_sampling_iteration,
             self.post_sampling_count,
         )
 
-        logging.info("main looping")
         while True:
-            logging.info("sampling configurations")
+            logging.info("Starting a new optimization cycle")
+
+            logging.info("Sampling configurations")
             configs, psi, _, _ = network.generate_unique(self.sampling_count)
-            logging.info("sampling done")
+            logging.info("Sampling completed")
 
             if self.post_sampling_iteration != 0:
-                logging.info("post sampling start")
+                logging.info("Starting post-sampling process")
+                logging.info("Extending and selecting %d times with a temporary sampling count of %d", self.post_sampling_iteration, self.post_sampling_count)
                 configs_backup = configs
                 psi_backup = psi
-                for _ in range(self.post_sampling_iteration):
-                    logging.info("extend and select start")
-                    configs, psi = extend_and_select(model, configs, psi, self.post_sampling_count)
-                    logging.info("extend and select finished")
-
-                    logging.info("lobpcg and select start")
-                    _, _, configs, psi = lobpcg_and_select(model, configs, psi, self.sampling_count)
-                    logging.info("lobpcg and select finished")
-                logging.info("post sampling finished")
+                for i in range(self.post_sampling_iteration):
+                    logging.info("Performing extension and selection, iteration %d", i)
+                    configs, psi = extend_with_select(model, configs, psi, self.post_sampling_count)
+                    configs, psi = select_by_lobpcg(model, configs, psi, self.sampling_count)
+                logging.info("Extension and selection loop concluded")
                 too_small_in_backup = torch.all(torch.any(configs_backup.unsqueeze(1) - configs.unsqueeze(0) != 0, dim=-1), dim=-1)
                 too_small_configs = configs_backup[too_small_in_backup]
                 too_small_psi = psi_backup[too_small_in_backup] / 100
                 configs = torch.cat([configs, too_small_configs], dim=0)
                 psi = torch.cat([psi, too_small_psi], dim=0)
+                logging.info("Post-sampling process successfully completed")
 
-            logging.info("lobpcg start")
-            target_energy, hamiltonian, _, targets = lobpcg_and_select(model, configs, psi)
-            logging.info("lobpcg finished")
-
-            logging.info("preparing learning targets")
+            logging.info("Solving the equation within the configuration subspace")
+            target_energy, hamiltonian, _, targets = lobpcg_process(model, configs, psi)
             targets = targets.view([-1])
             max_index = targets.abs().argmax()
             targets = targets / targets[max_index]
+            logging.info("Target within the subspace has been calculated")
 
-            logging.info("choosing loss function as %s", self.loss_name)
             loss_func: typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = getattr(losses, self.loss_name)
 
             optimizer: torch.optim.Optimizer
@@ -122,34 +127,39 @@ class LearnConfig:
                 loss.amplitudes = amplitudes  # type: ignore[attr-defined]
                 return loss
 
-            logging.info("local optimization starting")
+            logging.info("Starting local optimization process")
             loss: torch.Tensor
             for i in range(self.local_step):
                 loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
-                logging.info("local optimizing, step %d, loss %.10f", i, loss.item())
+                logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
                 if loss < self.local_loss:
-                    logging.info("local optimization stop since local loss reached")
+                    logging.info("Local optimization halted as the loss threshold has been met")
                     break
 
-            logging.info("local optimization finished")
-            logging.info("saving checkpoint")
+            logging.info("Local optimization process completed")
+
+            logging.info("Saving model checkpoint")
             torch.save(network.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.pt")
-            logging.info("checkpoint saved")
-            logging.info("calculating current energy")
-            loss = closure()
+            logging.info("Checkpoint successfully saved")
+
+            logging.info("Current optimization cycle completed")
+
+            loss = typing.cast(torch.Tensor, torch.enable_grad(closure)())  # type: ignore[no-untyped-call,call-arg]
             amplitudes = loss.amplitudes  # type: ignore[attr-defined]
             final_energy = ((amplitudes.conj() @ (hamiltonian @ amplitudes)) / (amplitudes.conj() @ amplitudes)).real
             logging.info(
-                "loss = %.10f during local optimization, final energy %.10f, target energy %.10f, ref energy %.10f",
+                "Loss during local optimization: %.10f, Final energy: %.10f, Target energy: %.10f, Reference energy: %.10f, Final error: %.10f",
                 loss.item(),
                 final_energy.item(),
                 target_energy.item(),
                 model.ref_energy,
+                final_energy.item() - model.ref_energy,
             )
-            logging.info("printing several largest amplitudes")
+            logging.info("Displaying the largest amplitudes")
             indices = targets.abs().sort(descending=True).indices
             for index in indices[:self.logging_psi]:
-                logging.info("config %s, target %s, final %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.8f}", f"{amplitudes[index].item():.8f}")
+                logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.8f}",
+                             f"{amplitudes[index].item():.8f}")
 
 
 subcommand_dict["learn"] = LearnConfig

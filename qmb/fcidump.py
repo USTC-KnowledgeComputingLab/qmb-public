@@ -49,8 +49,8 @@ def _read_fcidump(file_name: str) -> openfermion.FermionOperator:
                     raise ValueError(f"Invalid FCIDUMP format: {sites}")
 
     energy_2 = energy_2.permute(0, 2, 3, 1).contiguous() / 2
-    energy_1_b = torch.zeros([n_orbit * 2, n_orbit * 2], dtype=torch.float64)
-    energy_2_b = torch.zeros([n_orbit * 2, n_orbit * 2, n_orbit * 2, n_orbit * 2], dtype=torch.float64)
+    energy_1_b: torch.Tensor = torch.zeros([n_orbit * 2, n_orbit * 2], dtype=torch.float64)
+    energy_2_b: torch.Tensor = torch.zeros([n_orbit * 2, n_orbit * 2, n_orbit * 2, n_orbit * 2], dtype=torch.float64)
     energy_1_b[0::2, 0::2] = energy_1
     energy_1_b[1::2, 1::2] = energy_1
     energy_2_b[0::2, 0::2, 0::2, 0::2] = energy_2
@@ -58,8 +58,8 @@ def _read_fcidump(file_name: str) -> openfermion.FermionOperator:
     energy_2_b[1::2, 0::2, 0::2, 1::2] = energy_2
     energy_2_b[1::2, 1::2, 1::2, 1::2] = energy_2
 
-    interaction_operator = openfermion.ops.InteractionOperator(energy_0, energy_1_b.numpy(), energy_2_b.numpy())  # type: ignore[no-untyped-call]
-    fermion_operator = openfermion.transforms.get_fermion_operator(interaction_operator)  # type: ignore[no-untyped-call]
+    interaction_operator: openfermion.InteractionOperator = openfermion.InteractionOperator(energy_0, energy_1_b.numpy(), energy_2_b.numpy())  # type: ignore[no-untyped-call]
+    fermion_operator: openfermion.FermionOperator = openfermion.get_fermion_operator(interaction_operator)  # type: ignore[no-untyped-call]
     return openfermion.normal_ordered(fermion_operator)  # type: ignore[no-untyped-call]
 
 
@@ -70,26 +70,24 @@ class Model(OpenFermionModel):
 
     def __init__(self, model_name: str, model_path: pathlib.Path) -> None:
         # pylint: disable=super-init-not-called
-        self.model_name: str = model_name
-        self.model_path: pathlib.Path = model_path
-        self.model_file_name: str = f"{self.model_path}/{self.model_name}.FCIDUMP"
-        logging.info("loading operator of fcidump model %s from %s", self.model_name, self.model_file_name)
-        openfermion_hamiltonian: openfermion.FermionOperator = _read_fcidump(self.model_file_name)
-        logging.info("operator of fcidump model %s loaded", self.model_name)
+        model_file_name: str = f"{model_path}/{model_name}.FCIDUMP"
+        logging.info("Loading FCIDUMP Hamiltonian '%s' from file: %s", model_name, model_file_name)
+        openfermion_hamiltonian: openfermion.FermionOperator = _read_fcidump(model_file_name)
+        logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
 
         match = re.match(r"\w*_(\d*)_(\d*)", model_name)
         assert match is not None
         n_electrons, n_qubits = match.groups()
         self.n_qubits: int = int(n_qubits)
         self.n_electrons: int = int(n_electrons)
-        logging.info("n_qubits: %d, n_electrons: %d", self.n_qubits, self.n_electrons)
+        logging.info("Identified %d qubits and %d electrons for model '%s'", self.n_qubits, self.n_electrons, model_name)
 
         self.ref_energy: float = torch.nan
-        logging.info("reference energy is unknown")
+        logging.info("Reference energy for model '%s' is currently undetermined", model_name)
 
-        logging.info("converting openfermion handle to hamiltonian handle")
+        logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
         self.hamiltonian: hamiltonian.Hamiltonian = hamiltonian.Hamiltonian(openfermion_hamiltonian.terms, kind="fermi")
-        logging.info("hamiltonian handle has been created")
+        logging.info("Internal Hamiltonian representation for model '%s' has been successfully created", model_name)
 
 
 model_dict["fcidump"] = Model

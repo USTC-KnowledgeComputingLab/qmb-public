@@ -8,7 +8,7 @@ import dataclasses
 import tyro
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
-from .utility import extend_and_select, lobpcg_and_select
+from .utility import extend_with_select, select_by_lobpcg
 
 
 @dataclasses.dataclass
@@ -33,23 +33,22 @@ class IterConfig:
         model, network = self.common.main()
 
         logging.info(
-            "sampling count: %d, selected sampling count: %d",
+            "Arguments Summary: "
+            "Sampling count: %d, "
+            "Selected sampling count: %d",
             self.sampling_count,
             self.selected_sampling_count,
         )
 
-        logging.info("first sampling core configurations")
+        logging.info("Initiating initial core configuration sampling")
         configs_core, psi_core, _, _ = network.generate_unique(self.sampling_count)
-        logging.info("core configurations sampled")
+        logging.info("Core configurations successfully sampled")
 
         while True:
-            logging.info("extend and select start")
-            configs_extended, psi_extended = extend_and_select(model, configs_core, psi_core, self.selected_sampling_count)
-            logging.info("extend and select finished")
-
-            logging.info("lobpcg and select start")
-            _, _, configs_core, psi_core = lobpcg_and_select(model, configs_extended, psi_extended, self.sampling_count)
-            logging.info("lobpcg and select finished")
+            logging.info("Starting a new optimization cycle")
+            configs_extended, psi_extended = extend_with_select(model, configs_core, psi_core, self.selected_sampling_count)
+            configs_core, psi_core = select_by_lobpcg(model, configs_extended, psi_extended, self.sampling_count)
+            logging.info("Current optimization cycle completed")
 
 
 subcommand_dict["iter"] = IterConfig

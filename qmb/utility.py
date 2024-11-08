@@ -8,7 +8,7 @@ from .model_dict import ModelProto
 from .lobpcg import lobpcg
 
 
-def extend_and_select(
+def extend_with_select(
     model: ModelProto,
     configs_core: torch.Tensor,
     psi_core: torch.Tensor,
@@ -21,46 +21,49 @@ def extend_and_select(
     Extend configs_core based on the model, calculate their importance based on psi_core and select them based on count_selected.
     """
 
+    logging.info("Starting extend with selection process")
+
     count_core = len(configs_core)
-    logging.info("count of core configuration is %d", count_core)
+    logging.info("Number of core configurations: %d", count_core)
 
-    logging.info("calculate extended configurations")
+    logging.info("Calculating extended configurations")
     indices_i_and_j, values, configs_extended = model.outside(configs_core)
-    logging.info("extended configurations created")
+    logging.info("Extended configurations have been created")
     count_extended = len(configs_extended)
-    logging.info("count of extended configurations count is %d", count_extended)
+    logging.info("Number of extended configurations: %d", count_extended)
 
-    logging.info("converting sparse extending matrix data to sparse matrix")
+    logging.info("Converting sparse matrix data into a sparse tensor.")
     hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count_core, count_extended], dtype=torch.complex128).to_sparse_csr()
-    logging.info("sparse extending matrix created")
+    logging.info("Sparse extending Hamiltonian matrix has been created")
 
-    logging.info("estimating the importance of extended configurations")
+    logging.info("Estimating the importance of extended configurations")
     importance = (psi_core.conj() * psi_core).abs() @ (hamiltonian.conj() * hamiltonian).abs()
     importance[:count_core] += importance.max()
-    logging.info("importance of extended configurations created")
+    logging.info("Importance of extended configurations has been calculated")
 
-    logging.info("selecting extended configurations by importance")
+    logging.info("Selecting extended configurations based on importance")
     selected_indices = importance.sort(descending=True).indices[:count_selected].sort().values
-    logging.info("extended configurations selected indices prepared")
+    logging.info("Indices for selected extended configurations have been prepared")
 
-    logging.info("selecting extended configurations")
+    logging.info("Selecting extended configurations")
     configs_extended = configs_extended[selected_indices]
-    logging.info("extended configurations selected")
+    logging.info("Extended configurations have been selected")
     count_extended = len(configs_extended)
-    logging.info("selected extended configurations count is %d", count_extended)
+    logging.info("Number of selected extended configurations: %d", count_extended)
 
-    logging.info("preparing initial psi used in future")
+    logging.info("Preparing initial amplitudes for future use")
     psi_extended = torch.cat([psi_core, torch.zeros([count_extended - count_core], dtype=psi_core.dtype, device=psi_core.device)], dim=0).view([-1, 1])
-    logging.info("initial psi used in future has been created")
+    logging.info("Initial amplitudes for future use has been created")
+
+    logging.info("Extend with selection process completed")
 
     return configs_extended, psi_extended
 
 
-def lobpcg_and_select(
+def lobpcg_process(
     model: ModelProto,
     configs: torch.Tensor,
     psi: torch.Tensor,
-    count_selected: int | None = None,
 ) -> tuple[
         torch.Tensor,
         torch.Tensor,
@@ -68,31 +71,56 @@ def lobpcg_and_select(
         torch.Tensor,
 ]:
     """
-    Perform LOBPCG on the configurations and select the most important ones.
+    Perform LOBPCG on the configurations.
     """
 
+    logging.info("Starting LOBPCG process on the given configurations with prior amplitudes.")
+
     count = len(configs)
-    logging.info("count of configuration is %d", count)
+    logging.info("Total number of configurations: %d", count)
 
-    logging.info("calculating sparse data of hamiltonian on configurations")
+    logging.info("Calculating sparse data for the Hamiltonian matrix on the configurations.")
     indices_i_and_j, values = model.inside(configs)
-    logging.info("converting sparse matrix data to sparse matrix")
+    logging.info("Converting sparse matrix data into a sparse tensor.")
     hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count, count], dtype=torch.complex128).to_sparse_csr()
-    logging.info("sparse matrix on configurations created")
+    logging.info("Sparse Hamiltonian matrix on configurations has been created.")
 
-    logging.info("calculating minimum energy on configurations")
+    logging.info("Calculating the minimum energy eigenvalue on the configurations.")
     energy, psi = lobpcg(hamiltonian, psi.view([-1, 1]), maxiter=1024)
     psi = psi.flatten()
-    logging.info("energy on configurations is %.10f, ref energy is %.10f, error is %.10f", energy.item(), model.ref_energy, energy.item() - model.ref_energy)
+    logging.info("Energy eigenvalue on configurations: %.10f, Reference energy: %.10f, Energy error: %.10f", energy.item(), model.ref_energy, energy.item() - model.ref_energy)
 
-    if count_selected is not None:
-        logging.info("calculating indices of new configurations")
-        indices = torch.argsort(psi.abs())[-count_selected:]
-        logging.info("indices of new configurations has been obtained")
-
-        logging.info("update new configurations")
-        configs = configs[indices]
-        psi = psi[indices]
-        logging.info("new configurations has been updated")
+    logging.info("LOBPCG process completed.")
 
     return energy, hamiltonian, configs, psi
+
+
+def select_by_lobpcg(
+    model: ModelProto,
+    configs: torch.Tensor,
+    psi: torch.Tensor,
+    count_selected: int,
+) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+]:
+    """
+    Select the most important configurations based on the solution calculated by LOBPCG.
+    """
+
+    logging.info("Starting LOBPCG-based selection process.")
+
+    _, _, configs, psi = lobpcg_process(model, configs, psi)
+
+    logging.info("Identifying the indices of the most significant configurations.")
+    indices = torch.argsort(psi.abs())[-count_selected:]
+    logging.info("Indices of the most significant configurations have been identified.")
+
+    logging.info("Refining configurations to include only the most significant ones.")
+    configs = configs[indices]
+    psi = psi[indices]
+    logging.info("Configurations have been refined to include only the most significant ones.")
+
+    logging.info("LOBPCG-based selection process completed successfully.")
+
+    return configs, psi

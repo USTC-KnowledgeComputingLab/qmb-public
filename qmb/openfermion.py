@@ -41,33 +41,31 @@ class Model(ModelProto["Model"]):
 
     @classmethod
     def parse(cls, input_args: tuple[str, ...]) -> "Model":
-        logging.info("parsing args %a for openfermion model", input_args)
+        logging.info("Parsing input arguments for the model: %a", input_args)
         args = tyro.cli(ModelConfig, args=input_args)
-        logging.info("arguments parsed, model name: %s, model path: %s", args.model_name, args.model_path)
+        logging.info("Input arguments successfully parsed. Model name: %s, Model path: %s", args.model_name, args.model_path)
 
         return cls(args.model_name, args.model_path)
 
     def __init__(self, model_name: str, model_path: pathlib.Path) -> None:
-        self.model_name: str = model_name
-        self.model_path: pathlib.Path = model_path
-        self.model_file_name: str = f"{self.model_path}/{self.model_name}.hdf5"
-        logging.info("loading openfermion model %s from %s", self.model_name, self.model_file_name)
-        openfermion_model: openfermion.MolecularData = openfermion.MolecularData(filename=self.model_file_name)  # type: ignore[no-untyped-call]
-        logging.info("openfermion model %s has been loaded", self.model_name)
+        model_file_name: str = f"{model_path}/{model_name}.hdf5"
+        logging.info("Loading OpenFermion model '%s' from file: %s", model_name, model_file_name)
+        openfermion_model: openfermion.MolecularData = openfermion.MolecularData(filename=model_file_name)  # type: ignore[no-untyped-call]
+        logging.info("OpenFermion model '%s' successfully loaded", model_name)
 
-        self.n_qubits: int = typing.cast(int, openfermion_model.n_qubits)
-        self.n_electrons: int = typing.cast(int, openfermion_model.n_electrons)
-        logging.info("openfermion model parameter: n_qubits=%d, n_electrons=%d", self.n_qubits, self.n_electrons)
+        self.n_qubits: int = int(openfermion_model.n_qubits)  # type: ignore[arg-type]
+        self.n_electrons: int = int(openfermion_model.n_electrons)  # type: ignore[arg-type]
+        logging.info("Identified %d qubits and %d electrons for model '%s'", self.n_qubits, self.n_electrons, model_name)
 
         self.ref_energy: float = float(openfermion_model.fci_energy)  # type: ignore[arg-type]
-        logging.info("reference energy in openfermion data is %.10f", self.ref_energy)
+        logging.info("Reference energy from OpenFermion data is %.10f", self.ref_energy)
 
-        logging.info("converting openfermion handle to hamiltonian handle")
+        logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
         self.hamiltonian: hamiltonian.Hamiltonian = hamiltonian.Hamiltonian(
             openfermion.transforms.get_fermion_operator(openfermion_model.get_molecular_hamiltonian()).terms,  # type: ignore[no-untyped-call]
             kind="fermi",
         )
-        logging.info("hamiltonian handle has been created")
+        logging.info("Internal Hamiltonian representation for model '%s' has been successfully created", model_name)
 
     def inside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         return self.hamiltonian.inside(configs_i)
@@ -93,9 +91,9 @@ class NaqsConfig:
         """
         Create a NAQS network for the model.
         """
-        logging.info("parsing args %a by network naqs", input_args)
+        logging.info("Parsing arguments for NAQS network: %a", input_args)
         args = tyro.cli(cls, args=input_args)
-        logging.info("hidden: %a", args.hidden)
+        logging.info("Hidden layer widths: %a", args.hidden)
 
         network = naqs_m.WaveFunction(
             double_sites=model.n_qubits,
@@ -133,9 +131,19 @@ class AttentionConfig:
         """
         Create an attention network for the model.
         """
-        logging.info("parsing args %a by network attention", input_args)
+        logging.info("Parsing arguments for attention network: %a", input_args)
         args = tyro.cli(cls, args=input_args)
-        logging.info("embedding dim: %d, heads_num: %d, feed forward dim: %d, depth: %d", args.embedding_dim, args.heads_num, args.feed_forward_dim, args.depth)
+        logging.info(
+            "Attention network configuration: "
+            "embedding dimension: %d, "
+            "number of heads: %d, "
+            "feed-forward dimension: %d, "
+            "depth: %d",
+            args.embedding_dim,
+            args.heads_num,
+            args.feed_forward_dim,
+            args.depth,
+        )
 
         network = attention_m.WaveFunction(
             double_sites=model.n_qubits,

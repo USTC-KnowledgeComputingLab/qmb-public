@@ -59,38 +59,39 @@ class CommonConfig:
             format=f"[%(process)d] %(asctime)s {self.job_name}({self.network_name}) %(levelname)s: %(message)s",
         )
 
-        logging.info("%s script start, with %a", os.path.splitext(os.path.basename(sys.argv[0]))[0], sys.argv)
-        logging.info("model name: %s, network name: %s, job name: %s", self.model_name, self.network_name, self.job_name)
-        logging.info("log path: %s, checkpoint path: %s", self.log_path, self.checkpoint_path)
-        logging.info("arguments will be passed to network parser: %a", self.network_args)
-        logging.info("arguments will be passed to physics parser: %a", self.physics_args)
+        logging.info("Starting script: %s with arguments: %a", os.path.splitext(os.path.basename(sys.argv[0]))[0], sys.argv)
+        logging.info("Model: %s, Network: %s, Job: %s", self.model_name, self.network_name, self.job_name)
+        logging.info("Log directory: %s, Checkpoint directory: %s", self.log_path, self.checkpoint_path)
+        logging.info("Physics arguments: %a", self.physics_args)
+        logging.info("Network arguments: %a", self.network_args)
 
         if self.random_seed is not None:
-            logging.info("setting random seed to %d", self.random_seed)
+            logging.info("Setting random seed to: %d", self.random_seed)
             torch.manual_seed(self.random_seed)
         else:
-            logging.info("random seed not set, using %d", torch.seed())
+            logging.info("Random seed not specified, using current seed: %d", torch.seed())
 
-        logging.info("disabling torch default gradient behavior")
+        logging.info("Disabling PyTorch's default gradient computation")
         torch.set_grad_enabled(False)
 
-        logging.info("loading %s model as physical model", self.model_name)
+        logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
         model: ModelProto = model_dict[self.model_name].parse(self.physics_args)
-        logging.info("the physical model has been loaded")
+        logging.info("Physical model loaded successfully")
 
-        logging.info("loading network %s and create network with physical model and args %s", self.network_name, self.network_args)
+        logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
         network: NetworkProto = model_dict[self.model_name].network_dict[self.network_name](model, self.network_args)
-        logging.info("network created")
+        logging.info("Network initialized successfully")
 
-        logging.info("trying to load checkpoint")
-        if os.path.exists(f"{self.checkpoint_path}/{self.job_name}.pt"):
-            logging.info("checkpoint found, loading")
-            network.load_state_dict(torch.load(f"{self.checkpoint_path}/{self.job_name}.pt", map_location="cpu", weights_only=True))
-            logging.info("checkpoint loaded")
+        logging.info("Attempting to load checkpoint")
+        checkpoint_path: str = f"{self.checkpoint_path}/{self.job_name}.pt"
+        if os.path.exists(checkpoint_path):
+            logging.info("Checkpoint found at: %s, loading...", checkpoint_path)
+            network.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
+            logging.info("Checkpoint loaded successfully")
         else:
-            logging.info("checkpoint not found")
-        logging.info("moving model to cuda")
+            logging.info("Checkpoint not found at: %s", checkpoint_path)
+        logging.info("Moving model to CUDA")
         network.cuda()
-        logging.info("model has been moved to cuda")
+        logging.info("Model moved to CUDA successfully")
 
         return model, network

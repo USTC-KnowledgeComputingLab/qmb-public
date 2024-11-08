@@ -51,41 +51,50 @@ class VmcConfig:
         model, network = self.common.main()
 
         logging.info(
-            "sampling count: %d, learning rate: %f, local step: %d, include outside: %a, use deviation: %a, fix outside: %a, use lbfgs: %a, omit deviation: %a",
+            "Arguments Summary: "
+            "Sampling Count: %d, "
+            "Learning Rate: %.10f, "
+            "Local Steps: %d, "
+            "Include Outside: %s, "
+            "Use Deviation: %s, "
+            "Fix Outside: %s, "
+            "Use LBFGS: %s, "
+            "Omit Deviation: %s",
             self.sampling_count,
             self.learning_rate,
             self.local_step,
-            self.include_outside,
-            self.deviation,
-            self.fix_outside,
-            self.use_lbfgs,
-            self.omit_deviation,
+            "Yes" if self.include_outside else "No",
+            "Yes" if self.deviation else "No",
+            "Yes" if self.fix_outside else "No",
+            "Yes" if self.use_lbfgs else "No",
+            "Yes" if self.omit_deviation else "No",
         )
 
-        logging.info("main looping")
         while True:
-            logging.info("sampling configurations")
+            logging.info("Starting a new optimization cycle")
+
+            logging.info("Sampling configurations")
             configs_i, _, _, _ = network.generate_unique(self.sampling_count)
-            logging.info("sampling done")
+            logging.info("Sampling completed")
             unique_sampling_count = len(configs_i)
-            logging.info("unique sampling count is %d", unique_sampling_count)
+            logging.info("Unique sampling count: %d", unique_sampling_count)
 
             if self.include_outside:
-                logging.info("generating hamiltonian data to create sparse matrix outsidely")
+                logging.info("Generating hamiltonian data generation for external sparse matrix")
                 indices_i_and_j, values, configs_j = model.outside(configs_i)
-                logging.info("sparse matrix data created")
+                logging.info("External sparse matrix data successfully generated")
                 outside_count = len(configs_j)
-                logging.info("outside configs count is %d", outside_count)
-                logging.info("converting sparse matrix data to sparse matrix")
+                logging.info("External configurations count: %d", outside_count)
+                logging.info("Converting generated sparse matrix data into a sparse tensor")
                 hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, outside_count], dtype=torch.complex128).to_sparse_csr()
-                logging.info("sparse matrix created")
+                logging.info("Sparse tensor successfully created")
             else:
-                logging.info("generating hamiltonian data to create sparse matrix insidely")
+                logging.info("Generating hamiltonian data generation for internal sparse matrix")
                 indices_i_and_j, values = model.inside(configs_i)
-                logging.info("sparse matrix data created")
-                logging.info("converting sparse matrix data to sparse matrix")
+                logging.info("Internal sparse matrix data successfully generated")
+                logging.info("Converting generated sparse matrix data into a sparse tensor")
                 hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
-                logging.info("sparse matrix created")
+                logging.info("Sparse tensor successfully created")
 
             optimizer: torch.optim.Optimizer
             if self.use_lbfgs:
@@ -93,6 +102,7 @@ class VmcConfig:
             else:
                 optimizer = torch.optim.Adam(network.parameters(), lr=self.learning_rate)
 
+            logging.info("Starting local optimization process")
             if self.deviation:
 
                 def closure() -> torch.Tensor:
@@ -133,10 +143,9 @@ class VmcConfig:
                     deviation.energy = energy.real  # type: ignore[attr-defined]
                     return deviation
 
-                logging.info("local optimization for deviation starting")
                 for i in range(self.local_step):
                     deviation: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
-                    logging.info("local optimizing, step: %d, energy: %.10f, deviation: %.10f", i, deviation.energy.item(), deviation.item())  # type: ignore[attr-defined]
+                    logging.info("Local optimization in progress, step: %d, energy: %.10f, deviation: %.10f", i, deviation.energy.item(), deviation.item())  # type: ignore[attr-defined]
             else:
 
                 def closure() -> torch.Tensor:
@@ -174,15 +183,17 @@ class VmcConfig:
                     energy.deviation = deviation  # type: ignore[attr-defined]
                     return energy
 
-                logging.info("local optimization for energy starting")
                 for i in range(self.local_step):
                     energy: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
-                    logging.info("local optimizing, step: %d, energy: %.10f, deviation: %.10f", i, energy.item(), energy.deviation.item())  # type: ignore[attr-defined]
+                    logging.info("Local optimization in progress, step: %d, energy: %.10f, deviation: %.10f", i, energy.item(), energy.deviation.item())  # type: ignore[attr-defined]
 
-            logging.info("local optimization finished")
-            logging.info("saving checkpoint")
+            logging.info("Local optimization process completed")
+
+            logging.info("Saving model checkpoint")
             torch.save(network.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.pt")
-            logging.info("checkpoint saved")
+            logging.info("Checkpoint successfully saved")
+
+            logging.info("Current optimization cycle completed")
 
 
 subcommand_dict["vmc"] = VmcConfig
