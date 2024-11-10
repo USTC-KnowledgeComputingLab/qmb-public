@@ -19,10 +19,10 @@ class IterConfig:
 
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
-    # sampling count
+    # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1024
 
-    # selected extended sampling count
+    # The selected sampling count when extending configurations
     selected_sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 65536
 
     def main(self) -> None:

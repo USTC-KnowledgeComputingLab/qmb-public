@@ -23,23 +23,23 @@ class LearnConfig:
 
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
-    # sampling count
+    # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
-    # learning rate for the local optimizer
+    # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
-    # step count for the local optimizer
+    # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"], help_behavior_hint="(default: 1000 for Adam, 400 for LBFGS)")] = -1
-    # early break loss threshold for local optimization
+    # The early break loss threshold for local optimization
     local_loss: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-8
-    # psi count to be printed after local optimizer
+    # The number of psi values to log after local optimization
     logging_psi: typing.Annotated[int, tyro.conf.arg(aliases=["-p"])] = 30
-    # the loss function to be used
+    # The name of the loss function to use
     loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "log"
-    # use LBFGS instead of Adam
+    # Whether to use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
-    # the post sampling iteration
+    # The number of post-sampling iterations
     post_sampling_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-i"])] = 0
-    # the post sampling count
+    # The number of configurations to sample during post-sampling
     post_sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 50000
 
     def __post_init__(self) -> None:

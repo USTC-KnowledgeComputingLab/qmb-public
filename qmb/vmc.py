@@ -21,21 +21,21 @@ class VmcConfig:
 
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
-    # sampling count
+    # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
-    # learning rate for the local optimizer
+    # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
-    # step count for the local optimizer
+    # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 1000
-    # calculate all psi(s)')
+    # Whether to include external configurations
     include_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-o"])] = False
-    # use deviation instead of energy
+    # Whether to use deviation instead of energy for optimization
     deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-d"])] = False
-    # fix outside phase when optimizing outside deviation
+    # Whether to fix external configurations during deviation optimization
     fix_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-f"])] = False
-    # use LBFGS instead of Adam
+    # Whether to use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
-    # do not calculate deviation when optimizing energy
+    # Whether to omit deviation calculation during energy optimization
     omit_deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
 
     def __post_init__(self) -> None:
