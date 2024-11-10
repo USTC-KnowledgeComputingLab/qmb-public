@@ -188,7 +188,7 @@ class Embedding(torch.nn.Module):
         parameter = self.parameter[base:base + x.shape[1]].unsqueeze(0).expand(x.shape[0], -1, -1, -1)
         # param: batch * sites * config * embedding
 
-        result = torch.gather(parameter, -2, x)
+        result = torch.gather(parameter, -2, x.to(dtype=torch.int64))
         # result: batch * site * 1 * embedding
 
         return result.squeeze(-2)
@@ -295,7 +295,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         return add
 
     @torch.jit.export
-    def normalize_amplitude(self, x: torch.Tensor) -> torch.Tensor:
+    def _normalize_amplitude(self, x: torch.Tensor) -> torch.Tensor:
         """
         Normalize the log amplitude of uncompleted configurations.
         """
@@ -305,20 +305,6 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         x = x - param.unsqueeze(-1).unsqueeze(-1)
         # 1 = param = sqrt(sum(x.exp()^2)) now
         return x
-
-    @torch.jit.export
-    def _binomial(self, count: torch.Tensor, probability: torch.Tensor) -> torch.Tensor:
-        """
-        Binomial sampling with given count and probability
-        """
-        # Clamp the probability values to ensure they lie within the valid range [0, 1]
-        probability = torch.clamp(probability, min=0, max=1)
-        # Set probability to zero where count is zero to avoid NaN values due to division by zero
-        probability = torch.where(count == 0, 0, probability)
-        # Create a binomial distribution and sample from it
-        result = torch.binomial(count, probability).to(dtype=torch.int64)
-        # Address potential numerical errors by clamping the result to ensure it lies within the valid range [0, count]
-        return torch.clamp(result, min=torch.zeros_like(count), max=count)
 
     @torch.jit.export
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -337,7 +323,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         # Prepare x4 as the input for the neural network
         # The last configuration is excluded, and a zero vector is prepended at the beginning to represent the initial state.
         x4: torch.Tensor = x[:, :-1, 0] * 2 + x[:, :-1, 1]
-        x4 = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.int64), x4], dim=1)
+        x4 = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.int8), x4], dim=1)
 
         # emb: batch_size * sites * embedding
         # Embed the input tensor `x4` using the embedding layer.
@@ -358,15 +344,16 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         amplitude = amplitude + torch.stack([torch.where(self._mask(x[:, :i]), 0, -torch.inf) for i in range(self.sites)], dim=1)
 
         # Normalize the delta amplitude.
-        amplitude = self.normalize_amplitude(amplitude)
+        amplitude = self._normalize_amplitude(amplitude)
 
         # batch/sites_indices: batch_size * sites
         batch_indices: torch.Tensor = torch.arange(batch_size).unsqueeze(1).expand(-1, self.sites)
         sites_indices: torch.Tensor = torch.arange(self.sites).unsqueeze(0).expand(batch_size, -1)
 
         # selected_amplitude/phase: batch_size * sites
-        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x[:, :, 0], x[:, :, 1]]
-        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x[:, :, 0], x[:, :, 1]]
+        x_int64: torch.Tensor = x.to(dtype=torch.int64)
+        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x_int64[:, :, 0], x_int64[:, :, 1]]
+        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x_int64[:, :, 0], x_int64[:, :, 1]]
 
         return torch.view_as_complex(torch.stack([selected_amplitude.sum(dim=1), selected_phase.sum(dim=1)], dim=-1)).exp()
 
@@ -385,7 +372,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
 
         # x: local_batch_size * current_site * 2
-        x: torch.Tensor = torch.zeros([1, 1, 2], device=device, dtype=torch.int64)  # site=1, since the first is bos
+        x: torch.Tensor = torch.zeros([1, 1, 2], device=device, dtype=torch.int8)  # site=1, since the first is bos
         # (un)perturbed_log_probability: local_batch_size
         unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
@@ -429,10 +416,10 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
             # Calculate appended configurations for 4 adds
             # local_batch_size * current_site * 2 + local_batch_size * 1 * 2
-            x0: torch.Tensor = torch.cat([x, torch.tensor([[0, 0]], device=device).expand(local_batch_size, -1, -1)], dim=1)
-            x1: torch.Tensor = torch.cat([x, torch.tensor([[0, 1]], device=device).expand(local_batch_size, -1, -1)], dim=1)
-            x2: torch.Tensor = torch.cat([x, torch.tensor([[1, 0]], device=device).expand(local_batch_size, -1, -1)], dim=1)
-            x3: torch.Tensor = torch.cat([x, torch.tensor([[1, 1]], device=device).expand(local_batch_size, -1, -1)], dim=1)
+            x0: torch.Tensor = torch.cat([x, torch.tensor([[0, 0]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
+            x1: torch.Tensor = torch.cat([x, torch.tensor([[0, 1]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
+            x2: torch.Tensor = torch.cat([x, torch.tensor([[1, 0]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
+            x3: torch.Tensor = torch.cat([x, torch.tensor([[1, 1]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
 
             # Cat all configurations to get x : new_local_batch_size * (current_size+1) * 2
             # (un)perturbed prob : new_local_batch_size
@@ -516,7 +503,7 @@ class WaveFunctionNormal(torch.nn.Module):
         self.dummy_param = torch.nn.Parameter(torch.empty(0))
 
     @torch.jit.export
-    def normalize_amplitude(self, x: torch.Tensor) -> torch.Tensor:
+    def _normalize_amplitude(self, x: torch.Tensor) -> torch.Tensor:
         """
         Normalize the log amplitude of uncompleted configurations.
         """
@@ -526,20 +513,6 @@ class WaveFunctionNormal(torch.nn.Module):
         x = x - param.unsqueeze(-1)
         # 1 = param = sqrt(sum(x.exp()^2)) now
         return x
-
-    @torch.jit.export
-    def _binomial(self, count: torch.Tensor, probability: torch.Tensor) -> torch.Tensor:
-        """
-        Binomial sampling with given count and probability
-        """
-        # Clamp the probability values to ensure they lie within the valid range [0, 1]
-        probability = torch.clamp(probability, min=0, max=1)
-        # Set probability to zero where count is zero to avoid NaN values due to division by zero
-        probability = torch.where(count == 0, 0, probability)
-        # Create a binomial distribution and sample from it
-        result = torch.binomial(count, probability).to(dtype=torch.int64)
-        # Address potential numerical errors by clamping the result to ensure it lies within the valid range [0, count]
-        return torch.clamp(result, min=torch.zeros_like(count), max=count)
 
     @torch.jit.export
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -558,7 +531,7 @@ class WaveFunctionNormal(torch.nn.Module):
         # Prepare x for emb as the input for the neural network
         # The last configuration is excluded, and a zero vector is prepended at the beginning to represent the initial state.
         x_for_emb: torch.Tensor = x[:, :-1]
-        x_for_emb = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.int64), x_for_emb], dim=1)
+        x_for_emb = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.int8), x_for_emb], dim=1)
 
         # emb: batch_size * sites * embedding
         # Embed the input tensor `x_for_emb` using the embedding layer.
@@ -576,15 +549,16 @@ class WaveFunctionNormal(torch.nn.Module):
         phase: torch.Tensor = tail[:, :, self.physical_dim:]
 
         # Normalize the delta amplitude.
-        amplitude = self.normalize_amplitude(amplitude)
+        amplitude = self._normalize_amplitude(amplitude)
 
         # batch/sites_indices: batch_size * sites
         batch_indices: torch.Tensor = torch.arange(batch_size).unsqueeze(1).expand(-1, self.sites)
         sites_indices: torch.Tensor = torch.arange(self.sites).unsqueeze(0).expand(batch_size, -1)
 
         # selected_amplitude/phase: batch_size * sites
-        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x]
-        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x]
+        x_int64: torch.Tensor = x.to(dtype=torch.int64)
+        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x_int64]
+        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x_int64]
 
         return torch.view_as_complex(torch.stack([selected_amplitude.sum(dim=1), selected_phase.sum(dim=1)], dim=-1)).exp()
 
@@ -603,7 +577,7 @@ class WaveFunctionNormal(torch.nn.Module):
         cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
 
         # x: local_batch_size * current_site
-        x: torch.Tensor = torch.zeros([1, 1], device=device, dtype=torch.int64)  # site=1, since the first is bos
+        x: torch.Tensor = torch.zeros([1, 1], device=device, dtype=torch.int8)  # site=1, since the first is bos
         # (un)perturbed_log_probability: local_batch_size
         unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
@@ -611,7 +585,7 @@ class WaveFunctionNormal(torch.nn.Module):
             local_batch_size: int = x.size(0)
 
             # xi: batch * (sites=1)
-            xi: torch.Tensor = x[:, -1:, :]
+            xi: torch.Tensor = x[:, -1:]
             # emb: batch * (sites=1) * embedding
             emb: torch.Tensor = self.embedding(xi, i)
             # post_transformers: batch * (sites=1) * embedding
@@ -643,7 +617,7 @@ class WaveFunctionNormal(torch.nn.Module):
 
             # Calculate appended configurations for all new possible states
             # local_batch_size * current_site + local_batch_size * 1
-            xs: list[torch.Tensor] = [torch.cat([x, torch.tensor([j], device=device).expand(local_batch_size, -1)], dim=1) for j in range(self.physical_dim)]
+            xs: list[torch.Tensor] = [torch.cat([x, torch.tensor([j], device=device, dtype=torch.int8).expand(local_batch_size, -1)], dim=1) for j in range(self.physical_dim)]
 
             # Cat all configurations to get x : new_local_batch_size * (current_size+1)
             # (un)perturbed prob : new_local_batch_size
@@ -670,7 +644,7 @@ class WaveFunctionNormal(torch.nn.Module):
         # Apply ordering
         x = torch.index_select(x[:, 1:], 1, self.ordering)
         # Flatten site part of x
-        x = x.reshape([x.size(0), self.double_sites])
+        x = x.reshape([x.size(0), self.sites])
         # It should return configurations, amplitudes, probabilities and multiplicities.
         # But it is unique generator, so the last two fields are None
         return x, self(x), None, None

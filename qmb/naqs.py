@@ -163,20 +163,6 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         return x
 
     @torch.jit.export
-    def _binomial(self, count: torch.Tensor, probability: torch.Tensor) -> torch.Tensor:
-        """
-        Binomial sampling with given count and probability
-        """
-        # Clamp the probability values to ensure they lie within the valid range [0, 1]
-        probability = torch.clamp(probability, min=0, max=1)
-        # Set probability to zero where count is zero to avoid NaN values due to division by zero
-        probability = torch.where(count == 0, 0, probability)
-        # Create a binomial distribution and sample from it
-        result = torch.binomial(count, probability).to(dtype=torch.int64)
-        # Address potential numerical errors by clamping the result to ensure it lies within the valid range [0, count]
-        return torch.clamp(result, min=torch.zeros_like(count), max=count)
-
-    @torch.jit.export
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Compute the wave function psi for the given configurations.
@@ -206,7 +192,8 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
             # selected_delta_amplitude: batch
             # Select the delta amplitude for the current site.
-            selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, x[:, i, 0], x[:, i, 1]]
+            xi_int64: torch.Tensor = x[:, i, :].to(dtype=torch.int64)
+            selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, xi_int64[:, 0], xi_int64[:, 1]]
 
             total_amplitude = total_amplitude + selected_delta_amplitude
 
@@ -227,7 +214,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         dtype: torch.dtype = self.dummy_param.dtype
 
         # x: local_batch_size * current_site * 2
-        x: torch.Tensor = torch.empty([1, 0, 2], device=device, dtype=torch.int64)
+        x: torch.Tensor = torch.empty([1, 0, 2], device=device, dtype=torch.int8)
         # (un)perturbed_log_probability : local_batch_size
         unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
@@ -258,10 +245,10 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
             # Calculate appended configurations for 4 adds
             # local_batch_size * current_site * 2 + local_batch_size * 1 * 2
-            x0: torch.Tensor = torch.cat([x, torch.tensor([[0, 0]], device=device).expand(local_batch_size, -1, -1)], dim=1)
-            x1: torch.Tensor = torch.cat([x, torch.tensor([[0, 1]], device=device).expand(local_batch_size, -1, -1)], dim=1)
-            x2: torch.Tensor = torch.cat([x, torch.tensor([[1, 0]], device=device).expand(local_batch_size, -1, -1)], dim=1)
-            x3: torch.Tensor = torch.cat([x, torch.tensor([[1, 1]], device=device).expand(local_batch_size, -1, -1)], dim=1)
+            x0: torch.Tensor = torch.cat([x, torch.tensor([[0, 0]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
+            x1: torch.Tensor = torch.cat([x, torch.tensor([[0, 1]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
+            x2: torch.Tensor = torch.cat([x, torch.tensor([[1, 0]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
+            x3: torch.Tensor = torch.cat([x, torch.tensor([[1, 1]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
 
             # Cat all configurations to get x : new_local_batch_size * (current_size+1) * 2
             # (un)perturbed prob : new_local_batch_size
@@ -343,20 +330,6 @@ class WaveFunctionNormal(torch.nn.Module):
         return x
 
     @torch.jit.export
-    def _binomial(self, count: torch.Tensor, probability: torch.Tensor) -> torch.Tensor:
-        """
-        Binomial sampling with given count and probability
-        """
-        # Clamp the probability values to ensure they lie within the valid range [0, 1]
-        probability = torch.clamp(probability, min=0, max=1)
-        # Set probability to zero where count is zero to avoid NaN values due to division by zero
-        probability = torch.where(count == 0, 0, probability)
-        # Create a binomial distribution and sample from it
-        result = torch.binomial(count, probability).to(dtype=torch.int64)
-        # Address potential numerical errors by clamping the result to ensure it lies within the valid range [0, count]
-        return torch.clamp(result, min=torch.zeros_like(count), max=count)
-
-    @torch.jit.export
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Compute the wave function psi for the given configurations.
@@ -384,7 +357,8 @@ class WaveFunctionNormal(torch.nn.Module):
 
             # selected_delta_amplitude: batch
             # Select the delta amplitude for the current site.
-            selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, x[:, i]]
+            xi_int64: torch.Tensor = x[:, i].to(dtype=torch.int64)
+            selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, xi_int64]
 
             total_amplitude = total_amplitude + selected_delta_amplitude
 
@@ -405,7 +379,7 @@ class WaveFunctionNormal(torch.nn.Module):
         dtype: torch.dtype = self.dummy_param.dtype
 
         # x: local_batch_size * current_site
-        x: torch.Tensor = torch.empty([1, 0], device=device, dtype=torch.int64)
+        x: torch.Tensor = torch.empty([1, 0], device=device, dtype=torch.int8)
         # (un)perturbed_log_probability : local_batch_size
         unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
@@ -434,8 +408,8 @@ class WaveFunctionNormal(torch.nn.Module):
 
             # Calculate appended configurations for 2 adds
             # local_batch_size * current_site + local_batch_size * 1
-            x0: torch.Tensor = torch.cat([x, torch.tensor([0], device=device).expand(local_batch_size, -1)], dim=1)
-            x1: torch.Tensor = torch.cat([x, torch.tensor([1], device=device).expand(local_batch_size, -1)], dim=1)
+            x0: torch.Tensor = torch.cat([x, torch.tensor([0], device=device, dtype=torch.int8).expand(local_batch_size, -1)], dim=1)
+            x1: torch.Tensor = torch.cat([x, torch.tensor([1], device=device, dtype=torch.int8).expand(local_batch_size, -1)], dim=1)
 
             # Cat all configurations to get x : new_local_batch_size * (current_size+1) * 2
             # (un)perturbed prob : new_local_batch_size

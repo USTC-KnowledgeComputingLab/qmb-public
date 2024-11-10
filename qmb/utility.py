@@ -34,19 +34,24 @@ def extend_with_select(
 
     logging.info("Converting sparse matrix data into a sparse tensor.")
     hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count_core, count_extended], dtype=torch.complex128).to_sparse_csr()
+    del indices_i_and_j
+    del values
     logging.info("Sparse extending Hamiltonian matrix has been created")
 
     logging.info("Estimating the importance of extended configurations")
     importance = (psi_core.conj() * psi_core).abs() @ (hamiltonian.conj() * hamiltonian).abs()
+    del hamiltonian
     importance[:count_core] += importance.max()
     logging.info("Importance of extended configurations has been calculated")
 
     logging.info("Selecting extended configurations based on importance")
     selected_indices = importance.sort(descending=True).indices[:count_selected].sort().values
+    del importance
     logging.info("Indices for selected extended configurations have been prepared")
 
     logging.info("Selecting extended configurations")
     configs_extended = configs_extended[selected_indices]
+    del selected_indices
     logging.info("Extended configurations have been selected")
     count_extended = len(configs_extended)
     logging.info("Number of selected extended configurations: %d", count_extended)
@@ -82,6 +87,8 @@ def lobpcg_process(
     indices_i_and_j, values = model.inside(configs)
     logging.info("Converting sparse matrix data into a sparse tensor.")
     hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count, count], dtype=torch.complex128).to_sparse_csr()
+    del indices_i_and_j
+    del values
     logging.info("Sparse Hamiltonian matrix on configurations has been created.")
 
     logging.info("Calculating the minimum energy eigenvalue on the configurations.")
@@ -118,6 +125,7 @@ def select_by_lobpcg(
     logging.info("Refining configurations to include only the most significant ones.")
     configs = configs[indices]
     psi = psi[indices]
+    del indices
     logging.info("Configurations have been refined to include only the most significant ones.")
 
     logging.info("LOBPCG-based selection process completed successfully.")

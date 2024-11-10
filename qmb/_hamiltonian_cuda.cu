@@ -266,6 +266,7 @@ auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor
 auto drop_early(torch::Tensor index_i, torch::Tensor configs_j, torch::Tensor coefs, torch::Tensor configs_i) {
     torch::Tensor configs_i_and_j = torch::cat({configs_i, configs_j}, /*dim=*/0);
     auto [pool, both_to_pool, none] = torch::unique_dim(configs_i_and_j, /*dim=*/0, /*sorted=*/false, /*return_inverse=*/true);
+    configs_i_and_j.reset();
 
     std::int64_t batch_size = configs_i.size(0);
     std::int64_t pool_size = pool.size(0);
@@ -273,11 +274,15 @@ auto drop_early(torch::Tensor index_i, torch::Tensor configs_j, torch::Tensor co
     torch::Tensor pool_to_source = torch::full({pool_size}, -1, torch::TensorOptions().dtype(torch::kInt64).device(device));
     torch::Tensor source_to_pool = both_to_pool.index({torch::indexing::Slice(torch::indexing::None, batch_size)});
     pool_to_source.index_put_({source_to_pool}, torch::arange(batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device)));
+    source_to_pool.reset();
 
-    torch::Tensor dest_to_pool = both_to_pool.index({torch::indexing::Slice(batch_size, torch::indexing::None)});
-    torch::Tensor dest_to_source = pool_to_source.index({dest_to_pool});
+    torch::Tensor destination_to_pool = both_to_pool.index({torch::indexing::Slice(batch_size, torch::indexing::None)});
+    torch::Tensor destination_to_source = pool_to_source.index({destination_to_pool});
+    pool_to_source.reset();
+    destination_to_pool.reset();
 
-    torch::Tensor usable = dest_to_source != -1;
+    torch::Tensor usable = destination_to_source != -1;
+    destination_to_source.reset();
 
     return std::make_tuple(index_i.index({usable}), configs_j.index({usable}), coefs.index({usable}));
 }

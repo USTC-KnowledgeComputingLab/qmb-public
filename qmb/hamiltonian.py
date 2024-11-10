@@ -48,14 +48,14 @@ class Hamiltonian:
         assert configs_i.is_contiguous() and self.site.is_contiguous() and self.kind.is_contiguous() and self.coef.is_contiguous()
         return self._relative_impl(configs_i, self.site, self.kind, self.coef, early_drop)
 
-    def inside(self, configs_i_int64: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def inside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
         This function only considers the terms that are within the configuration subspace.
 
         Parameters
         ----------
-        configs_i_int64 : torch.Tensor
+        configs_i : torch.Tensor
             A tensor of shape [batch_size, n_qubits] representing the input configurations.
 
         Returns
@@ -74,7 +74,8 @@ class Hamiltonian:
         6. Filters out the usable configurations and their corresponding coefficients.
         7. Returns the valid indices and coefficients.
         """
-        configs_i: torch.Tensor = configs_i_int64.to(dtype=torch.int8)
+        # pylint: disable=too-many-locals
+        device: torch.device = configs_i.device
         # Parameters
         # configs_i : bool[batch_size, n_qubits]
         # Returns
@@ -94,35 +95,43 @@ class Hamiltonian:
         # map from valid to pool first, and then map pool to target.
 
         configs_i_and_j: torch.Tensor = torch.cat([configs_i, valid_configs_j], dim=0)
+        del configs_i
+        del valid_configs_j
         # pool : bool[pool_size, n_qubits]
-        # v_to_p : int64[batch_size + valid_size]
+        # both_to_pool : int64[batch_size + valid_size]
         pool: torch.Tensor
-        v_to_p: torch.Tensor
-        pool, v_to_p = torch.unique(configs_i_and_j, dim=0, sorted=False, return_inverse=True, return_counts=False)
+        both_to_pool: torch.Tensor
+        pool, both_to_pool = torch.unique(configs_i_and_j, dim=0, sorted=False, return_inverse=True, return_counts=False)
         pool_size: int = pool.shape[0]
+        del configs_i_and_j
+        del pool
 
-        # p_to_v : int64[pool_size]
-        p_to_t: torch.Tensor = torch.full([pool_size], -1, dtype=torch.int64, device=configs_i.device)
-        p_to_t[v_to_p[:batch_size]] = torch.arange(batch_size, device=configs_i.device)
+        # pool_to_source : int64[pool_size]
+        pool_to_source: torch.Tensor = torch.full([pool_size], -1, dtype=torch.int64, device=device)
+        source_to_pool: torch.Tensor = both_to_pool[:batch_size]
+        pool_to_source[source_to_pool] = torch.arange(batch_size, device=device)
+        del source_to_pool
 
-        # usable data
-        # valid_index_j : int64[valid_size] -> -1 or 0...batch_size-1
-        # it is v_to_t in fact
-        valid_index_j: torch.Tensor = p_to_t[v_to_p[batch_size:]]
+        # destination_to_source : int64[valid_size] -> -1 or 0...batch_size-1
+        destination_to_pool: torch.Tensor = both_to_pool[batch_size:]
+        del both_to_pool
+        destination_to_source: torch.Tensor = pool_to_source[destination_to_pool]
+        del pool_to_source
+        del destination_to_pool
 
         # usable : int64[]
-        usable: torch.Tensor = valid_index_j >= 0
+        usable: torch.Tensor = destination_to_source >= 0
 
-        return torch.stack([valid_index_i[usable], valid_index_j[usable]], dim=1), torch.view_as_complex(valid_coefs[usable])
+        return torch.stack([valid_index_i[usable], destination_to_source[usable]], dim=1), torch.view_as_complex(valid_coefs[usable])
 
-    def outside(self, configs_i_int64: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def outside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
         This function considers both the inside and outside configurations, ensuring that the input configurations are the first `batch_size` configurations in the result.
 
         Parameters
         ----------
-        configs_i_int64 : torch.Tensor
+        configs_i : torch.Tensor
             A tensor of shape [batch_size, n_qubits] representing the input configurations.
 
         Returns
@@ -143,7 +152,8 @@ class Hamiltonian:
         6. Reorder the configurations to obtain the target configuration.
         7. Returns the valid indices, coefficients, and target configurations.
         """
-        configs_i: torch.Tensor = configs_i_int64.to(dtype=torch.int8)
+        # pylint: disable=too-many-locals
+        device: torch.device = configs_i.device
         # Parameters
         # configs_i : bool[batch_size, n_qubits]
         # Returns
@@ -163,24 +173,32 @@ class Hamiltonian:
         # map from valid to pool first, and then map pool to target.
 
         configs_i_and_j: torch.Tensor = torch.cat([configs_i, valid_configs_j], dim=0)
+        del configs_i
+        del valid_configs_j
         # pool : bool[pool_size, n_qubits]
-        # v_to_p : int64[batch_size + valid_size]
+        # both_to_pool : int64[batch_size + valid_size]
         pool: torch.Tensor
-        v_to_p: torch.Tensor
-        pool, v_to_p = torch.unique(configs_i_and_j, dim=0, sorted=False, return_inverse=True, return_counts=False)
+        both_to_pool: torch.Tensor
+        pool, both_to_pool = torch.unique(configs_i_and_j, dim=0, sorted=False, return_inverse=True, return_counts=False)
         pool_size: int = pool.shape[0]
+        del configs_i_and_j
 
-        # p_to_v : int64[pool_size]
-        p_to_t: torch.Tensor = torch.full([pool_size], -1, dtype=torch.int64, device=configs_i.device)
-        p_to_t[v_to_p[:batch_size]] = torch.arange(batch_size, device=configs_i.device)
-        p_to_t[p_to_t == -1] = torch.arange(batch_size, pool_size, device=configs_i.device)
+        # pool_to_source : int64[pool_size]
+        pool_to_source: torch.Tensor = torch.full([pool_size], -1, dtype=torch.int64, device=device)
+        source_to_pool: torch.Tensor = both_to_pool[:batch_size]
+        pool_to_source[source_to_pool] = torch.arange(batch_size, device=device)
+        del source_to_pool
+        pool_to_source[pool_to_source == -1] = torch.arange(batch_size, pool_size, device=device)
 
-        # usable data
-        # valid_index_j : int64[valid_size] -> -1 or 0...batch_size-1
-        # it is v_to_t in fact
-        valid_index_j: torch.Tensor = p_to_t[v_to_p[batch_size:]]
+        # destination_to_source : int64[valid_size] -> -1 or 0...batch_size-1
+        destination_to_pool: torch.Tensor = both_to_pool[batch_size:]
+        del both_to_pool
+        destination_to_source: torch.Tensor = pool_to_source[destination_to_pool]
+        del destination_to_pool
 
         configs_target: torch.Tensor = torch.empty_like(pool)
-        configs_target[p_to_t] = pool
+        configs_target[pool_to_source] = pool
+        del pool
+        del pool_to_source
 
-        return torch.stack([valid_index_i, valid_index_j], dim=1), torch.view_as_complex(valid_coefs), configs_target.to(dtype=torch.int64)
+        return torch.stack([valid_index_i, destination_to_source], dim=1), torch.view_as_complex(valid_coefs), configs_target
