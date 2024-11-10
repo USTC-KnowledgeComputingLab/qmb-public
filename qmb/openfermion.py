@@ -9,9 +9,9 @@ import dataclasses
 import torch
 import tyro
 import openfermion
-from . import naqs as naqs_m
-from . import attention as attention_m
-from . import hamiltonian
+from .naqs import WaveFunction as NaqsWaveFunction
+from .attention import WaveFunction as AttentionWaveFunction
+from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto
 
 
@@ -43,7 +43,8 @@ class Model(ModelProto["Model"]):
     def parse(cls, input_args: tuple[str, ...]) -> "Model":
         logging.info("Parsing input arguments for the model: %a", input_args)
         args = tyro.cli(ModelConfig, args=input_args)
-        logging.info("Input arguments successfully parsed. Model name: %s, Model path: %s", args.model_name, args.model_path)
+        logging.info("Input arguments successfully parsed")
+        logging.info("Model name: %s, Model path: %s", args.model_name, args.model_path)
 
         return cls(args.model_name, args.model_path)
 
@@ -61,7 +62,7 @@ class Model(ModelProto["Model"]):
         logging.info("Reference energy from OpenFermion data is %.10f", self.ref_energy)
 
         logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
-        self.hamiltonian: hamiltonian.Hamiltonian = hamiltonian.Hamiltonian(
+        self.hamiltonian: Hamiltonian = Hamiltonian(
             openfermion.transforms.get_fermion_operator(openfermion_model.get_molecular_hamiltonian()).terms,  # type: ignore[no-untyped-call]
             kind="fermi",
         )
@@ -95,7 +96,7 @@ class NaqsConfig:
         args = tyro.cli(cls, args=input_args)
         logging.info("Hidden layer widths: %a", args.hidden)
 
-        network = naqs_m.WaveFunction(
+        network = NaqsWaveFunction(
             double_sites=model.n_qubits,
             physical_dim=2,
             is_complex=True,
@@ -145,7 +146,7 @@ class AttentionConfig:
             args.depth,
         )
 
-        network = attention_m.WaveFunction(
+        network = AttentionWaveFunction(
             double_sites=model.n_qubits,
             physical_dim=2,
             is_complex=True,

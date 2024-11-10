@@ -7,7 +7,7 @@ import logging
 import pathlib
 import torch
 import openfermion
-from . import hamiltonian
+from .hamiltonian import Hamiltonian
 from .openfermion import Model as OpenFermionModel
 from .model_dict import model_dict
 
@@ -86,7 +86,7 @@ class Model(OpenFermionModel):
         logging.info("Reference energy for model '%s' is currently undetermined", model_name)
 
         logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
-        self.hamiltonian: hamiltonian.Hamiltonian = hamiltonian.Hamiltonian(openfermion_hamiltonian.terms, kind="fermi")
+        self.hamiltonian: Hamiltonian = Hamiltonian(openfermion_hamiltonian.terms, kind="fermi")
         logging.info("Internal Hamiltonian representation for model '%s' has been successfully created", model_name)
 
 
