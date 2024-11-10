@@ -9,6 +9,7 @@ import dataclasses
 import torch
 import tyro
 from .naqs import WaveFunctionNormal as NaqsWaveFunction
+from .attention import WaveFunctionNormal as AttentionWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto
 
@@ -261,3 +262,54 @@ class NaqsConfig:
 
 
 Model.network_dict["naqs"] = NaqsConfig.create
+
+
+@dataclasses.dataclass
+class AttentionConfig:
+    """
+    The configuration of the attention network.
+    """
+
+    # Embedding dimension
+    embedding_dim: typing.Annotated[int, tyro.conf.arg(aliases=["-e"])] = 512
+    # Heads number
+    heads_num: typing.Annotated[int, tyro.conf.arg(aliases=["-m"])] = 8
+    # Feedforward dimension
+    feed_forward_dim: typing.Annotated[int, tyro.conf.arg(aliases=["-f"])] = 2048
+    # Network depth
+    depth: typing.Annotated[int, tyro.conf.arg(aliases=["-d"])] = 6
+
+    @classmethod
+    def create(cls, model: Model, input_args: tuple[str, ...]) -> NetworkProto:
+        """
+        Create an attention network for the model.
+        """
+        logging.info("Parsing arguments for attention network: %a", input_args)
+        args = tyro.cli(cls, args=input_args)
+        logging.info(
+            "Attention network configuration: "
+            "embedding dimension: %d, "
+            "number of heads: %d, "
+            "feed-forward dimension: %d, "
+            "depth: %d",
+            args.embedding_dim,
+            args.heads_num,
+            args.feed_forward_dim,
+            args.depth,
+        )
+
+        network = AttentionWaveFunction(
+            sites=model.m * model.n,
+            physical_dim=2,
+            is_complex=True,
+            embedding_dim=args.embedding_dim,
+            heads_num=args.heads_num,
+            feed_forward_dim=args.feed_forward_dim,
+            depth=args.depth,
+            ordering=+1,
+        ).double()
+
+        return torch.jit.script(network)
+
+
+Model.network_dict["attention"] = AttentionConfig.create

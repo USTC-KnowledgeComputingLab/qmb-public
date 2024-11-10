@@ -1,11 +1,13 @@
-# This file implements auto regressive transformers network for electron system.
+"""
+This file implements an auto-regressive transformer network with the sampling method introduced in https://arxiv.org/pdf/2408.07625.
+"""
 
 import torch
 
 
 class FeedForward(torch.nn.Module):
     """
-    Feed forward layer in transformers.
+    A feed-forward layer for transformer architectures.
     """
 
     def __init__(self, embedding_dim: int, hidden_dim: int) -> None:
@@ -18,6 +20,9 @@ class FeedForward(torch.nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the feed-forward layer.
+        """
         # x: batch * site * embedding
         x = self.model(x)
         # x: batch * site * embedding
@@ -26,7 +31,7 @@ class FeedForward(torch.nn.Module):
 
 class SelfAttention(torch.nn.Module):
     """
-    Self attention unit with kv cache support.
+    Self-attention unit with support for key-value cache.
     """
 
     def __init__(self, embedding_dim: int, heads_num: int) -> None:
@@ -47,6 +52,9 @@ class SelfAttention(torch.nn.Module):
         kv_cache: tuple[torch.Tensor, torch.Tensor] | None,
         mask: torch.Tensor | None,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Forward pass of the self-attention layer.
+        """
         # x: batch * site * embedding
         x = self.norm(x)
         # x: batch * site * embedding
@@ -71,7 +79,7 @@ class SelfAttention(torch.nn.Module):
             total_sites = k.shape[-2]
             mask = torch.ones(sites, total_sites, dtype=torch.bool, device=x.device).tril(diagonal=total_sites - sites)
         # call scaled dot product attention
-        attn = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        attn = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask)  # pylint: disable=not-callable
         # attn: batch, heads_num, site, heads_dim
         out = attn.transpose(1, 2).reshape([batch_size, sites, embedding_dim])
         # out: batch, site, embedding_dim
@@ -80,7 +88,7 @@ class SelfAttention(torch.nn.Module):
 
 class DecoderUnit(torch.nn.Module):
     """
-    Decoder unit in transformers, containing self attention and feed forward.
+    A decoder unit within the transformer architecture, integrating both self-attention and feed-forward layers.
     """
 
     def __init__(self, embedding_dim: int, heads_num: int, feed_forward_dim: int) -> None:
@@ -94,6 +102,9 @@ class DecoderUnit(torch.nn.Module):
         kv_cache: tuple[torch.Tensor, torch.Tensor] | None,
         mask: torch.Tensor | None,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Forward pass of the decoder unit.
+        """
         # x, y: batch * site * embedding
         y, result_cache = self.attention(x, kv_cache, mask)
         x = x + y
@@ -103,6 +114,9 @@ class DecoderUnit(torch.nn.Module):
 
 
 class Transformers(torch.nn.Module):
+    """
+    A transformer model consisting of multiple decoder units.
+    """
 
     def __init__(self, embedding_dim: int, heads_num: int, feed_forward_dim: int, depth: int) -> None:
         super().__init__()
@@ -114,6 +128,9 @@ class Transformers(torch.nn.Module):
         kv_cache: list[tuple[torch.Tensor, torch.Tensor]] | None,
         mask: torch.Tensor | None,
     ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]:
+        """
+        Forward pass of the transformer model.
+        """
         # x: batch * site * embedding
         result_cache: list[tuple[torch.Tensor, torch.Tensor]] = []
         for i, layer in enumerate(self.layers):
@@ -127,7 +144,7 @@ class Transformers(torch.nn.Module):
 
 class Tail(torch.nn.Module):
     """
-    The tail layer for transformers.
+    The Tail layer for the transformer model, responsible for mapping the final embeddings to the desired output dimensions.
     """
 
     def __init__(self, embedding_dim: int, hidden_dim: int, output_dim: int) -> None:
@@ -140,15 +157,18 @@ class Tail(torch.nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: batch * site * embedding
+        """
+        Forward pass of the Tail layer.
+        """
+        # x: batch * site * embedding_dim
         x = self.model(x)
-        # x: batch * site * embedding
+        # x: batch * site * output_dim
         return x
 
 
 class Embedding(torch.nn.Module):
     """
-    Embedding layer for transformers.
+    Embedding layer for transforming input data into a format suitable for the transformer model.
     """
 
     def __init__(self, sites: int, physical_dim: int, embedding_dim: int) -> None:
@@ -156,12 +176,16 @@ class Embedding(torch.nn.Module):
         self.parameter: torch.nn.Parameter = torch.nn.Parameter(torch.randn([sites, physical_dim, embedding_dim]))
 
     def forward(self, x: torch.Tensor, base: int) -> torch.Tensor:
+        """
+        Forward pass of the Embedding layer.
+        """
+
         # x: batch * sites
         x = x.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, self.parameter.shape[-1])
         # x: batch * sites * config=1 * embedding
 
         # param: sites * config * embedding
-        parameter = self.parameter[base:][:x.shape[1]].unsqueeze(0).expand(x.shape[0], -1, -1, -1)
+        parameter = self.parameter[base:base + x.shape[1]].unsqueeze(0).expand(x.shape[0], -1, -1, -1)
         # param: batch * sites * config * embedding
 
         result = torch.gather(parameter, -2, x)
@@ -170,28 +194,34 @@ class Embedding(torch.nn.Module):
         return result.squeeze(-2)
 
 
-class WaveFunction(torch.nn.Module):
+class WaveFunctionElectronUpDown(torch.nn.Module):
+    """
+    The wave function for the transformer model.
+    This module maintains the conservation of particle number of spin-up and spin-down electrons.
+    """
 
-    def __init__(
+    # pylint: disable=too-many-instance-attributes
+
+    def __init__(  # pylint: disable=too-many-arguments
             self,
             *,
-            double_sites: int,  # qubits number, qubits are grouped by two for each site in naqs, so name it as double sites
-            physical_dim: int,  # is always 2 for naqs
-            is_complex: bool,  # is always true for naqs
-            spin_up: int,  # spin up number
-            spin_down: int,  # spin down number
-            embedding_dim: int,  # embedding dim in transformers
-            heads_num: int,  # heads number in transformers
-            feed_forward_dim: int,  # feed forward dim and tail dim in transformers
-            depth: int,  # depth of transformers
-            ordering: int | list[int],  # ordering of sites +1 for normal order, -1 for reversed order, or the order list directly
+            double_sites: int,  # Number of qubits, where each pair of qubits represents a site
+            physical_dim: int,  # Dimension of the physical space, which is always 2
+            is_complex: bool,  # Indicates whether the wave function is complex-valued, which is always true
+            spin_up: int,  # Number of spin-up electrons
+            spin_down: int,  # Number of spin-down electrons
+            embedding_dim: int,  # Dimension of the embedding space used in the transformer layers
+            heads_num: int,  # Number of attention heads in the transformer's self-attention mechanism
+            feed_forward_dim: int,  # Dimension of the feed-forward network within the transformer layers
+            depth: int,  # Number of decoder layers in the transformer model
+            ordering: int | list[int],  # Ordering of sites: +1 for normal order, -1 for reversed order, or a custom order list
     ) -> None:
         super().__init__()
         assert double_sites % 2 == 0
         self.double_sites: int = double_sites
         self.sites: int = double_sites // 2
         assert physical_dim == 2
-        assert is_complex == True
+        assert is_complex == True  # pylint: disable=singleton-comparison
         self.spin_up: int = spin_up
         self.spin_down: int = spin_down
         self.embedding_dim: int = embedding_dim
@@ -199,14 +229,16 @@ class WaveFunction(torch.nn.Module):
         self.feed_forward_dim: int = feed_forward_dim
         self.depth: int = depth
 
-        # embedding configurations on every sites(each sites contain two qubits)
-        self.embedding: torch.nn.Module = Embedding(self.sites, 4, self.embedding_dim)  # spin_up * spin_down
-        # main body
+        # Embed configurations for each site, considering the four possible states of two qubits.
+        self.embedding: torch.nn.Module = Embedding(self.sites, 4, self.embedding_dim)
+        # Main body of the wave function computation.
         self.transformers: torch.nn.Module = Transformers(self.embedding_dim, self.heads_num, self.feed_forward_dim, self.depth)
-        # tail, mapping from embedding space to amplitude and phase space.
-        self.tail: torch.nn.Module = Tail(self.embedding_dim, self.feed_forward_dim, 8)  # (amplitude and phase) * (4 configs)
+        # Tail layer mapping from embedding space to amplitude and phase space.
+        # (amplitude and phase) * (4 possible states)
+        self.tail: torch.nn.Module = Tail(self.embedding_dim, self.feed_forward_dim, 8)
 
-        # ordering of sites +1 for normal order, -1 for reversed order
+        # Site Ordering Configuration
+        # +1 for normal order, -1 for reversed order
         if isinstance(ordering, int) and ordering == +1:
             ordering = list(range(self.sites))
         if isinstance(ordering, int) and ordering == -1:
@@ -214,53 +246,58 @@ class WaveFunction(torch.nn.Module):
         self.register_buffer('ordering', torch.tensor(ordering, dtype=torch.int64))
         self.register_buffer('ordering_reversed', torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
 
-        # used to get device and dtype
+        # Dummy Parameter for Device and Dtype Retrieval
+        # This parameter is used to infer the device and dtype of the model.
         self.dummy_param = torch.nn.Parameter(torch.empty(0))
 
     @torch.jit.export
-    def mask(self, x: torch.Tensor) -> torch.Tensor:
+    def _mask(self, x: torch.Tensor) -> torch.Tensor:
         """
         Determined whether we could append spin up or spin down after uncompleted configurations.
         """
-        # x : batch_size * current_site * 2
-        # x are the uncompleted configurations
-        batch_size = x.shape[0]
+        # pylint: disable=too-many-locals
+
+        # x: batch_size * current_site * 2
+        # x represents the uncompleted configurations
         current_site = x.shape[1]
-        # number : batch_size * 2
-        # number is the total electron number of uncompleted configurations
+        # number: batch_size * 2
+        # number denotes the total electron count for each uncompleted configuration
         number = x.sum(dim=1)
 
-        # up/down_electron/hole : batch_size
-        # the electron and hole number of uncompleted configurations
+        # up/down_electron/hole: batch_size
+        # These variables store the count of electrons and holes for each uncompleted configuration
         up_electron = number[:, 0]
         down_electron = number[:, 1]
         up_hole = current_site - up_electron
         down_hole = current_site - down_electron
 
-        # add_up/down_electron/hole : batch_size
-        # whether able to append up/down electron/hole
+        # add_up/down_electron/hole: batch_size
+        # These variables determine whether it is possible to append an up/down electron/hole
         add_up_electron = up_electron < self.spin_up
         add_down_electron = down_electron < self.spin_down
         add_up_hole = up_hole < self.sites - self.spin_up
         add_down_hole = down_hole < self.sites - self.spin_down
 
-        # add_up : batch_size * 2 * 1
-        # add_down : batch_size * 1 * 2
+        # add_up: batch_size * 2 * 1
+        # add_down: batch_size * 1 * 2
+        # These tensors represent the feasibility of adding up/down electrons/holes
         add_up = torch.stack([add_up_hole, add_up_electron], dim=-1).unsqueeze(-1)
         add_down = torch.stack([add_down_hole, add_down_electron], dim=-1).unsqueeze(-2)
-        # add : batch_size * 2 * 2
+
+        # add: batch_size * 2 * 2
+        # add represents the logical AND of add_up and add_down, indicating the feasibility of appending specific electron/hole combinations
+        # add[_, 0, 0] indicates the possibility of adding an up hole and a down hole
+        # add[_, 0, 1] indicates the possibility of adding an up hole and a down electron
+        # add[_, 1, 0] indicates the possibility of adding an up electron and a down hole
+        # add[_, 1, 1] indicates the possibility of adding an up electron and a down electron
         add = torch.logical_and(add_up, add_down)
-        # add contains whether to append up/down electron/hole after uncompleted configurations
-        # add[_, 0, 0] means we could add up hole and down hole
-        # add[_, 0, 1] means we could add up hole and down electron
-        # add[_, 1, 0] means we could add up electron and down hole
-        # add[_, 1, 1] means we could add up electron and down electron
+
         return add
 
     @torch.jit.export
     def normalize_amplitude(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Normalize uncompleted log amplitude.
+        Normalize the log amplitude of uncompleted configurations.
         """
         # x : ... * 2 * 2
         # param :  ...
@@ -270,143 +307,370 @@ class WaveFunction(torch.nn.Module):
         return x
 
     @torch.jit.export
+    def _binomial(self, count: torch.Tensor, probability: torch.Tensor) -> torch.Tensor:
+        """
+        Binomial sampling with given count and probability
+        """
+        # Clamp the probability values to ensure they lie within the valid range [0, 1]
+        probability = torch.clamp(probability, min=0, max=1)
+        # Set probability to zero where count is zero to avoid NaN values due to division by zero
+        probability = torch.where(count == 0, 0, probability)
+        # Create a binomial distribution and sample from it
+        result = torch.binomial(count, probability).to(dtype=torch.int64)
+        # Address potential numerical errors by clamping the result to ensure it lies within the valid range [0, count]
+        return torch.clamp(result, min=torch.zeros_like(count), max=count)
+
+    @torch.jit.export
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Calculate psi of given configurations.
+        Compute the wave function psi for the given configurations.
         """
         device: torch.device = self.dummy_param.device
-        dtype: torch.dtype = self.dummy_param.dtype
 
         batch_size: int = x.shape[0]
         # x : batch_size * sites * 2
         x = x.reshape([batch_size, self.sites, 2])
-        # apply ordering
+        # Apply ordering
         x = torch.index_select(x, 1, self.ordering_reversed)
 
-        # prepare x4 as the input of the network
-        # the last one is not needed, and zeros vector prepend at the beginning
+        # x4: batch_size * sites
+        # Prepare x4 as the input for the neural network
+        # The last configuration is excluded, and a zero vector is prepended at the beginning to represent the initial state.
         x4: torch.Tensor = x[:, :-1, 0] * 2 + x[:, :-1, 1]
         x4 = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.int64), x4], dim=1)
-        # x4: batch_size * sites
-        emb: torch.Tensor = self.embedding(x4, 0)
+
         # emb: batch_size * sites * embedding
-        # in embedding layer, 0 for bos, 1 for site 0, ...
-        post_transformers, _ = self.transformers(emb, None, None)  # batch * sites * embedding
-        tail: torch.Tensor = self.tail(post_transformers)  # batch * sites * 8
-        # amplitude/phase : batch * sites * 2 * 2
+        # Embed the input tensor `x4` using the embedding layer.
+        # In embedding layer, 0 for bos, 1 for site 0, ...
+        emb: torch.Tensor = self.embedding(x4, 0)
+
+        # post_transformers: batch_size * sites * embedding
+        post_transformers, _ = self.transformers(emb, None, None)
+
+        # tail: batch_size * sites * 8
+        tail: torch.Tensor = self.tail(post_transformers)
+
+        # amplitude/phase : batch_size * sites * 2 * 2
         amplitude: torch.Tensor = tail[:, :, :4].reshape(batch_size, self.sites, 2, 2)
         phase: torch.Tensor = tail[:, :, 4:].reshape(batch_size, self.sites, 2, 2)
-        # filter mask for amplitude
-        amplitude: torch.Tensor = amplitude + torch.stack([torch.where(self.mask(x[:, :i]), 0, -torch.inf) for i in range(self.sites)], dim=1)
-        # normalize amplitude
-        amplitude: torch.Tensor = self.normalize_amplitude(amplitude)
 
-        # batch/sites_indices: batch * sites
+        # Apply a filter mask to the amplitude to ensure the conservation of particle number.
+        amplitude = amplitude + torch.stack([torch.where(self._mask(x[:, :i]), 0, -torch.inf) for i in range(self.sites)], dim=1)
+
+        # Normalize the delta amplitude.
+        amplitude = self.normalize_amplitude(amplitude)
+
+        # batch/sites_indices: batch_size * sites
         batch_indices: torch.Tensor = torch.arange(batch_size).unsqueeze(1).expand(-1, self.sites)
         sites_indices: torch.Tensor = torch.arange(self.sites).unsqueeze(0).expand(batch_size, -1)
 
-        # amplitude/phase: batch * sites first, after sum over dim=1, they are amplitude/phase: batch
-        amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x[:, :, 0], x[:, :, 1]].sum(dim=1)
-        phase: torch.Tensor = phase[batch_indices, sites_indices, x[:, :, 0], x[:, :, 1]].sum(dim=1)
-        return torch.view_as_complex(torch.stack([amplitude, phase], dim=-1)).exp()
+        # selected_amplitude/phase: batch_size * sites
+        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x[:, :, 0], x[:, :, 1]]
+        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x[:, :, 0], x[:, :, 1]]
 
-    @torch.jit.export
-    def binomial(self, count: torch.Tensor, probability: torch.Tensor) -> torch.Tensor:
-        """
-        Binomial sampling with given count and probability
-        """
-        # clamp probability
-        probability = torch.clamp(probability, min=0, max=1)
-        # set probability to zero for count = 0 since it may be nan when count = 0
-        probability = torch.where(count == 0, 0, probability)
-        # create dist and sample
-        result = torch.binomial(count, probability).to(dtype=torch.int64)
-        # numerical error since result is cast from float.
-        return torch.clamp(result, min=torch.zeros_like(count), max=count)
+        return torch.view_as_complex(torch.stack([selected_amplitude.sum(dim=1), selected_phase.sum(dim=1)], dim=-1)).exp()
 
     @torch.jit.export
     def generate_unique(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate configurations uniquely.
-        see https://arxiv.org/pdf/2408.07625
+        see https://arxiv.org/pdf/2408.07625.
         """
+        # pylint: disable=too-many-locals
+        # pylint: disable=invalid-name
+
         device: torch.device = self.dummy_param.device
         dtype: torch.dtype = self.dummy_param.dtype
 
         cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
 
-        # x : local_batch_size * current_site * 2
+        # x: local_batch_size * current_site * 2
         x: torch.Tensor = torch.zeros([1, 1, 2], device=device, dtype=torch.int64)  # site=1, since the first is bos
-        # (un)perturbed_log_probability : local_batch_size
+        # (un)perturbed_log_probability: local_batch_size
         unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         for i in range(self.sites):
             local_batch_size: int = x.size(0)
 
-            # xi: batch * sites=1 * 2
-            xi: torch.Tensor = x[:, -1:]
-            # xi4: batch * sites=1
+            # xi: batch * (sites=1) * 2
+            xi: torch.Tensor = x[:, -1:, :]
+            # xi4: batch * (sites=1)
             xi4: torch.Tensor = xi[:, :, 0] * 2 + xi[:, :, 1]
-            # emb: batch * sites=1 * embedding
+            # emb: batch * (sites=1) * embedding
             emb: torch.Tensor = self.embedding(xi4, i)
-            # post_transformers: batch * sites=1 * embedding
+            # post_transformers: batch * (sites=1) * embedding
             post_transformers, cache = self.transformers(emb, cache, None)
-            assert cache is not None
-            # tail: batch * sites=1 * 8
+            # tail: batch * (sites=1) * 8
             tail: torch.Tensor = self.tail(post_transformers)
 
-            # the first 4 item are amplitude
+            # The first 4 item are amplitude
             # delta_amplitude: batch * 2 * 2
+            # delta_amplitude represents the amplitude changes for the configurations at the new site.
             delta_amplitude: torch.Tensor = tail[:, :, :4].reshape([local_batch_size, 2, 2])
-            # filter mask for amplitude
-            delta_amplitude: torch.Tensor = delta_amplitude + torch.where(self.mask(x[:, 1:]), 0, -torch.inf)
-            # normalize amplitude
-            delta_amplitude: torch.Tensor = self.normalize_amplitude(delta_amplitude)
+            # Apply a filter mask to the amplitude to ensure the conservation of particle number.
+            delta_amplitude = delta_amplitude + torch.where(self._mask(x[:, 1:]), 0, -torch.inf)
 
-            # delta unperturbed prob for all batch and 4 adds
-            l: torch.Tensor = (2 * delta_amplitude).reshape([local_batch_size, 4])
+            # normalized_delta_amplitude: batch_size * 2 * 2
+            # Normalize the delta amplitude.
+            normalized_delta_amplitude: torch.Tensor = self._normalize_amplitude(delta_amplitude)
+
+            # The delta unperturbed prob for all batch and 4 adds
+            l: torch.Tensor = (2 * normalized_delta_amplitude).reshape([local_batch_size, 4])
             # and add to get the current unperturbed prob
-            l: torch.Tensor = unperturbed_probability.view([-1, 1]) + l
-            # get perturbed prob
+            l = unperturbed_probability.view([local_batch_size, 1]) + l
+            # Get perturbed prob by adding GUMBEL(0)
             L: torch.Tensor = l - (-torch.rand_like(l).log()).log()
-            # get max perturbed prob
-            Z: torch.Tensor = L.max(dim=-1).values.reshape([-1, 1])
-            # evaluate the conditioned prob
-            L: torch.Tensor = -torch.log(torch.exp(-perturbed_probability.view([-1, 1])) - torch.exp(-Z) + torch.exp(-L))
+            # Get max perturbed prob
+            Z: torch.Tensor = L.max(dim=-1).values.reshape([local_batch_size, 1])
+            # Evaluate the conditioned prob
+            tildeL: torch.Tensor = -torch.log(torch.exp(-perturbed_probability.view([local_batch_size, 1])) - torch.exp(-Z) + torch.exp(-L))
 
-            # calculate appended configurations for 4 adds
+            assert cache is not None
+
+            # Calculate appended configurations for 4 adds
             # local_batch_size * current_site * 2 + local_batch_size * 1 * 2
             x0: torch.Tensor = torch.cat([x, torch.tensor([[0, 0]], device=device).expand(local_batch_size, -1, -1)], dim=1)
             x1: torch.Tensor = torch.cat([x, torch.tensor([[0, 1]], device=device).expand(local_batch_size, -1, -1)], dim=1)
             x2: torch.Tensor = torch.cat([x, torch.tensor([[1, 0]], device=device).expand(local_batch_size, -1, -1)], dim=1)
             x3: torch.Tensor = torch.cat([x, torch.tensor([[1, 1]], device=device).expand(local_batch_size, -1, -1)], dim=1)
 
-            # cat all configurations to get x : new_local_batch_size * current_size * 2
+            # Cat all configurations to get x : new_local_batch_size * (current_size+1) * 2
             # (un)perturbed prob : new_local_batch_size
             x = torch.cat([x0, x1, x2, x3])
-            unperturbed_probability = l.permute(1, 0).reshape([-1])
-            perturbed_probability = L.permute(1, 0).reshape([-1])
+            unperturbed_probability = l.permute(1, 0).reshape([4 * local_batch_size])
+            perturbed_probability = tildeL.permute(1, 0).reshape([4 * local_batch_size])
             cache = [(kv[0].repeat(4, 1, 1, 1), kv[1].repeat(4, 1, 1, 1)) for kv in cache]
             # kv cache: batch * heads_num * site * heads_dim, so just repeat first dimension
 
-            # filter new data, only used largest batch_size ones
+            # Filter results, only use largest batch_size ones
             selected = perturbed_probability.sort(descending=True).indices[:batch_size]
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
             cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
 
-            # if prob = 0, filter it forcely
+            # If prob = 0, filter it forcely
             selected = perturbed_probability != -torch.inf
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
             cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
 
-        # apply ordering
+        # Apply ordering
         x = torch.index_select(x[:, 1:], 1, self.ordering)
-        # flatten site part of x
+        # Flatten site part of x
         x = x.reshape([x.size(0), self.double_sites])
-        # it should return configurations, amplitudes, probabilities and multiplicities
-        # but it is unique generator, so last two field is none
+        # It should return configurations, amplitudes, probabilities and multiplicities.
+        # But it is unique generator, so the last two fields are None
+        return x, self(x), None, None
+
+
+class WaveFunctionNormal(torch.nn.Module):
+    """
+    The wave function for the transformer model.
+    This module does not maintain any conservation.
+    """
+
+    # pylint: disable=too-many-instance-attributes
+
+    def __init__(  # pylint: disable=too-many-arguments
+            self,
+            *,
+            sites: int,  # Number of qubits
+            physical_dim: int,  # Dimension of the physical space,
+            is_complex: bool,  # Indicates whether the wave function is complex-valued, which is always true
+            embedding_dim: int,  # Dimension of the embedding space used in the transformer layers
+            heads_num: int,  # Number of attention heads in the transformer's self-attention mechanism
+            feed_forward_dim: int,  # Dimension of the feed-forward network within the transformer layers
+            depth: int,  # Number of decoder layers in the transformer model
+            ordering: int | list[int],  # Ordering of sites: +1 for normal order, -1 for reversed order, or a custom order list
+    ) -> None:
+        super().__init__()
+        self.sites: int = sites
+        self.physical_dim: int = physical_dim
+        assert is_complex == True  # pylint: disable=singleton-comparison
+        self.embedding_dim: int = embedding_dim
+        self.heads_num: int = heads_num
+        self.feed_forward_dim: int = feed_forward_dim
+        self.depth: int = depth
+
+        # Embed configurations for each site, considering the physical_dim possible states of each qubit.
+        self.embedding: torch.nn.Module = Embedding(self.sites, physical_dim, self.embedding_dim)
+        # Main body of the wave function computation.
+        self.transformers: torch.nn.Module = Transformers(self.embedding_dim, self.heads_num, self.feed_forward_dim, self.depth)
+        # Tail layer mapping from embedding space to amplitude and phase space.
+        # (amplitude and phase) * (4 possible states)
+        self.tail: torch.nn.Module = Tail(self.embedding_dim, self.feed_forward_dim, 2 * self.physical_dim)
+
+        # Site Ordering Configuration
+        # +1 for normal order, -1 for reversed order
+        if isinstance(ordering, int) and ordering == +1:
+            ordering = list(range(self.sites))
+        if isinstance(ordering, int) and ordering == -1:
+            ordering = list(reversed(range(self.sites)))
+        self.register_buffer('ordering', torch.tensor(ordering, dtype=torch.int64))
+        self.register_buffer('ordering_reversed', torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
+
+        # Dummy Parameter for Device and Dtype Retrieval
+        # This parameter is used to infer the device and dtype of the model.
+        self.dummy_param = torch.nn.Parameter(torch.empty(0))
+
+    @torch.jit.export
+    def normalize_amplitude(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Normalize the log amplitude of uncompleted configurations.
+        """
+        # x : ... * physical_dim
+        # param :  ...
+        param = (2 * x).exp().sum(dim=[-1]).log() / 2
+        x = x - param.unsqueeze(-1)
+        # 1 = param = sqrt(sum(x.exp()^2)) now
+        return x
+
+    @torch.jit.export
+    def _binomial(self, count: torch.Tensor, probability: torch.Tensor) -> torch.Tensor:
+        """
+        Binomial sampling with given count and probability
+        """
+        # Clamp the probability values to ensure they lie within the valid range [0, 1]
+        probability = torch.clamp(probability, min=0, max=1)
+        # Set probability to zero where count is zero to avoid NaN values due to division by zero
+        probability = torch.where(count == 0, 0, probability)
+        # Create a binomial distribution and sample from it
+        result = torch.binomial(count, probability).to(dtype=torch.int64)
+        # Address potential numerical errors by clamping the result to ensure it lies within the valid range [0, count]
+        return torch.clamp(result, min=torch.zeros_like(count), max=count)
+
+    @torch.jit.export
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the wave function psi for the given configurations.
+        """
+        device: torch.device = self.dummy_param.device
+
+        batch_size: int = x.shape[0]
+        # x : batch_size * sites
+        x = x.reshape([batch_size, self.sites])
+        # Apply ordering
+        x = torch.index_select(x, 1, self.ordering_reversed)
+
+        # x_for_emb: batch_size * sites
+        # Prepare x for emb as the input for the neural network
+        # The last configuration is excluded, and a zero vector is prepended at the beginning to represent the initial state.
+        x_for_emb: torch.Tensor = x[:, :-1]
+        x_for_emb = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.int64), x_for_emb], dim=1)
+
+        # emb: batch_size * sites * embedding
+        # Embed the input tensor `x_for_emb` using the embedding layer.
+        # In embedding layer, 0 for bos, 1 for site 0, ...
+        emb: torch.Tensor = self.embedding(x_for_emb, 0)
+
+        # post_transformers: batch_size * sites * embedding
+        post_transformers, _ = self.transformers(emb, None, None)
+
+        # tail: batch_size * sites * (2*physical_dim)
+        tail: torch.Tensor = self.tail(post_transformers)
+
+        # amplitude/phase : batch_size * sites * physical_dim
+        amplitude: torch.Tensor = tail[:, :, :self.physical_dim]
+        phase: torch.Tensor = tail[:, :, self.physical_dim:]
+
+        # Normalize the delta amplitude.
+        amplitude = self.normalize_amplitude(amplitude)
+
+        # batch/sites_indices: batch_size * sites
+        batch_indices: torch.Tensor = torch.arange(batch_size).unsqueeze(1).expand(-1, self.sites)
+        sites_indices: torch.Tensor = torch.arange(self.sites).unsqueeze(0).expand(batch_size, -1)
+
+        # selected_amplitude/phase: batch_size * sites
+        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x]
+        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x]
+
+        return torch.view_as_complex(torch.stack([selected_amplitude.sum(dim=1), selected_phase.sum(dim=1)], dim=-1)).exp()
+
+    @torch.jit.export
+    def generate_unique(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, None, None]:
+        """
+        Generate configurations uniquely.
+        see https://arxiv.org/pdf/2408.07625.
+        """
+        # pylint: disable=too-many-locals
+        # pylint: disable=invalid-name
+
+        device: torch.device = self.dummy_param.device
+        dtype: torch.dtype = self.dummy_param.dtype
+
+        cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
+
+        # x: local_batch_size * current_site
+        x: torch.Tensor = torch.zeros([1, 1], device=device, dtype=torch.int64)  # site=1, since the first is bos
+        # (un)perturbed_log_probability: local_batch_size
+        unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
+        perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
+        for i in range(self.sites):
+            local_batch_size: int = x.size(0)
+
+            # xi: batch * (sites=1)
+            xi: torch.Tensor = x[:, -1:, :]
+            # emb: batch * (sites=1) * embedding
+            emb: torch.Tensor = self.embedding(xi, i)
+            # post_transformers: batch * (sites=1) * embedding
+            post_transformers, cache = self.transformers(emb, cache, None)
+            # tail: batch * (sites=1) * (2*physical_dim)
+            tail: torch.Tensor = self.tail(post_transformers)
+
+            # The first physical_dim item are amplitude
+            # delta_amplitude: batch * physical_dim
+            # delta_amplitude represents the amplitude changes for the configurations at the new site.
+            delta_amplitude: torch.Tensor = tail[:, :, :self.physical_dim].reshape([local_batch_size, self.physical_dim])
+
+            # normalized_delta_amplitude: batch_size * physical_dim
+            # Normalize the delta amplitude.
+            normalized_delta_amplitude: torch.Tensor = self._normalize_amplitude(delta_amplitude)
+
+            # The delta unperturbed prob for all batch and all new possible states
+            l: torch.Tensor = (2 * normalized_delta_amplitude).reshape([local_batch_size, self.physical_dim])
+            # and add to get the current unperturbed prob
+            l = unperturbed_probability.view([local_batch_size, 1]) + l
+            # Get perturbed prob by adding GUMBEL(0)
+            L: torch.Tensor = l - (-torch.rand_like(l).log()).log()
+            # Get max perturbed prob
+            Z: torch.Tensor = L.max(dim=-1).values.reshape([local_batch_size, 1])
+            # Evaluate the conditioned prob
+            tildeL: torch.Tensor = -torch.log(torch.exp(-perturbed_probability.view([local_batch_size, 1])) - torch.exp(-Z) + torch.exp(-L))
+
+            assert cache is not None
+
+            # Calculate appended configurations for all new possible states
+            # local_batch_size * current_site + local_batch_size * 1
+            xs: list[torch.Tensor] = [torch.cat([x, torch.tensor([j], device=device).expand(local_batch_size, -1)], dim=1) for j in range(self.physical_dim)]
+
+            # Cat all configurations to get x : new_local_batch_size * (current_size+1)
+            # (un)perturbed prob : new_local_batch_size
+            x = torch.cat(xs)
+            unperturbed_probability = l.permute(1, 0).reshape([self.physical_dim * local_batch_size])
+            perturbed_probability = tildeL.permute(1, 0).reshape([self.physical_dim * local_batch_size])
+            cache = [(kv[0].repeat(self.physical_dim, 1, 1, 1), kv[1].repeat(self.physical_dim, 1, 1, 1)) for kv in cache]
+            # kv cache: batch * heads_num * site * heads_dim, so just repeat first dimension
+
+            # Filter results, only use largest batch_size ones
+            selected = perturbed_probability.sort(descending=True).indices[:batch_size]
+            x = x[selected]
+            unperturbed_probability = unperturbed_probability[selected]
+            perturbed_probability = perturbed_probability[selected]
+            cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
+
+            # If prob = 0, filter it forcely
+            selected = perturbed_probability != -torch.inf
+            x = x[selected]
+            unperturbed_probability = unperturbed_probability[selected]
+            perturbed_probability = perturbed_probability[selected]
+            cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
+
+        # Apply ordering
+        x = torch.index_select(x[:, 1:], 1, self.ordering)
+        # Flatten site part of x
+        x = x.reshape([x.size(0), self.double_sites])
+        # It should return configurations, amplitudes, probabilities and multiplicities.
+        # But it is unique generator, so the last two fields are None
         return x, self(x), None, None

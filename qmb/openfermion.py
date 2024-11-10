@@ -9,8 +9,8 @@ import dataclasses
 import torch
 import tyro
 import openfermion
-from .naqs import WaveFunction as NaqsWaveFunction
-from .attention import WaveFunction as AttentionWaveFunction
+from .naqs import WaveFunctionElectronUpDown as NaqsWaveFunction
+from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto
 

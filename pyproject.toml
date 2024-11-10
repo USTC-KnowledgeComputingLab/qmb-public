@@ -64,6 +64,7 @@ column_limit = 200
 [tool.pylint]
 max-line-length = 200
 ignore-paths = ["qmb/_version.py"]
+disable = ["duplicate-code"]
 
 [tool.mypy]
 disallow_untyped_calls = true
