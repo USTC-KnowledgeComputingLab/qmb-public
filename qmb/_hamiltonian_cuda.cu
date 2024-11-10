@@ -210,7 +210,7 @@ void launch_search_kernel(
 // The last three arguments are prepared by the `prepare` function and stored on the Python side.
 // Refer to `_hamiltonian.cpp` for additional details and context.
 template<std::int64_t max_op_number, std::int64_t particle_cut>
-auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
+auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef, bool early_drop) {
     std::int64_t batch_size = configs_i.size(0);
     std::int64_t n_qubits = configs_i.size(1);
     std::int64_t term_number = site.size(0);
@@ -263,10 +263,29 @@ auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor
     return std::make_tuple(valid_index_i, valid_configs_j, valid_coefs);
 }
 
+auto drop_early(torch::Tensor index_i, torch::Tensor configs_j, torch::Tensor coefs, torch::Tensor configs_i) {
+    torch::Tensor configs_i_and_j = torch::cat({configs_i, configs_j}, /*dim=*/0);
+    auto [pool, both_to_pool, none] = torch::unique_dim(configs_i_and_j, /*dim=*/0, /*sorted=*/false, /*return_inverse=*/true);
+
+    std::int64_t batch_size = configs_i.size(0);
+    std::int64_t pool_size = pool.size(0);
+
+    torch::Tensor pool_to_source = torch::full({pool_size}, -1, torch::TensorOptions().dtype(torch::kInt64).device(device));
+    torch::Tensor source_to_pool = both_to_pool.index({torch::indexing::Slice(torch::indexing::None, batch_size)});
+    pool_to_source.index_put_({source_to_pool}, torch::arange(batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device)));
+
+    torch::Tensor dest_to_pool = both_to_pool.index({torch::indexing::Slice(batch_size, torch::indexing::None)});
+    torch::Tensor dest_to_source = pool_to_source.index({dest_to_pool});
+
+    torch::Tensor usable = dest_to_source != -1;
+
+    return std::make_tuple(index_i.index({usable}), configs_j.index({usable}), coefs.index({usable}));
+}
+
 // This function encapsulates the `python_interface` to facilitate job splitting, thereby mitigating potential memory leaks.
 // It partitions the input tensor into pieces, invokes the `python_interface` on each segment, and subsequently merges the results.
 template<std::int64_t max_op_number, std::int64_t particle_cut>
-auto python_interface_with_batch_split(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
+auto python_interface_with_batch_split(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef, bool early_drop) {
     std::int64_t batch_size = configs_i.size(0);
     std::vector<torch::Tensor> index_i_pool;
     std::vector<torch::Tensor> configs_j_pool;
@@ -276,11 +295,19 @@ auto python_interface_with_batch_split(torch::Tensor configs_i, torch::Tensor si
             configs_i.index({torch::indexing::Slice(i, i + 1, torch::indexing::None)}),
             site,
             kind,
-            coef
+            coef,
+            early_drop
         );
-        index_i_pool.push_back(index_i + i);
-        configs_j_pool.push_back(configs_j);
-        coefs_pool.push_back(coefs);
+        if (early_drop) {
+            auto [dropped_index_i, dropped_configs_j, dropped_coefs] = drop_early(index_i, configs_j, coefs, configs_i);
+            index_i_pool.push_back(dropped_index_i);
+            configs_j_pool.push_back(dropped_configs_j);
+            coefs_pool.push_back(dropped_coefs);
+        } else {
+            index_i_pool.push_back(index_i);
+            configs_j_pool.push_back(configs_j);
+            coefs_pool.push_back(coefs);
+        }
     }
     return std::make_tuple(torch::cat(index_i_pool, /*dim=*/0), torch::cat(configs_j_pool, /*dim=*/0), torch::cat(coefs_pool, /*dim=*/0));
 }
@@ -288,7 +315,7 @@ auto python_interface_with_batch_split(torch::Tensor configs_i, torch::Tensor si
 // This function encapsulates the `python_interface` to facilitate job splitting, thereby mitigating potential memory leaks.
 // It partitions the input tensor into pieces, invokes the `python_interface` on each segment, and subsequently merges the results.
 template<std::int64_t max_op_number, std::int64_t particle_cut, std::int64_t group_size>
-auto python_interface_with_term_group(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
+auto python_interface_with_term_group(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef, bool early_drop) {
     std::int64_t batch_size = configs_i.size(0);
     std::int64_t term_number = site.size(0);
     std::vector<torch::Tensor> index_i_pool;
@@ -299,11 +326,19 @@ auto python_interface_with_term_group(torch::Tensor configs_i, torch::Tensor sit
             configs_i,
             site.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)}),
             kind.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)}),
-            coef.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)})
+            coef.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)}),
+            early_drop
         );
-        index_i_pool.push_back(index_i);
-        configs_j_pool.push_back(configs_j);
-        coefs_pool.push_back(coefs);
+        if (early_drop) {
+            auto [dropped_index_i, dropped_configs_j, dropped_coefs] = drop_early(index_i, configs_j, coefs, configs_i);
+            index_i_pool.push_back(dropped_index_i);
+            configs_j_pool.push_back(dropped_configs_j);
+            coefs_pool.push_back(dropped_coefs);
+        } else {
+            index_i_pool.push_back(index_i);
+            configs_j_pool.push_back(configs_j);
+            coefs_pool.push_back(coefs);
+        }
     }
     return std::make_tuple(torch::cat(index_i_pool, /*dim=*/0), torch::cat(configs_j_pool, /*dim=*/0), torch::cat(coefs_pool, /*dim=*/0));
 }

@@ -97,8 +97,8 @@ PYBIND11_MODULE(_hamiltonian, m) {
 // - `coefs`: A float64 tensor of shape [valid_size, 2], encoding the coefficients (both real and imaginary parts) of the terms.
 // Here, `valid_size` signifies the count of non-zero terms post-iteration over the Hamiltonian based on the provided configurations.
 TORCH_LIBRARY(_hamiltonian, m) {
-    m.def("fermi(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
-    m.def("bose2(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
+    m.def("fermi(Tensor configs_i, Tensor site, Tensor kind, Tensor coef, bool early_drop) -> (Tensor, Tensor, Tensor)");
+    m.def("bose2(Tensor configs_i, Tensor site, Tensor kind, Tensor coef, bool early_drop) -> (Tensor, Tensor, Tensor)");
 }
 
 } // namespace qmb_hamiltonian

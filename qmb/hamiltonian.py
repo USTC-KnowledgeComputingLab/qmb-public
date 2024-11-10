@@ -33,19 +33,20 @@ class Hamiltonian:
         self.kind: torch.Tensor
         self.coef: torch.Tensor
         self.site, self.kind, self.coef = getattr(self._get_extension(), "prepare")(hamiltonian)
-        self._relative_impl: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
+        self._relative_impl: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, bool], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
         self._relative_impl = getattr(torch.ops._hamiltonian, kind)
 
     def _relative(
         self,
         configs_i: torch.Tensor,
+        early_drop: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         device: torch.device = configs_i.device
         self.site = self.site.to(device=device)
         self.kind = self.kind.to(device=device)
         self.coef = self.coef.to(device=device)
         assert configs_i.is_contiguous() and self.site.is_contiguous() and self.kind.is_contiguous() and self.coef.is_contiguous()
-        return self._relative_impl(configs_i, self.site, self.kind, self.coef)
+        return self._relative_impl(configs_i, self.site, self.kind, self.coef, early_drop)
 
     def inside(self, configs_i_int64: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -84,7 +85,7 @@ class Hamiltonian:
         valid_index_i: torch.Tensor
         valid_configs_j: torch.Tensor
         valid_coefs: torch.Tensor
-        valid_index_i, valid_configs_j, valid_coefs = self._relative(configs_i)
+        valid_index_i, valid_configs_j, valid_coefs = self._relative(configs_i, early_drop=True)
         # configs_i : bool[batch_size, n_qubits]
         # valid_configs_j : bool[valid_size, n_qubits]
         # valid_index_i : int64[valid_size]
