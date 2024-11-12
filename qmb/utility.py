@@ -57,7 +57,7 @@ def extend_with_select(
     logging.info("Number of selected extended configurations: %d", count_extended)
 
     logging.info("Preparing initial amplitudes for future use")
-    psi_extended = torch.cat([psi_core, torch.zeros([count_extended - count_core], dtype=psi_core.dtype, device=psi_core.device)], dim=0).view([-1, 1])
+    psi_extended = torch.cat([psi_core, torch.zeros([count_extended - count_core], dtype=psi_core.dtype, device=psi_core.device)], dim=0)
     logging.info("Initial amplitudes for future use has been created")
 
     logging.info("Extend with selection process completed")
