@@ -73,5 +73,4 @@ disallow_incomplete_defs = true
 check_untyped_defs = true
 
 [tool.pytest.ini_options]
-pythonpath = "."
 addopts = "--cov=qmb"
