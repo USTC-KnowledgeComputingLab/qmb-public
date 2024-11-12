@@ -13,6 +13,32 @@ from .subcommand_dict import subcommand_dict
 from .utility import extend_with_select, lobpcg_process, select_by_lobpcg
 
 
+def _union(
+    configs_a: torch.Tensor,
+    configs_b: torch.Tensor,
+) -> torch.Tensor:
+    # Merge two sets of configurations and their corresponding psi values, ensuring that in case of duplicates, the psi values from the second set (psi_b) are retained.
+    configs_both = torch.cat([configs_a, configs_b], dim=0)
+    configs_result = torch.unique(configs_both, dim=0)
+    return configs_result
+
+
+def _subtraction(
+    configs_a: torch.Tensor,
+    configs_b: torch.Tensor,
+) -> torch.Tensor:
+    # Subtract the configurations in configs_b from configs_a, retaining the psi values from psi_a for the remaining configurations.
+    count_a = len(configs_a)
+    configs_both = torch.cat([configs_a, configs_b], dim=0)
+    configs_result, both_to_result = torch.unique(configs_both, dim=0, return_inverse=True)
+    a_to_result = both_to_result[:count_a]
+    b_to_result = both_to_result[count_a:]
+    result_in_b = torch.zeros(len(configs_result), device=configs_result.device, dtype=torch.bool)
+    result_in_b[b_to_result] = True
+    a_not_in_b = torch.logical_not(result_in_b[a_to_result])
+    return configs_a[a_not_in_b]
+
+
 @dataclasses.dataclass
 class LearnConfig:
     """
@@ -89,18 +115,18 @@ class LearnConfig:
             if self.post_sampling_iteration != 0:
                 logging.info("Starting post-sampling process")
                 logging.info("Extending and selecting %d times with a temporary sampling count of %d", self.post_sampling_iteration, self.post_sampling_count)
-                configs_backup = configs
-                psi_backup = psi
+                configs_all = configs
                 for i in range(self.post_sampling_iteration):
-                    logging.info("Performing extension and selection, iteration %d", i)
+                    logging.info("Performing extension, iteration %d", i)
                     configs, psi = extend_with_select(model, configs, psi, self.post_sampling_count)
-                    configs, psi = select_by_lobpcg(model, configs, psi, self.sampling_count)
+                    configs_all = _union(configs_all, configs)
+                    if i != self.post_sampling_iteration - 1:
+                        logging.info("Performing selection, iteration %d", i)
+                        configs, psi = select_by_lobpcg(model, configs, psi, self.sampling_count)
+                    else:
+                        logging.info("Skipping selection on the last iteration")
                 logging.info("Extension and selection loop concluded")
-                too_small_in_backup = torch.all(torch.any(configs_backup.unsqueeze(1) - configs.unsqueeze(0) != 0, dim=-1), dim=-1)
-                too_small_configs = configs_backup[too_small_in_backup]
-                too_small_psi = psi_backup[too_small_in_backup] / 100
-                configs = torch.cat([configs, too_small_configs], dim=0)
-                psi = torch.cat([psi, too_small_psi], dim=0)
+                configs_too_small = _subtraction(configs_all, configs)
                 logging.info("Post-sampling process successfully completed")
 
             logging.info("Solving the equation within the configuration subspace")
@@ -120,11 +146,27 @@ class LearnConfig:
 
             def closure() -> torch.Tensor:
                 optimizer.zero_grad()
+                loss = torch.tensor(0)
+
                 amplitudes = network(configs)
                 amplitudes = amplitudes / amplitudes[max_index]
-                loss: torch.Tensor = loss_func(amplitudes, targets)
-                loss.backward()  # type: ignore[no-untyped-call]
-                loss.amplitudes = amplitudes  # type: ignore[attr-defined]
+                loss_main = loss_func(amplitudes, targets)
+                loss_main.backward()  # type: ignore[no-untyped-call]
+                loss = loss + loss_main.item()
+                min_index = amplitudes.abs().argmin()
+
+                if self.post_sampling_iteration != 0:
+                    for j in range(0, len(configs_too_small), len(configs)):
+                        min_amplitudes, max_amplitudes = network(configs[[min_index.item(), max_index.item()]]).abs()  # type: ignore[assignment]
+                        min_amplitudes = min_amplitudes / max_amplitudes
+                        amplitudes_too_small = network(configs_too_small[j:j + len(configs)]).abs() / max_amplitudes
+                        targets_too_small = torch.where(amplitudes_too_small > min_amplitudes, min_amplitudes, amplitudes_too_small)
+                        loss_too_small = loss_func(amplitudes_too_small, targets_too_small)
+                        loss_too_small = loss_too_small * (len(amplitudes_too_small) / len(configs))
+                        loss_too_small.backward()  # type: ignore[no-untyped-call]
+                        loss = loss + loss_too_small.item()
+
+                loss.amplitudes = amplitudes.detach()  # type: ignore[attr-defined]
                 return loss
 
             logging.info("Starting local optimization process")
@@ -145,7 +187,7 @@ class LearnConfig:
             logging.info("Current optimization cycle completed")
 
             loss = typing.cast(torch.Tensor, torch.enable_grad(closure)())  # type: ignore[no-untyped-call,call-arg]
-            amplitudes = loss.amplitudes  # type: ignore[attr-defined]
+            amplitudes: torch.Tensor = loss.amplitudes  # type: ignore[attr-defined]
             final_energy = ((amplitudes.conj() @ (hamiltonian @ amplitudes)) / (amplitudes.conj() @ amplitudes)).real
             logging.info(
                 "Loss during local optimization: %.10f, Final energy: %.10f, Target energy: %.10f, Reference energy: %.10f, Final error: %.10f",
