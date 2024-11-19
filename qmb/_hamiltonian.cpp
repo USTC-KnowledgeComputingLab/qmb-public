@@ -24,6 +24,7 @@
 // The `max_op_number` template argument specifies the maximum number of operators per term, typically set to 4 for 2-body interactions.
 // This file defines the `prepare` function and declares the PyTorch operators, with their specific device implementations located in separate files.
 
+#include <pybind11/complex.h>
 #include <torch/extension.h>
 
 namespace qmb_hamiltonian {
