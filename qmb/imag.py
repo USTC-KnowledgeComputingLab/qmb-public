@@ -2,6 +2,7 @@
 This file implements a two-step optimization process for solving quantum many-body problems based on imaginary time.
 """
 
+import copy
 import logging
 import typing
 import dataclasses
@@ -191,30 +192,49 @@ class ImaginaryConfig:
 
             loss_func: typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = getattr(losses, self.loss_name)
 
-            optimizer: torch.optim.Optimizer
-            if self.use_lbfgs:
-                optimizer = torch.optim.LBFGS(network.parameters(), lr=self.learning_rate)
-            else:
-                optimizer = torch.optim.Adam(network.parameters(), lr=self.learning_rate)
+            try_index = 0
+            while True:
+                state_backup = copy.deepcopy(network.state_dict())
 
-            def closure() -> torch.Tensor:
-                optimizer.zero_grad()
-                amplitudes = network(configs)
-                amplitudes = amplitudes / amplitudes[max_index]
-                loss = loss_func(amplitudes, psi)
-                loss.backward()  # type: ignore[no-untyped-call]
-                loss.amplitudes = amplitudes.detach()  # type: ignore[attr-defined]
-                return loss
+                optimizer: torch.optim.Optimizer
+                if self.use_lbfgs:
+                    optimizer = torch.optim.LBFGS(network.parameters(), lr=self.learning_rate / (1 << try_index))
+                else:
+                    optimizer = torch.optim.Adam(network.parameters(), lr=self.learning_rate / (1 << try_index))
 
-            logging.info("Starting local optimization process")
-            loss: torch.Tensor
-            for i in range(self.local_step):
-                loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
-                logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
-                if loss < self.local_loss:
-                    logging.info("Local optimization halted as the loss threshold has been met")
+                def closure() -> torch.Tensor:
+                    optimizer.zero_grad()
+                    amplitudes = network(configs)
+                    amplitudes = amplitudes / amplitudes[max_index]
+                    loss = loss_func(amplitudes, psi)
+                    loss.backward()  # type: ignore[no-untyped-call]
+                    loss.amplitudes = amplitudes.detach()  # type: ignore[attr-defined]
+                    return loss
+
+                logging.info("Starting local optimization process")
+                success = True
+                loss: torch.Tensor
+                for i in range(self.local_step):
+                    loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
+                    logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
+                    if torch.isnan(loss):
+                        logging.warning("Loss is NaN, restoring the previous state and exiting the optimization loop")
+                        success = False
+                        break
+                    if loss < self.local_loss:
+                        logging.info("Local optimization halted as the loss threshold has been met")
+                        break
+                if success:
+                    for param in network.parameters():
+                        if torch.isnan(param).any():
+                            logging.warning("NaN detected in parameters, restoring the previous state and exiting the optimization loop")
+                            success = False
+                            break
+                if success:
+                    logging.info("Local optimization process completed")
                     break
-            logging.info("Local optimization process completed")
+                network.load_state_dict(state_backup)
+                try_index = try_index + 1
 
             logging.info("Saving model checkpoint")
             torch.save(network.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.pt")
