@@ -68,6 +68,13 @@ class _DynamicLanczos:
         """
         Run the dynamic Lanczos algorithm.
         """
+        while True:
+            result = self._run(keep_until=keep_until)
+            if result is not None:
+                return result
+            keep_until = keep_until + 1
+
+    def _run(self, keep_until: int = -1) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None:
         hamiltonian = self._hamiltonian()
 
         v = [self.psi / torch.linalg.norm(self.psi)]  # pylint: disable=not-callable
@@ -76,7 +83,7 @@ class _DynamicLanczos:
 
         if keep_until == -1:
             self._extend(v[-1])
-            return self.run(keep_until=keep_until + 1)
+            return None
         w = hamiltonian @ v[-1]
         alpha = torch.cat((alpha, (v[-1].conj() @ w).real.reshape([1])), dim=0)
         w = w - alpha[-1] * v[-1]
@@ -88,7 +95,7 @@ class _DynamicLanczos:
             v.append(w / beta[-1])
             if keep_until == i:
                 self._extend(v[-1])
-                return self.run(keep_until=keep_until + 1)
+                return None
             w = hamiltonian @ v[-1]
             alpha = torch.cat((alpha, (v[-1].conj() @ w).real.reshape([1])), dim=0)
             w = w - alpha[-1] * v[-1] - beta[-1] * v[-2]
