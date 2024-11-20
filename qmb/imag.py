@@ -101,7 +101,10 @@ class _DynamicLanczos:
             w = w - alpha[-1] * v[-1] - beta[-1] * v[-2]
 
         # Currently, PyTorch does not support this functionality natively, so we resort to using SciPy for this operation.
-        vals, vecs = scipy.linalg.eigh_tridiagonal(alpha.cpu(), beta.cpu(), lapack_driver="stemr", select="i", select_range=[0, 0])
+        # We can only use 'stebz' or 'stemr' drivers in the current version of SciPy.
+        # However, 'stemr' consumes a lot of memory, so we opt for 'stebz' here.
+        # 'stebz' is efficient and only takes a few seconds even for large matrices with dimensions up to 10,000,000.
+        vals, vecs = scipy.linalg.eigh_tridiagonal(alpha.cpu(), beta.cpu(), lapack_driver="stebz", select="i", select_range=(0, 0))
         energy = torch.as_tensor(vals[0])
         result = torch.sum(torch.as_tensor(vecs[:, 0]).to(device=hamiltonian.device) * torch.stack(v, dim=1), dim=1)
         return hamiltonian, energy, self.configs, result
@@ -132,7 +135,7 @@ class ImaginaryConfig:
     # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
     # The number of steps for the local optimizer
-    local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"], help_behavior_hint="(default: 1000 for Adam, 400 for LBFGS)")] = -1
+    local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 1000
     # The early break loss threshold for local optimization
     local_loss: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-6
     # The number of psi values to log after local optimization
@@ -141,8 +144,6 @@ class ImaginaryConfig:
     def __post_init__(self) -> None:
         if self.learning_rate == -1:
             self.learning_rate = 1 if self.use_lbfgs else 1e-3
-        if self.local_step == -1:
-            self.local_step = 400 if self.use_lbfgs else 1000
 
     def main(self) -> None:
         """
