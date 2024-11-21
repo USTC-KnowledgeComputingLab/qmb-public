@@ -2,6 +2,7 @@
 This file implements an auto-regressive transformer network with the sampling method introduced in https://arxiv.org/pdf/2408.07625.
 """
 
+import math
 import torch
 
 
@@ -13,7 +14,6 @@ class FeedForward(torch.nn.Module):
     def __init__(self, embedding_dim: int, hidden_dim: int) -> None:
         super().__init__()
         self.model: torch.nn.Module = torch.nn.Sequential(
-            torch.nn.LayerNorm(embedding_dim),
             torch.nn.Linear(embedding_dim, hidden_dim),
             torch.nn.GELU(),
             torch.nn.Linear(hidden_dim, embedding_dim),
@@ -41,8 +41,6 @@ class SelfAttention(torch.nn.Module):
         self.heads_dim: int = embedding_dim // heads_num
         assert self.heads_num * self.heads_dim == embedding_dim
 
-        self.norm: torch.nn.Module = torch.nn.LayerNorm(embedding_dim)
-
         self.qkv: torch.nn.Module = torch.nn.Linear(embedding_dim, 3 * embedding_dim)
         self.out: torch.nn.Module = torch.nn.Linear(embedding_dim, embedding_dim)
 
@@ -55,8 +53,6 @@ class SelfAttention(torch.nn.Module):
         """
         Forward pass of the self-attention layer.
         """
-        # x: batch * site * embedding
-        x = self.norm(x)
         # x: batch * site * embedding
         batch_size, sites, embedding_dim = x.shape
         q, k, v = self.qkv(x).split(embedding_dim, dim=-1)
@@ -94,7 +90,9 @@ class DecoderUnit(torch.nn.Module):
     def __init__(self, embedding_dim: int, heads_num: int, feed_forward_dim: int) -> None:
         super().__init__()
         self.attention: torch.nn.Module = SelfAttention(embedding_dim, heads_num)
+        self.norm1: torch.nn.Module = torch.nn.LayerNorm(embedding_dim)
         self.feed_forward: torch.nn.Module = FeedForward(embedding_dim, feed_forward_dim)
+        self.norm2: torch.nn.Module = torch.nn.LayerNorm(embedding_dim)
 
     def forward(
         self,
@@ -107,9 +105,9 @@ class DecoderUnit(torch.nn.Module):
         """
         # x, y: batch * site * embedding
         y, result_cache = self.attention(x, kv_cache, mask)
-        x = x + y
+        x = self.norm1(x + y)
         y = self.feed_forward(x)
-        x = x + y
+        x = self.norm2(x + y)
         return x, result_cache
 
 
@@ -150,7 +148,6 @@ class Tail(torch.nn.Module):
     def __init__(self, embedding_dim: int, hidden_dim: int, output_dim: int) -> None:
         super().__init__()
         self.model: torch.nn.Module = torch.nn.Sequential(
-            torch.nn.LayerNorm(embedding_dim),
             torch.nn.Linear(embedding_dim, hidden_dim),
             torch.nn.GELU(),
             torch.nn.Linear(hidden_dim, output_dim),
@@ -166,32 +163,60 @@ class Tail(torch.nn.Module):
         return x
 
 
+class SinusoidalPositionalEncoding(torch.nn.Module):
+    """
+    The sinusoidal positional encoding for the transformer model.
+    """
+
+    def __init__(self, embedding_dim: int, max_seq_len: int = 2048) -> None:
+        super().__init__()
+
+        position_embedding = torch.zeros(max_seq_len, embedding_dim)  # [max_seq_len, embedding_dim]
+        position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)  # [max_seq_len, 1]
+
+        # PE[pos, 2i]   = sin(pos / 10000^(2i / embedding_dim)) = sin(pos * exp( 2i * (-log(10000) / embedding_dim) ))
+        # PE[pos, 2i+1] = cos(pos / 10000^(2i / embedding_dim)) = cos(pos * exp( 2i * (-log(10000) / embedding_dim) ))
+        div_term = torch.exp(torch.arange(0, embedding_dim, 2).float() * (-math.log(10000.0) / embedding_dim))
+
+        position_embedding[:, 0::2] = torch.sin(position * div_term)
+        position_embedding[:, 1::2] = torch.cos(position * div_term)
+
+        self.register_buffer('position_embedding', position_embedding)
+
+    def forward(self, x: torch.Tensor, base: int) -> torch.Tensor:
+        """
+        Forward pass of the sinusoidal positional encoding.
+        """
+        # x: [..., seq_len, embedding_dim]
+        x = x + self.position_embedding[base:base + x.size(-2)]
+        return x
+
+
 class Embedding(torch.nn.Module):
     """
     Embedding layer for transforming input data into a format suitable for the transformer model.
     """
 
-    def __init__(self, sites: int, physical_dim: int, embedding_dim: int) -> None:
+    def __init__(self, embedding_dim: int) -> None:
         super().__init__()
-        self.parameter: torch.nn.Parameter = torch.nn.Parameter(torch.randn([sites, physical_dim, embedding_dim]))
+        self.position: torch.nn.Module = SinusoidalPositionalEncoding(embedding_dim)
+        self.embedding_dim = embedding_dim
 
     def forward(self, x: torch.Tensor, base: int) -> torch.Tensor:
         """
         Forward pass of the Embedding layer.
         """
-
         # x: batch * sites
-        x = x.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, self.parameter.shape[-1])
-        # x: batch * sites * config=1 * embedding
+        batch, sites = x.shape
 
-        # param: sites * config * embedding
-        parameter = self.parameter[base:base + x.shape[1]].unsqueeze(0).expand(x.shape[0], -1, -1, -1)
-        # param: batch * sites * config * embedding
+        # result: batch * sites * embedding_dim
+        result = torch.zeros([batch, sites, self.embedding_dim], device=x.device, dtype=torch.int8)
 
-        result = torch.gather(parameter, -2, x.to(dtype=torch.int64))
-        # result: batch * site * 1 * embedding
+        i_indices = torch.arange(batch).unsqueeze(-1).expand(batch, sites)
+        j_indices = torch.arange(sites).unsqueeze(0).expand(batch, sites)
+        result[i_indices, j_indices, x.to(dtype=torch.int32)] = 1
 
-        return result.squeeze(-2)
+        return self.position(result, base)
 
 
 class WaveFunctionElectronUpDown(torch.nn.Module):
@@ -230,7 +255,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         self.depth: int = depth
 
         # Embed configurations for each site, considering the four possible states of two qubits.
-        self.embedding: torch.nn.Module = Embedding(self.sites, 4, self.embedding_dim)
+        self.embedding: torch.nn.Module = Embedding(self.embedding_dim)
         # Main body of the wave function computation.
         self.transformers: torch.nn.Module = Transformers(self.embedding_dim, self.heads_num, self.feed_forward_dim, self.depth)
         # Tail layer mapping from embedding space to amplitude and phase space.
@@ -482,11 +507,11 @@ class WaveFunctionNormal(torch.nn.Module):
         self.depth: int = depth
 
         # Embed configurations for each site, considering the physical_dim possible states of each qubit.
-        self.embedding: torch.nn.Module = Embedding(self.sites, physical_dim, self.embedding_dim)
+        self.embedding: torch.nn.Module = Embedding(self.embedding_dim)
         # Main body of the wave function computation.
         self.transformers: torch.nn.Module = Transformers(self.embedding_dim, self.heads_num, self.feed_forward_dim, self.depth)
         # Tail layer mapping from embedding space to amplitude and phase space.
-        # (amplitude and phase) * (4 possible states)
+        # (amplitude and phase) * (all possible states)
         self.tail: torch.nn.Module = Tail(self.embedding_dim, self.feed_forward_dim, 2 * self.physical_dim)
 
         # Site Ordering Configuration
