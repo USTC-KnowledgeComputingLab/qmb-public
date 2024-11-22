@@ -150,13 +150,8 @@ std::int64_t int_sqrt(std::int64_t x) {
 }
 
 // Launch the search kernel, specifying the grid and block dimensions.
-// We have two distinct data scenarios:
-// 1. Processing multiple batch configurations and numerous Hamiltonian terms.
-//    In this case, we utilize the term index for the x-axis and the batch index for the y-axis.
-//    Each block consists of sqrt(max_threads_per_block) threads along the x-axis and sqrt(max_threads_per_block) threads along the y-axis.
-// 2. Handling a single configuration.
-//    Here, we only use the term index for the x-axis.
-//    Each block is set to max_threads_per_block threads to maximize throughput.
+// We utilize the term index for the x-axis and the batch index for the y-axis.
+// Each block consists of sqrt(max_threads_per_block) threads along the x-axis and sqrt(max_threads_per_block) threads along the y-axis.
 template<std::int64_t max_op_number, std::int64_t particle_cut>
 void launch_search_kernel(
     std::int64_t term_number,
@@ -173,34 +168,21 @@ void launch_search_kernel(
     std::int64_t max_threads_per_block = prop.maxThreadsPerBlock;
     std::int64_t sqrt_max_threads_per_block = int_sqrt(max_threads_per_block);
 
-    if (batch_size != 1) {
-        auto threads_per_block = dim3{sqrt_max_threads_per_block, sqrt_max_threads_per_block};
-        auto num_blocks = dim3{
-            (std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x,
-            (std::int32_t(batch_size) + threads_per_block.y - 1) / threads_per_block.y
-        };
-        search_kernel_interface<max_op_number, particle_cut><<<num_blocks, threads_per_block>>>(
-            term_number,
-            batch_size,
-            site_accesor,
-            kind_accesor,
-            coef_accesor,
-            configs_j_matrix_accesor,
-            coefs_matrix_accesor
-        );
-    } else {
-        auto threads_per_block = dim3{max_threads_per_block, 1};
-        auto num_blocks = dim3{(std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x, 1};
-        search_kernel_interface<max_op_number, particle_cut><<<num_blocks, threads_per_block>>>(
-            term_number,
-            batch_size,
-            site_accesor,
-            kind_accesor,
-            coef_accesor,
-            configs_j_matrix_accesor,
-            coefs_matrix_accesor
-        );
-    }
+    auto threads_per_block = dim3{sqrt_max_threads_per_block, sqrt_max_threads_per_block};
+    auto num_blocks = dim3{
+        (std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x,
+        (std::int32_t(batch_size) + threads_per_block.y - 1) / threads_per_block.y
+    };
+    search_kernel_interface<max_op_number, particle_cut><<<num_blocks, threads_per_block>>>(
+        term_number,
+        batch_size,
+        site_accesor,
+        kind_accesor,
+        coef_accesor,
+        configs_j_matrix_accesor,
+        coefs_matrix_accesor
+    );
+
     cudaDeviceSynchronize();
 }
 
@@ -210,7 +192,7 @@ void launch_search_kernel(
 // The last three arguments are prepared by the `prepare` function and stored on the Python side.
 // Refer to `_hamiltonian.cpp` for additional details and context.
 template<std::int64_t max_op_number, std::int64_t particle_cut>
-auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef, bool early_drop) {
+auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
     std::int64_t batch_size = configs_i.size(0);
     std::int64_t n_qubits = configs_i.size(1);
     std::int64_t term_number = site.size(0);
@@ -252,106 +234,18 @@ auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor
     auto index_i_vector = index_i_matrix.view({-1});
     auto non_zero_vector = non_zero_matrix.view({-1});
 
-    // Identify the indices of non-zero elements for further processing
-    auto non_zero_indices = non_zero_vector.nonzero().squeeze(1);
-
     // Select the valid configurations, coefficients, and indices based on non-zero elements
-    auto valid_configs_j = configs_j_vector.index_select(0, non_zero_indices);
-    auto valid_coefs = coefs_vector.index_select(0, non_zero_indices);
-    auto valid_index_i = index_i_vector.index_select(0, non_zero_indices);
+    auto valid_configs_j = configs_j_vector.index({non_zero_vector});
+    auto valid_coefs = coefs_vector.index({non_zero_vector});
+    auto valid_index_i = index_i_vector.index({non_zero_vector});
 
     return std::make_tuple(valid_index_i, valid_configs_j, valid_coefs);
 }
 
-auto drop_early(torch::Tensor index_i, torch::Tensor configs_j, torch::Tensor coefs, torch::Tensor configs_i) {
-    torch::Tensor configs_i_and_j = torch::cat({configs_i, configs_j}, /*dim=*/0);
-    auto [pool, both_to_pool, none] = torch::unique_dim(configs_i_and_j, /*dim=*/0, /*sorted=*/false, /*return_inverse=*/true);
-    configs_i_and_j.reset();
-
-    std::int64_t batch_size = configs_i.size(0);
-    std::int64_t pool_size = pool.size(0);
-
-    torch::Tensor pool_to_source = torch::full({pool_size}, -1, torch::TensorOptions().dtype(torch::kInt64).device(device));
-    torch::Tensor source_to_pool = both_to_pool.index({torch::indexing::Slice(torch::indexing::None, batch_size)});
-    pool_to_source.index_put_({source_to_pool}, torch::arange(batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device)));
-    source_to_pool.reset();
-
-    torch::Tensor destination_to_pool = both_to_pool.index({torch::indexing::Slice(batch_size, torch::indexing::None)});
-    torch::Tensor destination_to_source = pool_to_source.index({destination_to_pool});
-    pool_to_source.reset();
-    destination_to_pool.reset();
-
-    torch::Tensor usable = destination_to_source != -1;
-    destination_to_source.reset();
-
-    return std::make_tuple(index_i.index({usable}), configs_j.index({usable}), coefs.index({usable}));
-}
-
-// This function encapsulates the `python_interface` to facilitate job splitting, thereby mitigating potential memory leaks.
-// It partitions the input tensor into pieces, invokes the `python_interface` on each segment, and subsequently merges the results.
-template<std::int64_t max_op_number, std::int64_t particle_cut>
-auto python_interface_with_batch_split(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef, bool early_drop) {
-    std::int64_t batch_size = configs_i.size(0);
-    std::vector<torch::Tensor> index_i_pool;
-    std::vector<torch::Tensor> configs_j_pool;
-    std::vector<torch::Tensor> coefs_pool;
-    for (std::int64_t i = 0; i < batch_size; ++i) {
-        auto [index_i, configs_j, coefs] = python_interface<max_op_number, particle_cut>(
-            configs_i.index({torch::indexing::Slice(i, i + 1, torch::indexing::None)}),
-            site,
-            kind,
-            coef,
-            early_drop
-        );
-        if (early_drop) {
-            auto [dropped_index_i, dropped_configs_j, dropped_coefs] = drop_early(index_i, configs_j, coefs, configs_i);
-            index_i_pool.push_back(dropped_index_i);
-            configs_j_pool.push_back(dropped_configs_j);
-            coefs_pool.push_back(dropped_coefs);
-        } else {
-            index_i_pool.push_back(index_i);
-            configs_j_pool.push_back(configs_j);
-            coefs_pool.push_back(coefs);
-        }
-    }
-    return std::make_tuple(torch::cat(index_i_pool, /*dim=*/0), torch::cat(configs_j_pool, /*dim=*/0), torch::cat(coefs_pool, /*dim=*/0));
-}
-
-// This function encapsulates the `python_interface` to facilitate job splitting, thereby mitigating potential memory leaks.
-// It partitions the input tensor into pieces, invokes the `python_interface` on each segment, and subsequently merges the results.
-template<std::int64_t max_op_number, std::int64_t particle_cut, std::int64_t group_size>
-auto python_interface_with_term_group(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef, bool early_drop) {
-    std::int64_t batch_size = configs_i.size(0);
-    std::int64_t term_number = site.size(0);
-    std::vector<torch::Tensor> index_i_pool;
-    std::vector<torch::Tensor> configs_j_pool;
-    std::vector<torch::Tensor> coefs_pool;
-    for (std::int64_t i = 0; i < term_number; i += group_size) {
-        auto [index_i, configs_j, coefs] = python_interface<max_op_number, particle_cut>(
-            configs_i,
-            site.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)}),
-            kind.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)}),
-            coef.index({torch::indexing::Slice(i, i + group_size, torch::indexing::None)}),
-            early_drop
-        );
-        if (early_drop) {
-            auto [dropped_index_i, dropped_configs_j, dropped_coefs] = drop_early(index_i, configs_j, coefs, configs_i);
-            index_i_pool.push_back(dropped_index_i);
-            configs_j_pool.push_back(dropped_configs_j);
-            coefs_pool.push_back(dropped_coefs);
-        } else {
-            index_i_pool.push_back(index_i);
-            configs_j_pool.push_back(configs_j);
-            coefs_pool.push_back(coefs);
-        }
-    }
-    return std::make_tuple(torch::cat(index_i_pool, /*dim=*/0), torch::cat(configs_j_pool, /*dim=*/0), torch::cat(coefs_pool, /*dim=*/0));
-}
-
 // Definition of the CUDA kernel implementation for operators.
 TORCH_LIBRARY_IMPL(_hamiltonian, CUDA, m) {
-    m.impl("fermi", python_interface_with_term_group</*max_op_number=*/4, /*particle_cut=*/1, /*group_size=*/256>);
-    m.impl("bose2", python_interface_with_term_group</*max_op_number=*/4, /*particle_cut=*/2, /*group_size=*/256>);
+    m.impl("fermi", python_interface</*max_op_number=*/4, /*particle_cut=*/1>);
+    m.impl("bose2", python_interface</*max_op_number=*/4, /*particle_cut=*/2>);
 }
 
 } // namespace qmb_hamiltonian_cuda
