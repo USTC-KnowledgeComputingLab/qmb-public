@@ -4,6 +4,7 @@ This file implements an auto-regressive transformer network with the sampling me
 
 import math
 import torch
+from .bitspack import pack_int, unpack_int
 
 
 class FeedForward(torch.nn.Module):
@@ -340,7 +341,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
         batch_size: int = x.shape[0]
         # x : batch_size * sites * 2
-        x = x.reshape([batch_size, self.sites, 2])
+        x = unpack_int(x, size=1, last_dim=self.double_sites).reshape([batch_size, self.sites, 2])
         # Apply ordering
         x = torch.index_select(x, 1, self.ordering_reversed)
 
@@ -474,6 +475,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         x = x.reshape([x.size(0), self.double_sites])
         # It should return configurations, amplitudes, probabilities and multiplicities.
         # But it is unique generator, so the last two fields are None
+        x = pack_int(x, size=1)
         return x, self(x), None, None
 
 
@@ -548,7 +550,7 @@ class WaveFunctionNormal(torch.nn.Module):
 
         batch_size: int = x.shape[0]
         # x : batch_size * sites
-        x = x.reshape([batch_size, self.sites])
+        x = unpack_int(x, size=self._bit_size(), last_dim=self.sites).reshape([batch_size, self.sites])
         # Apply ordering
         x = torch.index_select(x, 1, self.ordering_reversed)
 
@@ -672,4 +674,16 @@ class WaveFunctionNormal(torch.nn.Module):
         x = x.reshape([x.size(0), self.sites])
         # It should return configurations, amplitudes, probabilities and multiplicities.
         # But it is unique generator, so the last two fields are None
+        x = pack_int(x, size=self._bit_size())
         return x, self(x), None, None
+
+    def _bit_size(self) -> int:
+        if self.physical_dim <= 1 << 1:
+            return 1
+        if self.physical_dim <= 1 << 2:
+            return 2
+        if self.physical_dim <= 1 << 4:
+            return 4
+        if self.physical_dim <= 1 << 8:
+            return 8
+        raise ValueError("physical_dim should be less than or equal to 256")

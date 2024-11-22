@@ -19,6 +19,18 @@ namespace qmb_hamiltonian_cuda {
 
 constexpr torch::DeviceType device = torch::kCUDA;
 
+__device__ bool get_bit(std::uint8_t* data, int index) {
+    return ((*data) & (1 << index)) >> index;
+}
+
+__device__ bool set_bit(std::uint8_t* data, int index, bool value) {
+    if (value) {
+        *data |= (1 << index);
+    } else {
+        *data &= ~(1 << index);
+    }
+}
+
 // The search kernel is designed for iterating over Hamiltonian terms in quantum many-body systems.
 // Each thread processes a single term of the Hamiltonian and a single configuration within the batch.
 // The parameter `max_op_number` typically has a value of 4, indicating the maximum number of operations for all terms in the Hamiltonian.
@@ -66,14 +78,14 @@ __device__ void search_kernel(
             // When `kind_single` is 1, it represents a creation operator, and when it is 0, it represents an annihilation operator.
             // We must verify whether the state is already occupied or vacant, and adjust the state accordingly.
             auto to_what = kind_single;
-            if (configs_j_matrix_accesor[term_index][batch_index][site_single] == to_what) {
+            if (get_bit(&configs_j_matrix_accesor[term_index][batch_index][site_single / 8], site_single % 8) == to_what) {
                 success = false;
                 break;
             }
-            configs_j_matrix_accesor[term_index][batch_index][site_single] = to_what;
+            set_bit(&configs_j_matrix_accesor[term_index][batch_index][site_single / 8], site_single % 8, to_what);
             // Calculate the parity by summing the parity of the particle number up to the current site.
             for (auto s = 0; s < site_single; ++s) {
-                parity ^= configs_j_matrix_accesor[term_index][batch_index][s];
+                parity ^= get_bit(&configs_j_matrix_accesor[term_index][batch_index][s / 8], s % 8);
             }
         }
         // Upon successful completion, store the coefficients in the `coefs_matrix` tensor.
@@ -96,11 +108,11 @@ __device__ void search_kernel(
                 continue;
             }
             auto to_what = kind_single;
-            if (configs_j_matrix_accesor[term_index][batch_index][site_single] == to_what) {
+            if (get_bit(&configs_j_matrix_accesor[term_index][batch_index][site_single / 8], site_single % 8) == to_what) {
                 success = false;
                 break;
             }
-            configs_j_matrix_accesor[term_index][batch_index][site_single] = to_what;
+            set_bit(&configs_j_matrix_accesor[term_index][batch_index][site_single / 8], site_single % 8, to_what);
         }
         if (success) {
             coefs_matrix_accesor[term_index][batch_index][0] = coef_accesor[term_index][0];

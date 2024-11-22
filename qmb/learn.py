@@ -200,8 +200,8 @@ class LearnConfig:
             logging.info("Displaying the largest amplitudes")
             indices = targets.abs().sort(descending=True).indices
             for index in indices[:self.logging_psi]:
-                logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", "".join(map(str, configs[index].cpu().numpy())), f"{targets[index].item():.8f}",
-                             f"{amplitudes[index].item():.8f}")
+                this_config = "".join(f"{i:08b}" for i in configs[index].cpu().numpy())
+                logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{targets[index].item():.8f}", f"{amplitudes[index].item():.8f}")
 
 
 subcommand_dict["learn"] = LearnConfig
