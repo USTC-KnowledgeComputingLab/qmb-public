@@ -59,7 +59,7 @@ class Model(ModelProto["Model"]):
         logging.info("Identified %d qubits and %d electrons for model '%s'", self.n_qubits, self.n_electrons, model_name)
 
         self.ref_energy: float = float(openfermion_model.fci_energy)  # type: ignore[arg-type]
-        logging.info("Reference energy from OpenFermion data is %.10f", self.ref_energy)
+        logging.info("Reference energy for model '%s' is %.10f", model_name, self.ref_energy)
 
         logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
         self.hamiltonian: Hamiltonian = Hamiltonian(

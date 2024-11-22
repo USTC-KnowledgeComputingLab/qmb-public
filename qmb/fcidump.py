@@ -3,6 +3,8 @@ This file provides an interface to work with FCIDUMP files and reuses utilities 
 """
 
 import re
+import json
+import gzip
 import logging
 import pathlib
 import torch
@@ -14,7 +16,7 @@ from .model_dict import model_dict
 
 def _read_fcidump(file_name: str) -> openfermion.FermionOperator:
     # pylint: disable=too-many-locals
-    with open(file_name, "rt", encoding="utf-8") as file:
+    with gzip.open(file_name, "rt", encoding="utf-8") as file:
         n_orbit: int = -1
         for line in file:
             data: str = line.lower()
@@ -70,7 +72,7 @@ class Model(OpenFermionModel):
 
     def __init__(self, model_name: str, model_path: pathlib.Path) -> None:
         # pylint: disable=super-init-not-called
-        model_file_name: str = f"{model_path}/{model_name}.FCIDUMP"
+        model_file_name: str = f"{model_path}/{model_name}.FCIDUMP.gz"
         logging.info("Loading FCIDUMP Hamiltonian '%s' from file: %s", model_name, model_file_name)
         openfermion_hamiltonian: openfermion.FermionOperator = _read_fcidump(model_file_name)
         logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
@@ -82,8 +84,10 @@ class Model(OpenFermionModel):
         self.n_electrons: int = int(n_electrons)
         logging.info("Identified %d qubits and %d electrons for model '%s'", self.n_qubits, self.n_electrons, model_name)
 
-        self.ref_energy: float = torch.nan
-        logging.info("Reference energy for model '%s' is currently undetermined", model_name)
+        with open(f"{model_path}/FCIDUMP.json", "rt", encoding="utf-8") as file:
+            fcidump_ref_energy = json.load(file)
+        self.ref_energy: float = fcidump_ref_energy.get(model_name, torch.nan)
+        logging.info("Reference energy for model '%s' is %.10f", model_name, self.ref_energy)
 
         logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
         self.hamiltonian: Hamiltonian = Hamiltonian(openfermion_hamiltonian.terms, kind="fermi")
