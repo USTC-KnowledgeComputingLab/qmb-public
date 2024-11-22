@@ -23,18 +23,18 @@ class VmcConfig:
 
     # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
+    # Whether to include external configurations
+    include_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-o"])] = True
+    # Whether to use LBFGS instead of Adam
+    use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
     # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
     # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 1000
-    # Whether to include external configurations
-    include_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-o"])] = False
     # Whether to use deviation instead of energy for optimization
     deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-d"])] = False
     # Whether to fix external configurations during deviation optimization
     fix_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-f"])] = False
-    # Whether to use LBFGS instead of Adam
-    use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
     # Whether to omit deviation calculation during energy optimization
     omit_deviation: typing.Annotated[bool, tyro.conf.arg(aliases=["-i"])] = False
 
@@ -53,20 +53,20 @@ class VmcConfig:
         logging.info(
             "Arguments Summary: "
             "Sampling Count: %d, "
+            "Include Outside: %s, "
+            "Use LBFGS: %s, "
             "Learning Rate: %.10f, "
             "Local Steps: %d, "
-            "Include Outside: %s, "
             "Use Deviation: %s, "
             "Fix Outside: %s, "
-            "Use LBFGS: %s, "
             "Omit Deviation: %s",
             self.sampling_count,
+            "Yes" if self.include_outside else "No",
+            "Yes" if self.use_lbfgs else "No",
             self.learning_rate,
             self.local_step,
-            "Yes" if self.include_outside else "No",
             "Yes" if self.deviation else "No",
             "Yes" if self.fix_outside else "No",
-            "Yes" if self.use_lbfgs else "No",
             "Yes" if self.omit_deviation else "No",
         )
 

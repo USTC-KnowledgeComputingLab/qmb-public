@@ -456,7 +456,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             # kv cache: batch * heads_num * site * heads_dim, so just repeat first dimension
 
             # Filter results, only use largest batch_size ones
-            selected = perturbed_probability.sort(descending=True).indices[:batch_size]
+            selected = perturbed_probability.argsort(descending=True)[:batch_size]
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
@@ -655,7 +655,7 @@ class WaveFunctionNormal(torch.nn.Module):
             # kv cache: batch * heads_num * site * heads_dim, so just repeat first dimension
 
             # Filter results, only use largest batch_size ones
-            selected = perturbed_probability.sort(descending=True).indices[:batch_size]
+            selected = perturbed_probability.argsort(descending=True)[:batch_size]
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]

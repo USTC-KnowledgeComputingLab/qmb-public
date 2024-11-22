@@ -85,22 +85,22 @@ class _DynamicLanczos:
             self._extend(v[-1])
             return None
         w = hamiltonian @ v[-1]
-        alpha = torch.cat((alpha, (v[-1].conj() @ w).real.reshape([1])), dim=0)
+        alpha = torch.cat((alpha, (v[-1].conj() @ w).real.view([1])), dim=0)
         w = w - alpha[-1] * v[-1]
         for i in range(self.step):
             norm_w = torch.linalg.norm(w)  # pylint: disable=not-callable
             if norm_w < self.threshold:
                 break
-            beta = torch.cat((beta, norm_w.reshape([1])), dim=0)
+            beta = torch.cat((beta, norm_w.view([1])), dim=0)
             v.append(w / beta[-1])
             if keep_until == i:
                 self._extend(v[-1])
                 return None
             w = hamiltonian @ v[-1]
-            alpha = torch.cat((alpha, (v[-1].conj() @ w).real.reshape([1])), dim=0)
+            alpha = torch.cat((alpha, (v[-1].conj() @ w).real.view([1])), dim=0)
             w = w - alpha[-1] * v[-1] - beta[-1] * v[-2]
 
-        # Currently, PyTorch does not support this functionality natively, so we resort to using SciPy for this operation.
+        # Currently, PyTorch does not support eigh_tridiagonal natively, so we resort to using SciPy for this operation.
         # We can only use 'stebz' or 'stemr' drivers in the current version of SciPy.
         # However, 'stemr' consumes a lot of memory, so we opt for 'stebz' here.
         # 'stebz' is efficient and only takes a few seconds even for large matrices with dimensions up to 10,000,000.
@@ -123,9 +123,9 @@ class ImaginaryConfig:
     # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
     # The extend count for the Krylov subspace
-    krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 400
+    krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 125
     # The number of Krylov iterations to perform
-    krylov_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-k"])] = 16
+    krylov_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-k"])] = 32
     # The threshold for the Krylov iteration
     krylov_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-d"])] = 1e-8
     # The name of the loss function to use
@@ -233,11 +233,9 @@ class ImaginaryConfig:
                         logging.info("Local optimization halted as the loss threshold has been met")
                         break
                 if success:
-                    for param in network.parameters():
-                        if torch.isnan(param).any():
-                            logging.warning("NaN detected in parameters, restoring the previous state and exiting the optimization loop")
-                            success = False
-                            break
+                    if any(torch.isnan(param).any() for param in network.parameters()):
+                        logging.warning("NaN detected in parameters, restoring the previous state and exiting the optimization loop")
+                        success = False
                 if success:
                     logging.info("Local optimization process completed")
                     break
@@ -262,7 +260,7 @@ class ImaginaryConfig:
                 final_energy.item() - model.ref_energy,
             )
             logging.info("Displaying the largest amplitudes")
-            indices = psi.abs().sort(descending=True).indices
+            indices = psi.abs().argsort(descending=True)
             for index in indices[:self.logging_psi]:
                 this_config = "".join(f"{i:08b}" for i in configs[index].cpu().numpy())
                 logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{psi[index].item():.8f}", f"{amplitudes[index].item():.8f}")

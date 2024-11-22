@@ -258,7 +258,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             perturbed_probability = tildeL.permute(1, 0).reshape([4 * local_batch_size])
 
             # Filter results, only use largest batch_size ones
-            selected = perturbed_probability.sort(descending=True).indices[:batch_size]
+            selected = perturbed_probability.argsort(descending=True)[:batch_size]
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
@@ -420,7 +420,7 @@ class WaveFunctionNormal(torch.nn.Module):
             perturbed_probability = tildeL.permute(1, 0).reshape([2 * local_batch_size])
 
             # Filter results, only use largest batch_size ones
-            selected = perturbed_probability.sort(descending=True).indices[:batch_size]
+            selected = perturbed_probability.argsort(descending=True)[:batch_size]
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
