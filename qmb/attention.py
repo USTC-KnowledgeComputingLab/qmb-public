@@ -376,9 +376,9 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         sites_indices: torch.Tensor = torch.arange(self.sites).unsqueeze(0).expand(batch_size, -1)
 
         # selected_amplitude/phase: batch_size * sites
-        x_int64: torch.Tensor = x.to(dtype=torch.int64)
-        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x_int64[:, :, 0], x_int64[:, :, 1]]
-        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x_int64[:, :, 0], x_int64[:, :, 1]]
+        x_int32: torch.Tensor = x.to(dtype=torch.int32)
+        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x_int32[:, :, 0], x_int32[:, :, 1]]
+        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x_int32[:, :, 0], x_int32[:, :, 1]]
 
         return torch.view_as_complex(torch.stack([selected_amplitude.sum(dim=1), selected_phase.sum(dim=1)], dim=-1)).exp()
 
@@ -581,9 +581,9 @@ class WaveFunctionNormal(torch.nn.Module):
         sites_indices: torch.Tensor = torch.arange(self.sites).unsqueeze(0).expand(batch_size, -1)
 
         # selected_amplitude/phase: batch_size * sites
-        x_int64: torch.Tensor = x.to(dtype=torch.int64)
-        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x_int64]
-        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x_int64]
+        x_int32: torch.Tensor = x.to(dtype=torch.int32)
+        selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x_int32]
+        selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x_int32]
 
         return torch.view_as_complex(torch.stack([selected_amplitude.sum(dim=1), selected_phase.sum(dim=1)], dim=-1)).exp()
 

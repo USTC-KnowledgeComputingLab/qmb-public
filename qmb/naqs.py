@@ -192,8 +192,8 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
             # selected_delta_amplitude: batch
             # Select the delta amplitude for the current site.
-            xi_int64: torch.Tensor = x[:, i, :].to(dtype=torch.int64)
-            selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, xi_int64[:, 0], xi_int64[:, 1]]
+            xi_int32: torch.Tensor = x[:, i, :].to(dtype=torch.int32)
+            selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, xi_int32[:, 0], xi_int32[:, 1]]
 
             total_amplitude = total_amplitude + selected_delta_amplitude
 
@@ -357,8 +357,8 @@ class WaveFunctionNormal(torch.nn.Module):
 
             # selected_delta_amplitude: batch
             # Select the delta amplitude for the current site.
-            xi_int64: torch.Tensor = x[:, i].to(dtype=torch.int64)
-            selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, xi_int64]
+            xi_int32: torch.Tensor = x[:, i].to(dtype=torch.int32)
+            selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, xi_int32]
 
             total_amplitude = total_amplitude + selected_delta_amplitude
 
