@@ -42,9 +42,9 @@ __device__ void search_kernel(
     std::int64_t batch_size,
     std::int64_t term_number,
     torch::PackedTensorAccessor64<std::int16_t, 2>& site_accesor,
-    torch::PackedTensorAccessor64<std::int8_t, 2>& kind_accesor,
+    torch::PackedTensorAccessor64<std::uint8_t, 2>& kind_accesor,
     torch::PackedTensorAccessor64<double, 2>& coef_accesor,
-    torch::PackedTensorAccessor64<std::int8_t, 3>& configs_j_matrix_accesor,
+    torch::PackedTensorAccessor64<std::uint8_t, 3>& configs_j_matrix_accesor,
     torch::PackedTensorAccessor64<double, 3>& coefs_matrix_accesor
 ) {
     if constexpr (particle_cut == 1) {
@@ -118,9 +118,9 @@ __global__ void search_kernel_interface(
     std::int64_t term_number,
     std::int64_t batch_size,
     torch::PackedTensorAccessor64<std::int16_t, 2> site_accesor,
-    torch::PackedTensorAccessor64<std::int8_t, 2> kind_accesor,
+    torch::PackedTensorAccessor64<std::uint8_t, 2> kind_accesor,
     torch::PackedTensorAccessor64<double, 2> coef_accesor,
-    torch::PackedTensorAccessor64<std::int8_t, 3> configs_j_matrix_accesor,
+    torch::PackedTensorAccessor64<std::uint8_t, 3> configs_j_matrix_accesor,
     torch::PackedTensorAccessor64<double, 3> coefs_matrix_accesor
 ) {
     int term_index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -157,9 +157,9 @@ void launch_search_kernel(
     std::int64_t term_number,
     std::int64_t batch_size,
     torch::PackedTensorAccessor64<std::int16_t, 2>& site_accesor,
-    torch::PackedTensorAccessor64<std::int8_t, 2>& kind_accesor,
+    torch::PackedTensorAccessor64<std::uint8_t, 2>& kind_accesor,
     torch::PackedTensorAccessor64<double, 2>& coef_accesor,
-    torch::PackedTensorAccessor64<std::int8_t, 3>& configs_j_matrix_accesor,
+    torch::PackedTensorAccessor64<std::uint8_t, 3>& configs_j_matrix_accesor,
     torch::PackedTensorAccessor64<double, 3>& coefs_matrix_accesor,
     std::int64_t device_id
 ) {
@@ -197,16 +197,16 @@ auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor
     std::int64_t n_qubits = configs_i.size(1);
     std::int64_t term_number = site.size(0);
 
-    // configs_j_matrix: A int8 tensor of shape [term_number, batch_size, n_qubits],
+    // configs_j_matrix: A uint8 tensor of shape [term_number, batch_size, n_qubits],
     // that captures the modifications to the input configurations by applying each term in the Hamiltonian.
     auto configs_j_matrix = configs_i.unsqueeze(0).repeat(std::initializer_list<std::int64_t>{term_number, 1, 1});
     // coefs_matrix: A tensor of shape [term_number, batch_size, 2] initialized to zero.
     auto coefs_matrix = torch::zeros({term_number, batch_size, 2}, torch::TensorOptions().dtype(torch::kDouble).device(device));
     // Obtain accessors for each relevant tensor to facilitate efficient data access within the kernel.
     auto site_accesor = site.template packed_accessor64<std::int16_t, 2>();
-    auto kind_accesor = kind.template packed_accessor64<std::int8_t, 2>();
+    auto kind_accesor = kind.template packed_accessor64<std::uint8_t, 2>();
     auto coef_accesor = coef.template packed_accessor64<double, 2>();
-    auto configs_j_matrix_accesor = configs_j_matrix.template packed_accessor64<std::int8_t, 3>();
+    auto configs_j_matrix_accesor = configs_j_matrix.template packed_accessor64<std::uint8_t, 3>();
     auto coefs_matrix_accesor = coefs_matrix.template packed_accessor64<double, 3>();
     // Apply all Hamiltonian terms to the configurations in configs_j_matrix(copyied from configs_i),
     // and evaluate the corresponding coefficients in coefs_matrix.

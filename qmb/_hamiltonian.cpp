@@ -5,7 +5,7 @@
 //    The tuple comprises three tensors, each serving a specific purpose:
 //    - `site`: An int16 tensor of shape [term_number, max_op_number], representing the site indices of the operators for each term in the
 //    Hamiltonian.
-//    - `kind`: An int8 tensor of shape [term_number, max_op_number], representing the type of operator for each term in the Hamiltonian. The values
+//    - `kind`: An uint8 tensor of shape [term_number, max_op_number], representing the type of operator for each term in the Hamiltonian. The values
 //    are encoded as follows:
 //      - 0: Annihilation operator
 //      - 1: Creation operator
@@ -14,11 +14,11 @@
 //    real part, while the second element denotes the imaginary part.
 // 2. A suite of PyTorch operators, including `fermi` and `bose2`, are designed to process the tuples of tensors produced by the `prepare` function in
 //    conjunction with a specified sequence of configurations.
-//    The configuration sequence is represented as an int8 tensor with dimensions [batch_size, n_qubits], encapsulating the state configurations of
+//    The configuration sequence is represented as an uint8 tensor with dimensions [batch_size, n_qubits], encapsulating the state configurations of
 //    the system.
 //    The function sequentially applies operators for each term based on the provided configurations, resulting in three essential tensors:
 //    - `index_i`: An int64 tensor of shape [valid_size], indexing the resultant terms.
-//    - `configs_j`: An int8 tensor of shape [valid_size, n_qubits], detailing the configurations of the resultant terms.
+//    - `configs_j`: An uint8 tensor of shape [valid_size, n_qubits], detailing the configurations of the resultant terms.
 //    - `coefs`: A float64 tensor of shape [valid_size, 2], encoding the coefficients (both real and imaginary parts) of the resultant terms.
 //    Here, `valid_size` signifies the count of non-zero terms post-iteration over the Hamiltonian based on the provided configurations.
 // The `max_op_number` template argument specifies the maximum number of operators per term, typically set to 4 for 2-body interactions.
@@ -41,7 +41,7 @@ namespace qmb_hamiltonian {
 //
 // The function processes the dictionary and constructs three tensors:
 // - `site`: An int16 tensor of shape [term_number, max_op_number], representing the site indices of the operators for each term.
-// - `kind`: An int8 tensor of shape [term_number, max_op_number], representing the type of operator for each term.
+// - `kind`: An uint8 tensor of shape [term_number, max_op_number], representing the type of operator for each term.
 // - `coef`: A float64 tensor of shape [term_number, 2], representing the coefficients of each term, with two elements for real and imaginary parts.
 template<std::int64_t max_op_number>
 auto prepare(py::dict hamiltonian) {
@@ -49,13 +49,13 @@ auto prepare(py::dict hamiltonian) {
 
     auto site = torch::empty({term_number, max_op_number}, torch::TensorOptions().dtype(torch::kInt16).device(torch::kCPU));
     // No need to initialize
-    auto kind = torch::full({term_number, max_op_number}, 2, torch::TensorOptions().dtype(torch::kInt8).device(torch::kCPU));
+    auto kind = torch::full({term_number, max_op_number}, 2, torch::TensorOptions().dtype(torch::kUInt8).device(torch::kCPU));
     // Initialize to 2 for identity
     auto coef = torch::empty({term_number, 2}, torch::TensorOptions().dtype(torch::kDouble).device(torch::kCPU));
     // No need to initialize
 
     auto site_accessor = site.template accessor<std::int16_t, 2>();
-    auto kind_accessor = kind.template accessor<std::int8_t, 2>();
+    auto kind_accessor = kind.template accessor<std::uint8_t, 2>();
     auto coef_accessor = coef.template accessor<double, 2>();
 
     std::int64_t index = 0;
@@ -67,7 +67,7 @@ auto prepare(py::dict hamiltonian) {
         std::int64_t op_number = key.size();
         for (auto i = 0; i < op_number; ++i) {
             site_accessor[index][i] = key[i].cast<py::tuple>()[0].cast<std::int16_t>();
-            kind_accessor[index][i] = key[i].cast<py::tuple>()[1].cast<std::int8_t>();
+            kind_accessor[index][i] = key[i].cast<py::tuple>()[1].cast<std::uint8_t>();
         }
 
         coef_accessor[index][0] = value.real();
@@ -87,14 +87,14 @@ PYBIND11_MODULE(_hamiltonian, m) {
 // This section declares the custom PyTorch operators such as `fermi` and `bose2`.
 // These operators are designed to work in conjunction with the structured tuple of tensors produced by the `prepare` function.
 // The operators take the following inputs:
-// - `configs_i`: An int8 tensor of shape [batch_size, n_qubits], representing the given configurations of the system.
+// - `configs_i`: An uint8 tensor of shape [batch_size, n_qubits], representing the given configurations of the system.
 // - `site`: An int16 tensor of shape [term_number, max_op_number], produced by the `prepare` function.
-// - `kind`: An int8 tensor of shape [term_number, max_op_number], produced by the `prepare` function.
+// - `kind`: An uint8 tensor of shape [term_number, max_op_number], produced by the `prepare` function.
 // - `coef`: A float64 tensor of shape [term_number, 2], produced by the `prepare` function.
 //
 // The operators sequentially apply the operators for each term based on the provided configurations, resulting in the following outputs:
 // - `index_i`: An int64 tensor of shape [valid_size], indexing the original terms.
-// - `configs_j`: An int8 tensor of shape [valid_size, n_qubits], detailing the configurations of the results.
+// - `configs_j`: An uint8 tensor of shape [valid_size, n_qubits], detailing the configurations of the results.
 // - `coefs`: A float64 tensor of shape [valid_size, 2], encoding the coefficients (both real and imaginary parts) of the terms.
 // Here, `valid_size` signifies the count of non-zero terms post-iteration over the Hamiltonian based on the provided configurations.
 TORCH_LIBRARY(_hamiltonian, m) {

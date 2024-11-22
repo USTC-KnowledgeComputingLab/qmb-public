@@ -348,7 +348,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         # Prepare x4 as the input for the neural network
         # The last configuration is excluded, and a zero vector is prepended at the beginning to represent the initial state.
         x4: torch.Tensor = x[:, :-1, 0] * 2 + x[:, :-1, 1]
-        x4 = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.int8), x4], dim=1)
+        x4 = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.uint8), x4], dim=1)
 
         # emb: batch_size * sites * embedding
         # Embed the input tensor `x4` using the embedding layer.
@@ -397,7 +397,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
 
         # x: local_batch_size * current_site * 2
-        x: torch.Tensor = torch.zeros([1, 1, 2], device=device, dtype=torch.int8)  # site=1, since the first is bos
+        x: torch.Tensor = torch.zeros([1, 1, 2], device=device, dtype=torch.uint8)  # site=1, since the first is bos
         # (un)perturbed_log_probability: local_batch_size
         unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
@@ -441,10 +441,10 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
             # Calculate appended configurations for 4 adds
             # local_batch_size * current_site * 2 + local_batch_size * 1 * 2
-            x0: torch.Tensor = torch.cat([x, torch.tensor([[0, 0]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
-            x1: torch.Tensor = torch.cat([x, torch.tensor([[0, 1]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
-            x2: torch.Tensor = torch.cat([x, torch.tensor([[1, 0]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
-            x3: torch.Tensor = torch.cat([x, torch.tensor([[1, 1]], device=device, dtype=torch.int8).expand(local_batch_size, -1, -1)], dim=1)
+            x0: torch.Tensor = torch.cat([x, torch.tensor([[0, 0]], device=device, dtype=torch.uint8).expand(local_batch_size, -1, -1)], dim=1)
+            x1: torch.Tensor = torch.cat([x, torch.tensor([[0, 1]], device=device, dtype=torch.uint8).expand(local_batch_size, -1, -1)], dim=1)
+            x2: torch.Tensor = torch.cat([x, torch.tensor([[1, 0]], device=device, dtype=torch.uint8).expand(local_batch_size, -1, -1)], dim=1)
+            x3: torch.Tensor = torch.cat([x, torch.tensor([[1, 1]], device=device, dtype=torch.uint8).expand(local_batch_size, -1, -1)], dim=1)
 
             # Cat all configurations to get x : new_local_batch_size * (current_size+1) * 2
             # (un)perturbed prob : new_local_batch_size
@@ -556,7 +556,7 @@ class WaveFunctionNormal(torch.nn.Module):
         # Prepare x for emb as the input for the neural network
         # The last configuration is excluded, and a zero vector is prepended at the beginning to represent the initial state.
         x_for_emb: torch.Tensor = x[:, :-1]
-        x_for_emb = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.int8), x_for_emb], dim=1)
+        x_for_emb = torch.cat([torch.zeros([batch_size, 1], device=device, dtype=torch.uint8), x_for_emb], dim=1)
 
         # emb: batch_size * sites * embedding
         # Embed the input tensor `x_for_emb` using the embedding layer.
@@ -602,7 +602,7 @@ class WaveFunctionNormal(torch.nn.Module):
         cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
 
         # x: local_batch_size * current_site
-        x: torch.Tensor = torch.zeros([1, 1], device=device, dtype=torch.int8)  # site=1, since the first is bos
+        x: torch.Tensor = torch.zeros([1, 1], device=device, dtype=torch.uint8)  # site=1, since the first is bos
         # (un)perturbed_log_probability: local_batch_size
         unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
@@ -642,7 +642,7 @@ class WaveFunctionNormal(torch.nn.Module):
 
             # Calculate appended configurations for all new possible states
             # local_batch_size * current_site + local_batch_size * 1
-            xs: list[torch.Tensor] = [torch.cat([x, torch.tensor([j], device=device, dtype=torch.int8).expand(local_batch_size, -1)], dim=1) for j in range(self.physical_dim)]
+            xs: list[torch.Tensor] = [torch.cat([x, torch.tensor([j], device=device, dtype=torch.uint8).expand(local_batch_size, -1)], dim=1) for j in range(self.physical_dim)]
 
             # Cat all configurations to get x : new_local_batch_size * (current_size+1)
             # (un)perturbed prob : new_local_batch_size
