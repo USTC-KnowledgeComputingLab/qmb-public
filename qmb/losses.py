@@ -60,10 +60,10 @@ def hybrid(s: torch.Tensor, t: torch.Tensor, min_magnitude: float = 1e-12) -> to
         s_abs = torch.abs(s)
         t_abs = torch.abs(t)
 
-        s_magnitude = _scaled_abs(s_abs, min_magnitude)
-        t_magnitude = _scaled_abs(t_abs, min_magnitude)
+        s_magnitude = _scaled_abs(s_abs, min_magnitude) - (math.log(min_magnitude) - 1)
+        t_magnitude = _scaled_abs(t_abs, min_magnitude) - (math.log(min_magnitude) - 1)
 
-        error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
+        error_real = (s_magnitude * s.sign() - t_magnitude * t.sign()) / (2 * torch.pi)
 
         loss = error_real**2
         return loss.mean()
