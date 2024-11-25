@@ -137,7 +137,7 @@ class ImaginaryConfig:
     # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 1000
     # The early break loss threshold for local optimization
-    local_loss: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-6
+    local_loss: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-8
     # The number of psi values to log after local optimization
     logging_psi: typing.Annotated[int, tyro.conf.arg(aliases=["-p"])] = 30
 
