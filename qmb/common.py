@@ -2,7 +2,6 @@
 This file contains the common step to create a model and network for various scripts.
 """
 
-import os
 import sys
 import logging
 import typing
@@ -50,16 +49,16 @@ class CommonConfig:
         if self.job_name is None:
             self.job_name = default_job_name
 
-        os.makedirs(self.checkpoint_path, exist_ok=True)
-        os.makedirs(self.log_path, exist_ok=True)
+        self.checkpoint_path.mkdir(parents=True, exist_ok=True)
+        self.log_path.mkdir(parents=True, exist_ok=True)
 
         logging.basicConfig(
-            handlers=[logging.StreamHandler(), logging.FileHandler(f"{self.log_path}/{self.job_name}.log")],
+            handlers=[logging.StreamHandler(), logging.FileHandler(self.log_path / f"{self.job_name}.log")],
             level=logging.INFO,
             format=f"[%(process)d] %(asctime)s {self.job_name}({self.network_name}) %(levelname)s: %(message)s",
         )
 
-        logging.info("Starting script: %s with arguments: %a", os.path.splitext(os.path.basename(sys.argv[0]))[0], sys.argv)
+        logging.info("Starting script with arguments: %a", sys.argv)
         logging.info("Model: %s, Network: %s, Job: %s", self.model_name, self.network_name, self.job_name)
         logging.info("Log directory: %s, Checkpoint directory: %s", self.log_path, self.checkpoint_path)
         logging.info("Physics arguments: %a", self.physics_args)
@@ -83,8 +82,8 @@ class CommonConfig:
         logging.info("Network initialized successfully")
 
         logging.info("Attempting to load checkpoint")
-        checkpoint_path: str = f"{self.checkpoint_path}/{self.job_name}.pt"
-        if os.path.exists(checkpoint_path):
+        checkpoint_path = self.checkpoint_path / f"{self.job_name}.pt"
+        if self.checkpoint_path.exists():
             logging.info("Checkpoint found at: %s, loading...", checkpoint_path)
             network.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
             logging.info("Checkpoint loaded successfully")

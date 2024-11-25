@@ -2,8 +2,8 @@
 This module provides tools for PyTorch optimizers.
 """
 
-import os
 import typing
+import pathlib
 import torch
 
 
@@ -36,7 +36,7 @@ def initialize_optimizer(  # pylint: disable=too-many-arguments
     learning_rate: float,
     new_opt: bool = True,
     optimizer: torch.optim.Optimizer | None = None,
-    optimizer_path: str | None = None,
+    optimizer_path: pathlib.Path | None = None,
 ) -> torch.optim.Optimizer:
     """
     Initialize an optimizer.
@@ -47,7 +47,7 @@ def initialize_optimizer(  # pylint: disable=too-many-arguments
         else:
             optimizer = torch.optim.Adam(params, lr=learning_rate)
     if optimizer_path is not None:
-        if os.path.exists(optimizer_path):
+        if optimizer_path.exists():
             state_dict = torch.load(optimizer_path, map_location="cpu", weights_only=True)
             optimizer.load_state_dict(state_dict)
             _migrate_optimizer(optimizer)

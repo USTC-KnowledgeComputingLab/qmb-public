@@ -245,7 +245,7 @@ class LearnConfig:
             network.parameters(),
             use_lbfgs=self.use_lbfgs,
             learning_rate=self.learning_rate,
-            optimizer_path=f"{self.common.checkpoint_path}/{self.common.job_name}.opt.pt",
+            optimizer_path=self.common.checkpoint_path / f"{self.common.job_name}.opt.pt",
         )
 
         while True:
@@ -345,8 +345,8 @@ class LearnConfig:
                 try_index = try_index + 1
 
             logging.info("Saving model checkpoint")
-            torch.save(network.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.pt")
-            torch.save(optimizer.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.opt.pt")
+            torch.save(network.state_dict(), self.common.checkpoint_path / f"{self.common.job_name}.pt")
+            torch.save(optimizer.state_dict(), self.common.checkpoint_path / f"{self.common.job_name}.opt.pt")
             logging.info("Checkpoint successfully saved")
 
             logging.info("Current optimization cycle completed")
