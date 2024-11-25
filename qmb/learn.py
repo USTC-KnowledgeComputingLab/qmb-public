@@ -13,6 +13,7 @@ from .common import CommonConfig
 from .model_dict import ModelProto
 from .subcommand_dict import subcommand_dict
 from .lobpcg import lobpcg
+from .optimizer import initialize_optimizer, scale_learning_rate
 
 
 def _outside_hamiltonian(
@@ -185,6 +186,8 @@ class LearnConfig:
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
     # The name of the loss function to use
     loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "hybrid"
+    # Whether to use the global optimizer
+    global_opt: typing.Annotated[bool, tyro.conf.arg(aliases=["-g"])] = False
     # Whether to use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
     # The learning rate for the local optimizer
@@ -218,6 +221,7 @@ class LearnConfig:
             "Arguments Summary: "
             "Sampling Count: %d, "
             "Loss Function: %s, "
+            "Global Optimizer: %s, "
             "Using LBFGS: %s, "
             "Learning Rate: %.10f, "
             "Local Step: %d, "
@@ -227,6 +231,7 @@ class LearnConfig:
             "Post Sampling Count: %d",
             self.sampling_count,
             self.loss_name,
+            "Yes" if self.global_opt else "No",
             "Yes" if self.use_lbfgs else "No",
             self.learning_rate,
             self.local_step,
@@ -234,6 +239,13 @@ class LearnConfig:
             self.logging_psi,
             self.post_sampling_iteration,
             self.post_sampling_count,
+        )
+
+        optimizer = initialize_optimizer(
+            network.parameters(),
+            use_lbfgs=self.use_lbfgs,
+            learning_rate=self.learning_rate,
+            optimizer_path=f"{self.common.checkpoint_path}/{self.common.job_name}.opt.pt",
         )
 
         while True:
@@ -268,15 +280,19 @@ class LearnConfig:
 
             loss_func: typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = getattr(losses, self.loss_name)
 
+            optimizer = initialize_optimizer(
+                network.parameters(),
+                use_lbfgs=self.use_lbfgs,
+                learning_rate=self.learning_rate,
+                new_opt=not self.global_opt,
+                optimizer=optimizer,
+            )
+
+            loss: torch.Tensor
             try_index = 0
             while True:
                 state_backup = copy.deepcopy(network.state_dict())
-
-                optimizer: torch.optim.Optimizer
-                if self.use_lbfgs:
-                    optimizer = torch.optim.LBFGS(network.parameters(), lr=self.learning_rate / (1 << try_index))
-                else:
-                    optimizer = torch.optim.Adam(network.parameters(), lr=self.learning_rate / (1 << try_index))
+                optimizer_backup = copy.deepcopy(optimizer.state_dict())
 
                 def closure() -> torch.Tensor:
                     optimizer.zero_grad()
@@ -305,7 +321,7 @@ class LearnConfig:
 
                 logging.info("Starting local optimization process")
                 success = True
-                loss: torch.Tensor
+                scale_learning_rate(optimizer, 1 / (1 << try_index))
                 for i in range(self.local_step):
                     loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
@@ -316,6 +332,7 @@ class LearnConfig:
                     if loss < self.local_loss:
                         logging.info("Local optimization halted as the loss threshold has been met")
                         break
+                scale_learning_rate(optimizer, 1 << try_index)
                 if success:
                     if any(torch.isnan(param).any() for param in network.parameters()):
                         logging.warning("NaN detected in parameters, restoring the previous state and exiting the optimization loop")
@@ -324,10 +341,12 @@ class LearnConfig:
                     logging.info("Local optimization process completed")
                     break
                 network.load_state_dict(state_backup)
+                optimizer.load_state_dict(optimizer_backup)
                 try_index = try_index + 1
 
             logging.info("Saving model checkpoint")
             torch.save(network.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.pt")
+            torch.save(optimizer.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.opt.pt")
             logging.info("Checkpoint successfully saved")
 
             logging.info("Current optimization cycle completed")

@@ -9,6 +9,7 @@ import torch
 import tyro
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
+from .optimizer import initialize_optimizer
 
 
 @dataclasses.dataclass
@@ -25,6 +26,8 @@ class VmcConfig:
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
     # Whether to include external configurations
     include_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-o"])] = True
+    # Whether to use the global optimizer
+    global_opt: typing.Annotated[bool, tyro.conf.arg(aliases=["-g"])] = False
     # Whether to use LBFGS instead of Adam
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
     # The learning rate for the local optimizer
@@ -54,6 +57,7 @@ class VmcConfig:
             "Arguments Summary: "
             "Sampling Count: %d, "
             "Include Outside: %s, "
+            "Global Optimizer: %s, "
             "Use LBFGS: %s, "
             "Learning Rate: %.10f, "
             "Local Steps: %d, "
@@ -62,12 +66,20 @@ class VmcConfig:
             "Omit Deviation: %s",
             self.sampling_count,
             "Yes" if self.include_outside else "No",
+            "Yes" if self.global_opt else "No",
             "Yes" if self.use_lbfgs else "No",
             self.learning_rate,
             self.local_step,
             "Yes" if self.deviation else "No",
             "Yes" if self.fix_outside else "No",
             "Yes" if self.omit_deviation else "No",
+        )
+
+        optimizer = initialize_optimizer(
+            network.parameters(),
+            use_lbfgs=self.use_lbfgs,
+            learning_rate=self.learning_rate,
+            optimizer_path=f"{self.common.checkpoint_path}/{self.common.job_name}.opt.pt",
         )
 
         while True:
@@ -96,11 +108,13 @@ class VmcConfig:
                 hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
                 logging.info("Sparse tensor successfully created")
 
-            optimizer: torch.optim.Optimizer
-            if self.use_lbfgs:
-                optimizer = torch.optim.LBFGS(network.parameters(), lr=self.learning_rate)
-            else:
-                optimizer = torch.optim.Adam(network.parameters(), lr=self.learning_rate)
+            optimizer = initialize_optimizer(
+                network.parameters(),
+                use_lbfgs=self.use_lbfgs,
+                learning_rate=self.learning_rate,
+                new_opt=not self.global_opt,
+                optimizer=optimizer,
+            )
 
             logging.info("Starting local optimization process")
             if self.deviation:
@@ -191,6 +205,7 @@ class VmcConfig:
 
             logging.info("Saving model checkpoint")
             torch.save(network.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.pt")
+            torch.save(optimizer.state_dict(), f"{self.common.checkpoint_path}/{self.common.job_name}.opt.pt")
             logging.info("Checkpoint successfully saved")
 
             logging.info("Current optimization cycle completed")
