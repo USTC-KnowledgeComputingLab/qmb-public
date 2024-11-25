@@ -193,7 +193,7 @@ class LearnConfig:
     # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
     # The number of steps for the local optimizer
-    local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 1000
+    local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"], help_behavior_hint="(default: 10000 for Adam, 1000 for LBFGS)")] = -1
     # The early break loss threshold for local optimization
     local_loss: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-8
     # The number of psi values to log after local optimization
@@ -206,6 +206,8 @@ class LearnConfig:
     def __post_init__(self) -> None:
         if self.learning_rate == -1:
             self.learning_rate = 1 if self.use_lbfgs else 1e-3
+        if self.local_step == -1:
+            self.local_step = 1000 if self.use_lbfgs else 10000
 
     def main(self) -> None:
         """
