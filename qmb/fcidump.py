@@ -16,7 +16,7 @@ from .openfermion import Model as OpenFermionModel
 from .model_dict import model_dict
 
 
-def _caching_fcidump(file_name: pathlib.Path) -> tuple[int, float, torch.Tensor, torch.Tensor]:
+def _read_fcidump_impl(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
     # pylint: disable=too-many-locals
     with gzip.open(file_name, "rt", encoding="utf-8") as file:
         n_orbit: int = -1
@@ -51,23 +51,6 @@ def _caching_fcidump(file_name: pathlib.Path) -> tuple[int, float, torch.Tensor,
                     energy_2[k, l, i, j] = coefficient
                 case _:
                     raise ValueError(f"Invalid FCIDUMP format: {sites}")
-    return n_orbit, energy_0, energy_1, energy_2
-
-
-def _cached_fcidump(file_name: pathlib.Path) -> tuple[int, float, torch.Tensor, torch.Tensor]:
-    checksum = hashlib.sha256(file_name.read_bytes()).hexdigest()
-    cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
-    if cache_file.exists():
-        result = torch.load(cache_file, map_location="cpu", weights_only=True)
-    else:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        result = _caching_fcidump(file_name)
-        torch.save(result, cache_file)
-    return result
-
-
-def _read_fcidump(file_name: pathlib.Path) -> openfermion.FermionOperator:
-    n_orbit, energy_0, energy_1, energy_2 = _cached_fcidump(file_name)
 
     energy_2 = energy_2.permute(0, 2, 3, 1).contiguous() / 2
     energy_1_b: torch.Tensor = torch.zeros([n_orbit * 2, n_orbit * 2], dtype=torch.float64)
@@ -81,7 +64,19 @@ def _read_fcidump(file_name: pathlib.Path) -> openfermion.FermionOperator:
 
     interaction_operator: openfermion.InteractionOperator = openfermion.InteractionOperator(energy_0, energy_1_b.numpy(), energy_2_b.numpy())  # type: ignore[no-untyped-call]
     fermion_operator: openfermion.FermionOperator = openfermion.get_fermion_operator(interaction_operator)  # type: ignore[no-untyped-call]
-    return openfermion.normal_ordered(fermion_operator)  # type: ignore[no-untyped-call]
+    return openfermion.normal_ordered(fermion_operator).terms  # type: ignore[no-untyped-call]
+
+
+def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
+    checksum = hashlib.sha256(file_name.read_bytes()).hexdigest() + "v2"
+    cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
+    if cache_file.exists():
+        result = torch.load(cache_file, map_location="cpu", weights_only=True)
+    else:
+        result = _read_fcidump_impl(file_name)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(result, cache_file)
+    return result
 
 
 class Model(OpenFermionModel):
@@ -93,7 +88,7 @@ class Model(OpenFermionModel):
         # pylint: disable=super-init-not-called
         model_file_name = model_path / f"{model_name}.FCIDUMP.gz"
         logging.info("Loading FCIDUMP Hamiltonian '%s' from file: %s", model_name, model_file_name)
-        openfermion_hamiltonian: openfermion.FermionOperator = _read_fcidump(model_file_name)
+        openfermion_hamiltonian = _read_fcidump(model_file_name)
         logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
 
         match = re.match(r"\w*_(\d*)_(\d*)", model_name)
@@ -109,7 +104,7 @@ class Model(OpenFermionModel):
         logging.info("Reference energy for model '%s' is %.10f", model_name, self.ref_energy)
 
         logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
-        self.hamiltonian: Hamiltonian = Hamiltonian(openfermion_hamiltonian.terms, kind="fermi")
+        self.hamiltonian: Hamiltonian = Hamiltonian(openfermion_hamiltonian, kind="fermi")
         logging.info("Internal Hamiltonian representation for model '%s' has been successfully created", model_name)
 
 
