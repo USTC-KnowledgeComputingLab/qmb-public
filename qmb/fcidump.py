@@ -7,14 +7,16 @@ import json
 import gzip
 import logging
 import pathlib
+import hashlib
 import torch
 import openfermion
+import platformdirs
 from .hamiltonian import Hamiltonian
 from .openfermion import Model as OpenFermionModel
 from .model_dict import model_dict
 
 
-def _read_fcidump(file_name: str) -> openfermion.FermionOperator:
+def _caching_fcidump(file_name: pathlib.Path) -> tuple[int, float, torch.Tensor, torch.Tensor]:
     # pylint: disable=too-many-locals
     with gzip.open(file_name, "rt", encoding="utf-8") as file:
         n_orbit: int = -1
@@ -49,6 +51,23 @@ def _read_fcidump(file_name: str) -> openfermion.FermionOperator:
                     energy_2[k, l, i, j] = coefficient
                 case _:
                     raise ValueError(f"Invalid FCIDUMP format: {sites}")
+    return n_orbit, energy_0, energy_1, energy_2
+
+
+def _cached_fcidump(file_name: pathlib.Path) -> tuple[int, float, torch.Tensor, torch.Tensor]:
+    checksum = hashlib.sha256(file_name.read_bytes()).hexdigest()
+    cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
+    if cache_file.exists():
+        result = torch.load(cache_file, map_location="cpu", weights_only=True)
+    else:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        result = _caching_fcidump(file_name)
+        torch.save(result, cache_file)
+    return result
+
+
+def _read_fcidump(file_name: pathlib.Path) -> openfermion.FermionOperator:
+    n_orbit, energy_0, energy_1, energy_2 = _cached_fcidump(file_name)
 
     energy_2 = energy_2.permute(0, 2, 3, 1).contiguous() / 2
     energy_1_b: torch.Tensor = torch.zeros([n_orbit * 2, n_orbit * 2], dtype=torch.float64)
@@ -72,7 +91,7 @@ class Model(OpenFermionModel):
 
     def __init__(self, model_name: str, model_path: pathlib.Path) -> None:
         # pylint: disable=super-init-not-called
-        model_file_name: str = f"{model_path}/{model_name}.FCIDUMP.gz"
+        model_file_name = model_path / f"{model_name}.FCIDUMP.gz"
         logging.info("Loading FCIDUMP Hamiltonian '%s' from file: %s", model_name, model_file_name)
         openfermion_hamiltonian: openfermion.FermionOperator = _read_fcidump(model_file_name)
         logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
