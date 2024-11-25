@@ -83,7 +83,7 @@ class CommonConfig:
 
         logging.info("Attempting to load checkpoint")
         checkpoint_path = self.checkpoint_path / f"{self.job_name}.pt"
-        if self.checkpoint_path.exists():
+        if checkpoint_path.exists():
             logging.info("Checkpoint found at: %s, loading...", checkpoint_path)
             network.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
             logging.info("Checkpoint loaded successfully")
