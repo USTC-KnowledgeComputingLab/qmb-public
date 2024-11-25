@@ -25,7 +25,7 @@ def _outside_hamiltonian(
     count_extended = len(configs_extended)
     hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count_core, count_extended], dtype=torch.complex128)
     logging.info("Outside Hamiltonian calculated")
-    return hamiltonian.to_sparse_csc(), configs_extended
+    return hamiltonian, configs_extended
 
 
 def _select_by_importance(
@@ -36,7 +36,7 @@ def _select_by_importance(
 ) -> torch.Tensor:
     logging.info("Selecting by importance ...")
     count_core = len(psi_core)
-    importance = (psi_core.conj() * psi_core).abs() @ (hamiltonian.conj() * hamiltonian).abs()
+    importance = (psi_core.conj() * psi_core).abs() @ (hamiltonian.conj() * hamiltonian).abs().to_sparse_csc()
     importance[:count_core] += importance.max()
     index_selected = importance.sort(descending=True).indices[:count_selected].sort().values
     configs_selected = configs_extended[index_selected]
@@ -87,7 +87,7 @@ def _inside_hamiltonian(
     indices_i_and_j, values = model.inside(configs)
     hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count, count], dtype=torch.complex128)
     logging.info("Inside Hamiltonian calculated")
-    return hamiltonian.to_sparse_csr()
+    return hamiltonian
 
 
 def _lobpcg_process(
@@ -105,7 +105,7 @@ def _lobpcg_process(
 
     logging.info("Starting LOBPCG process on the given configurations with prior amplitudes.")
 
-    hamiltonian = _inside_hamiltonian(model, configs)
+    hamiltonian = _inside_hamiltonian(model, configs).to_sparse_csr()
 
     logging.info("Calculating the minimum energy eigenvalue on the configurations.")
     energy, psi = lobpcg(hamiltonian, psi.view([-1, 1]), maxiter=1024)
