@@ -140,6 +140,30 @@ def target_filtered_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: floa
 
 
 @torch.jit.script
+def target_filtered_angle_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: float = 1e-10) -> torch.Tensor:
+    """
+    Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
+    but angle only filtered by the abs of the target wave function.
+    """
+    s_abs = torch.sqrt(s.real**2 + s.imag**2)
+    t_abs = torch.sqrt(t.real**2 + t.imag**2)
+
+    s_angle = torch.atan2(s.imag, s.real)
+    t_angle = torch.atan2(t.imag, t.real)
+
+    s_magnitude = torch.log(s_abs)
+    t_magnitude = torch.log(t_abs)
+
+    error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
+    error_imag = (s_angle - t_angle) / (2 * torch.pi)
+    error_imag = error_imag - error_imag.round()
+
+    error_imag = error_imag * _scaled_angle(t_abs, filter_threshold)
+    loss = error_real**2 + error_imag**2
+    return loss.mean()
+
+
+@torch.jit.script
 def sum_reweighted_log(s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
     """
     Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
@@ -184,6 +208,30 @@ def sum_filtered_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: float =
 
     loss = error_real**2 + error_imag**2
     loss = loss * _scaled_angle(t_abs + s_abs, filter_threshold)
+    return loss.mean()
+
+
+@torch.jit.script
+def sum_filtered_angle_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: float = 1e-10) -> torch.Tensor:
+    """
+    Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
+    but angle only filtered by the sum of the abs of the current state wave function and the target wave function.
+    """
+    s_abs = torch.sqrt(s.real**2 + s.imag**2)
+    t_abs = torch.sqrt(t.real**2 + t.imag**2)
+
+    s_angle = torch.atan2(s.imag, s.real)
+    t_angle = torch.atan2(t.imag, t.real)
+
+    s_magnitude = torch.log(s_abs)
+    t_magnitude = torch.log(t_abs)
+
+    error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
+    error_imag = (s_angle - t_angle) / (2 * torch.pi)
+    error_imag = error_imag - error_imag.round()
+
+    error_imag = error_imag * _scaled_angle(t_abs + s_abs, filter_threshold)
+    loss = error_real**2 + error_imag**2
     return loss.mean()
 
 

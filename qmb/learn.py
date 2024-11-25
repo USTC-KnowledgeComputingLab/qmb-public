@@ -185,7 +185,7 @@ class LearnConfig:
     # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
     # The name of the loss function to use
-    loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "hybrid"
+    loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "sum_filtered_angle_log"
     # Whether to use the global optimizer
     global_opt: typing.Annotated[bool, tyro.conf.arg(aliases=["-g"])] = False
     # Whether to use LBFGS instead of Adam
