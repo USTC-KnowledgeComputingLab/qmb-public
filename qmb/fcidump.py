@@ -64,14 +64,15 @@ def _read_fcidump_impl(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], .
 
     interaction_operator: openfermion.InteractionOperator = openfermion.InteractionOperator(energy_0, energy_1_b.numpy(), energy_2_b.numpy())  # type: ignore[no-untyped-call]
     fermion_operator: openfermion.FermionOperator = openfermion.get_fermion_operator(interaction_operator)  # type: ignore[no-untyped-call]
-    return openfermion.normal_ordered(fermion_operator).terms  # type: ignore[no-untyped-call]
+    return {k: complex(v) for k, v in openfermion.normal_ordered(fermion_operator).terms.items()}  # type: ignore[no-untyped-call]
 
 
 def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
-    checksum = hashlib.sha256(file_name.read_bytes()).hexdigest() + "v2"
+    checksum = hashlib.sha256(file_name.read_bytes()).hexdigest() + "v3"
     cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
     if cache_file.exists():
-        result = torch.load(cache_file, map_location="cpu", weights_only=True)
+        with torch.serialization.safe_globals([complex]):
+            result = torch.load(cache_file, map_location="cpu", weights_only=True)
     else:
         result = _read_fcidump_impl(file_name)
         cache_file.parent.mkdir(parents=True, exist_ok=True)
