@@ -24,8 +24,8 @@ class VmcConfig:
 
     # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
-    # Whether to include external configurations
-    include_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-o"])] = True
+    # Whether to exclude external configurations
+    exclude_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-e"])] = False
     # Whether to use the global optimizer
     global_opt: typing.Annotated[bool, tyro.conf.arg(aliases=["-g"])] = False
     # Whether to use LBFGS instead of Adam
@@ -56,7 +56,7 @@ class VmcConfig:
         logging.info(
             "Arguments Summary: "
             "Sampling Count: %d, "
-            "Include Outside: %s, "
+            "Exclude Outside: %s, "
             "Global Optimizer: %s, "
             "Use LBFGS: %s, "
             "Learning Rate: %.10f, "
@@ -65,7 +65,7 @@ class VmcConfig:
             "Fix Outside: %s, "
             "Omit Deviation: %s",
             self.sampling_count,
-            "Yes" if self.include_outside else "No",
+            "Yes" if self.exclude_outside else "No",
             "Yes" if self.global_opt else "No",
             "Yes" if self.use_lbfgs else "No",
             self.learning_rate,
@@ -91,7 +91,14 @@ class VmcConfig:
             unique_sampling_count = len(configs_i)
             logging.info("Unique sampling count: %d", unique_sampling_count)
 
-            if self.include_outside:
+            if self.exclude_outside:
+                logging.info("Generating hamiltonian data generation for internal sparse matrix")
+                indices_i_and_j, values = model.inside(configs_i)
+                logging.info("Internal sparse matrix data successfully generated")
+                logging.info("Converting generated sparse matrix data into a sparse tensor")
+                hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
+                logging.info("Sparse tensor successfully created")
+            else:
                 logging.info("Generating hamiltonian data generation for external sparse matrix")
                 indices_i_and_j, values, configs_j = model.outside(configs_i)
                 logging.info("External sparse matrix data successfully generated")
@@ -99,13 +106,6 @@ class VmcConfig:
                 logging.info("External configurations count: %d", outside_count)
                 logging.info("Converting generated sparse matrix data into a sparse tensor")
                 hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, outside_count], dtype=torch.complex128).to_sparse_csr()
-                logging.info("Sparse tensor successfully created")
-            else:
-                logging.info("Generating hamiltonian data generation for internal sparse matrix")
-                indices_i_and_j, values = model.inside(configs_i)
-                logging.info("Internal sparse matrix data successfully generated")
-                logging.info("Converting generated sparse matrix data into a sparse tensor")
-                hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
                 logging.info("Sparse tensor successfully created")
 
             optimizer = initialize_optimizer(
@@ -129,15 +129,15 @@ class VmcConfig:
                     # but the first several configurations in amplitudes j are duplicated with those in amplitudes i
                     # So cat them manually
                     amplitudes_i = network(configs_i)
-                    if self.include_outside:
+                    if self.exclude_outside:
+                        amplitudes_j = amplitudes_i
+                    else:
                         if self.fix_outside:
                             with torch.no_grad():
                                 amplitudes_j = network(configs_j)
                             amplitudes_j = torch.cat([amplitudes_i[:unique_sampling_count], amplitudes_j[unique_sampling_count:]])
                         else:
                             amplitudes_j = network(configs_j)
-                    else:
-                        amplitudes_j = amplitudes_i
                     # <s|H|psi> will be used multiple times, calculate it first
                     # as we want to optimize deviation, every value should be calculated in grad mode, so we do not detach anything
                     hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j
@@ -169,11 +169,11 @@ class VmcConfig:
                     # When including outside, amplitudes j should be calculated individually, otherwise, it equals to amplitudes i
                     # Because of gradient formula, we always calculate amplitudes j in no grad mode
                     amplitudes_i = network(configs_i)
-                    if self.include_outside:
+                    if self.exclude_outside:
+                        amplitudes_j = amplitudes_i.detach()
+                    else:
                         with torch.no_grad():
                             amplitudes_j = network(configs_j)
-                    else:
-                        amplitudes_j = amplitudes_i.detach()
                     # <s|H|psi> will be used multiple times, calculate it first
                     # it should be notices that this <s|H|psi> is totally detached, since both hamiltonian and amplitudes j is detached
                     hamiltonian_amplitudes_j = hamiltonian @ amplitudes_j
