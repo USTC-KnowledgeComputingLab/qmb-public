@@ -201,6 +201,7 @@ class Hamiltonian:
     ) -> tuple[
             torch.Tensor,
             torch.Tensor,
+            torch.Tensor,
     ]:
         """
         Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
@@ -213,9 +214,10 @@ class Hamiltonian:
 
         Returns
         -------
-        tuple[torch.Tensor, torch.Tensor]
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor]
             A tuple containing two tensors:
-                - index_i_and_j: A tensor of shape [..., 2] representing the indices (i, j) for the non-zero Hamiltonian terms.
+                - index_i: A tensor of shape [...] representing the indices i for the non-zero Hamiltonian terms.
+                - index_j: A tensor of shape [...] representing the indices j for the non-zero Hamiltonian terms.
                 - coefs: A tensor of shape [...] representing the corresponding complex coefficients for the indices.
         """
         device: torch.device = configs_i.device
@@ -231,12 +233,13 @@ class Hamiltonian:
             result = _merge_inside(configs_i, result, batch)
         assert result is not None
         index_i, index_j, coefs = result
-        return torch.stack([index_i, index_j], dim=1), torch.view_as_complex(coefs)
+        return index_i, index_j, torch.view_as_complex(coefs)
 
     def outside(
         self,
         configs_i: torch.Tensor,
     ) -> tuple[
+            torch.Tensor,
             torch.Tensor,
             torch.Tensor,
             torch.Tensor,
@@ -252,9 +255,10 @@ class Hamiltonian:
 
         Returns
         -------
-        tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
             A tuple containing three tensors:
-                - index_i_and_j: A tensor of shape [..., 2] representing the indices (i, j) for the non-zero Hamiltonian terms.
+                - index_i: A tensor of shape [...] representing the indices i for the non-zero Hamiltonian terms.
+                - index_j: A tensor of shape [...] representing the indices j for the non-zero Hamiltonian terms.
                 - coefs: A tensor of shape [...] representing the corresponding complex coefficients for the indices.
                 - configs_target: A tensor of shape [pool_size, n_qubits] representing the target configurations after processing.
                   The first `batch_size` configurations are guaranteed to be identical to the input `configs_i`.
@@ -265,7 +269,8 @@ class Hamiltonian:
         # Parameters
         # configs_i : bool[src_size, n_qubits]
         # Returns
-        # index_i_and_j : int64[..., 2]
+        # index_i : int64[...]
+        # index_j : int64[...]
         # coefs : complex128[...]
         # configs_j : bool[dst_size, n_qubits]
 
@@ -293,4 +298,4 @@ class Hamiltonian:
 
         target_index_j = pool_to_target[both_to_pool[src_size:]][index_j]
 
-        return torch.stack([index_i, target_index_j], dim=1), torch.view_as_complex(coefs), target
+        return index_i, target_index_j, torch.view_as_complex(coefs), target

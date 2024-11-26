@@ -50,6 +50,7 @@ class VmcConfig:
         The main function for the VMC optimization.
         """
         # pylint: disable=too-many-statements
+        # pylint: disable=too-many-locals
 
         model, network = self.common.main()
 
@@ -93,19 +94,19 @@ class VmcConfig:
 
             if self.exclude_outside:
                 logging.info("Generating hamiltonian data generation for internal sparse matrix")
-                indices_i_and_j, values = model.inside(configs_i)
+                indices_i, indices_j, values = model.inside(configs_i)
                 logging.info("Internal sparse matrix data successfully generated")
                 logging.info("Converting generated sparse matrix data into a sparse tensor")
-                hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
+                hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [unique_sampling_count, unique_sampling_count], dtype=torch.complex128).to_sparse_csr()
                 logging.info("Sparse tensor successfully created")
             else:
                 logging.info("Generating hamiltonian data generation for external sparse matrix")
-                indices_i_and_j, values, configs_j = model.outside(configs_i)
+                indices_i, indices_j, values, configs_j = model.outside(configs_i)
                 logging.info("External sparse matrix data successfully generated")
                 outside_count = len(configs_j)
                 logging.info("External configurations count: %d", outside_count)
                 logging.info("Converting generated sparse matrix data into a sparse tensor")
-                hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [unique_sampling_count, outside_count], dtype=torch.complex128).to_sparse_csr()
+                hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [unique_sampling_count, outside_count], dtype=torch.complex128).to_sparse_csr()
                 logging.info("Sparse tensor successfully created")
 
             optimizer = initialize_optimizer(

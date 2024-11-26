@@ -22,9 +22,9 @@ def _outside_hamiltonian(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     logging.info("Calculating outside Hamiltonian ...")
     count_core = len(configs_core)
-    indices_i_and_j, values, configs_extended = model.outside(configs_core)
+    indices_i, indices_j, values, configs_extended = model.outside(configs_core)
     count_extended = len(configs_extended)
-    hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count_core, count_extended], dtype=torch.complex128)
+    hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_core, count_extended], dtype=torch.complex128)
     logging.info("Outside Hamiltonian calculated")
     return hamiltonian, configs_extended
 
@@ -85,8 +85,8 @@ def _inside_hamiltonian(
 ) -> torch.Tensor:
     logging.info("Calculating inside Hamiltonian ...")
     count = len(configs)
-    indices_i_and_j, values = model.inside(configs)
-    hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count, count], dtype=torch.complex128)
+    indices_i, indices_j, values = model.inside(configs)
+    hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count, count], dtype=torch.complex128)
     logging.info("Inside Hamiltonian calculated")
     return hamiltonian
 

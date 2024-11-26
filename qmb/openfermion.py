@@ -68,10 +68,10 @@ class Model(ModelProto["Model"]):
         )
         logging.info("Internal Hamiltonian representation for model '%s' has been successfully created", model_name)
 
-    def inside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def inside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.hamiltonian.inside(configs_i)
 
-    def outside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def outside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.hamiltonian.outside(configs_i)
 
 

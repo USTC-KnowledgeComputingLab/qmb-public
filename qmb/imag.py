@@ -42,18 +42,18 @@ class _DynamicLanczos:
 
     def _hamiltonian(self) -> torch.Tensor:
         logging.info("Constructing Hamiltonian...")
-        indices_i_and_j, values = self.model.inside(self.configs)
+        indices_i, indices_j, values = self.model.inside(self.configs)
         count_config = len(self.configs)
-        hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count_config, count_config], dtype=torch.complex128).to_sparse_csr()
+        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_config, count_config], dtype=torch.complex128).to_sparse_csr()
         logging.info("Hamiltonian constructed")
         return hamiltonian
 
     def _extend(self, psi: torch.Tensor) -> None:
         logging.info("Extending basis...")
-        indices_i_and_j, values, configs_extended = self.model.outside(self.configs)
+        indices_i, indices_j, values, configs_extended = self.model.outside(self.configs)
         count_core = len(self.configs)
         count_extended = len(configs_extended)
-        hamiltonian = torch.sparse_coo_tensor(indices_i_and_j.T, values, [count_core, count_extended], dtype=torch.complex128).to_sparse_csc()
+        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_core, count_extended], dtype=torch.complex128).to_sparse_csc()
 
         importance = (psi.conj() @ hamiltonian).abs()
         importance[:count_core] += importance.max()
