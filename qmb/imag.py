@@ -53,7 +53,9 @@ class _DynamicLanczos:
         indices_i, indices_j, values, configs_extended = self.model.outside(self.configs)
         count_core = len(self.configs)
         count_extended = len(configs_extended)
-        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_core, count_extended], dtype=torch.complex128).to_sparse_csc()
+        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_core, count_extended], dtype=torch.complex128)
+        # Avoid converting to csc or csr format as this tensor might be extremely large, which could lead to memory exhaustion.
+        # Additionally, this matrix is only multiplied once, so no conversion is necessary.
 
         importance = (psi.conj() @ hamiltonian).abs()
         importance[:count_core] += importance.max()
