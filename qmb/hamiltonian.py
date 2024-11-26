@@ -7,102 +7,9 @@ import typing
 import torch
 import torch.utils.cpp_extension
 
-
-@torch.jit.script
-def _merge_inside(
-    configs_i: torch.Tensor,
-    result: tuple[
-        torch.Tensor,  # index_i
-        torch.Tensor,  # index_j
-        torch.Tensor,  # coefs
-    ] | None,
-    batch: tuple[
-        torch.Tensor,  # index_i
-        torch.Tensor,  # configs_j
-        torch.Tensor,  # coefs
-    ],
-) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-]:
-    # pylint: disable=too-many-locals
-    device = configs_i.device
-    if result is not None:
-        index_i, index_j, coefs = result
-    else:
-        index_i = torch.empty([0], dtype=torch.int64, device=device)
-        index_j = torch.empty([0], dtype=torch.int64, device=device)
-        coefs = torch.empty([0, 2], dtype=torch.float64, device=device)
-    batch_index_i, batch_configs_j, batch_coefs = batch
-
-    pool, both_to_pool = torch.unique(torch.cat([configs_i, batch_configs_j], dim=0), dim=0, sorted=False, return_inverse=True, return_counts=False)
-
-    src_size = configs_i.size(0)
-    pool_size = pool.size(0)
-
-    src_to_pool = both_to_pool[:src_size]
-    pool_to_src = torch.full([pool_size], -1, dtype=torch.int64, device=device)
-    pool_to_src[src_to_pool] = torch.arange(src_size, device=device)
-
-    dst_to_pool = both_to_pool[src_size:]
-    dst_to_src = pool_to_src[dst_to_pool]
-
-    usable = dst_to_src != -1
-
-    usable_index_i = batch_index_i[usable]
-    usable_index_j = dst_to_src[usable]
-    usable_coefs = batch_coefs[usable]
-
-    return (
-        torch.cat([index_i, usable_index_i], dim=0),
-        torch.cat([index_j, usable_index_j], dim=0),
-        torch.cat([coefs, usable_coefs], dim=0),
-    )
-
-
-@torch.jit.script
-def _merge_outside(
-    configs_i: torch.Tensor,
-    result: tuple[
-        torch.Tensor,  # index_i
-        torch.Tensor,  # index_j
-        torch.Tensor,  # coefs
-        torch.Tensor,  # configs_j
-    ] | None,
-    batch: tuple[
-        torch.Tensor,  # index_i
-        torch.Tensor,  # configs_j
-        torch.Tensor,  # coefs
-    ],
-) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-]:
-    # pylint: disable=too-many-locals
-    device = configs_i.device
-    if result is not None:
-        index_i, index_j, coefs, configs_j = result
-    else:
-        index_i = torch.empty([0], dtype=torch.int64, device=device)
-        index_j = torch.empty([0], dtype=torch.int64, device=device)
-        coefs = torch.empty([0, 2], dtype=torch.float64, device=device)
-        configs_j = configs_i
-    batch_index_i, batch_configs_j, batch_coefs = batch
-    src_size = configs_j.shape[0]
-
-    pool, both_to_pool = torch.unique(torch.cat([configs_j, batch_configs_j], dim=0), dim=0, sorted=False, return_inverse=True, return_counts=False)
-    result_index_j = torch.cat([both_to_pool[index_j], both_to_pool[src_size:]], dim=0)
-    del both_to_pool  # Memory is crucial here, release this tensor immediately to free up resources.
-
-    return (
-        torch.cat([index_i, batch_index_i], dim=0),
-        result_index_j,
-        torch.cat([coefs, batch_coefs], dim=0),
-        pool,
-    )
+_Raw = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+_Inside = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+_Outside = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 
 
 class Hamiltonian:
@@ -110,26 +17,63 @@ class Hamiltonian:
     The Hamiltonian type, which stores the Hamiltonian and processes iteration over each term in the Hamiltonian for given configurations.
     """
 
-    _extension: object = None
+    _hamiltonian_module: object = None
+    _collection_module: object = None
 
     @classmethod
-    def _get_extension(cls) -> object:
-        if cls._extension is None:
+    def _get_hamiltonian_module(cls) -> object:
+        if cls._hamiltonian_module is None:
             folder = os.path.dirname(__file__)
-            cls._extension = torch.utils.cpp_extension.load(
+            cls._hamiltonian_module = torch.utils.cpp_extension.load(
                 name="_hamiltonian",
                 sources=[
                     f"{folder}/_hamiltonian.cpp",
                     f"{folder}/_hamiltonian_cuda.cu",
                 ],
             )
-        return cls._extension
+        return cls._hamiltonian_module
+
+    @classmethod
+    def _get_collection_module(cls) -> object:
+        if cls._collection_module is None:
+            folder = os.path.dirname(__file__)
+            cls._collection_module = torch.utils.cpp_extension.load(
+                name="_collection",
+                sources=[
+                    f"{folder}/_collection.cpp",
+                ],
+            )
+        return cls._collection_module
+
+    @classmethod
+    def _prepare(cls, hamiltonian: dict[tuple[tuple[int, int], ...], complex]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return getattr(cls._get_hamiltonian_module(), "prepare")(hamiltonian)
+
+    @classmethod
+    def _merge_raw(cls, raws: list[_Raw]) -> _Raw:
+        return getattr(cls._get_collection_module(), "merge_raw")(raws)
+
+    @classmethod
+    def _raw_to_inside(cls, raw: _Raw, configs_i: torch.Tensor) -> _Inside:
+        return getattr(cls._get_collection_module(), "raw_to_inside")(raw, configs_i)
+
+    @classmethod
+    def _merge_inside(cls, insides: list[_Inside]) -> _Inside:
+        return getattr(cls._get_collection_module(), "merge_inside")(insides)
+
+    @classmethod
+    def _raw_to_outside(cls, raw: _Raw, configs_i: torch.Tensor) -> _Outside:
+        return getattr(cls._get_collection_module(), "raw_to_outside")(raw, configs_i)
+
+    @classmethod
+    def _merge_outside(cls, outsides: list[_Outside], configs_i: torch.Tensor) -> _Outside:
+        return getattr(cls._get_collection_module(), "merge_outside")(outsides, configs_i)
 
     def __init__(self, hamiltonian: dict[tuple[tuple[int, int], ...], complex], *, kind: str) -> None:
         self.site: torch.Tensor
         self.kind: torch.Tensor
         self.coef: torch.Tensor
-        self.site, self.kind, self.coef = getattr(self._get_extension(), "prepare")(hamiltonian)
+        self.site, self.kind, self.coef = self._prepare(hamiltonian)
         self._relative_impl: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
         self._relative_impl = getattr(torch.ops._hamiltonian, kind)
 
@@ -144,11 +88,7 @@ class Hamiltonian:
         *,
         term_group_size: int,
         batch_group_size: int,
-    ) -> typing.Iterable[tuple[
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-    ]]:
+    ) -> typing.Iterable[_Raw]:
         batch_size = configs_i.size(0)
         term_number = self.site.size(0)
         if batch_group_size == -1:
@@ -173,36 +113,23 @@ class Hamiltonian:
         term_group_size: int = 1024,
         batch_group_size: int = -1,
         group_size: int = 1 << 30,
-    ) -> typing.Iterable[tuple[
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-    ]]:
-        index_i_pool = []
-        configs_j_pool = []
-        coefs_pool = []
+    ) -> typing.Iterable[_Raw]:
+        pool = []
         total_size = 0
-        for index_i, configs_j, coefs in self._relative_kernel(configs_i, term_group_size=term_group_size, batch_group_size=batch_group_size):
-            index_i_pool.append(index_i)
-            configs_j_pool.append(configs_j)
-            coefs_pool.append(coefs)
-            total_size += index_i.nelement() * index_i.element_size() + configs_j.nelement() * configs_j.element_size() + coefs.nelement() * coefs.element_size()
+        for batch in self._relative_kernel(configs_i, term_group_size=term_group_size, batch_group_size=batch_group_size):
+            pool.append(batch)
+            total_size += sum(tensor.nelement() * tensor.element_size() for tensor in batch)
             if total_size >= group_size:
-                yield torch.cat(index_i_pool, dim=0), torch.cat(configs_j_pool, dim=0), torch.cat(coefs_pool, dim=0)
-                index_i_pool.clear()
-                configs_j_pool.clear()
-                coefs_pool.clear()
+                yield self._merge_raw(pool)
+                pool.clear()
                 total_size = 0
-        yield torch.cat(index_i_pool, dim=0), torch.cat(configs_j_pool, dim=0), torch.cat(coefs_pool, dim=0)
+        if pool:
+            yield self._merge_raw(pool)
 
     def inside(
         self,
         configs_i: torch.Tensor,
-    ) -> tuple[
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-    ]:
+    ) -> _Inside:
         """
         Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
         This function only considers the terms that are within the configuration subspace.
@@ -228,22 +155,18 @@ class Hamiltonian:
         # index_i_and_j : int64[..., 2]
         # coefs : complex128[...]
 
-        result: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None = None
-        for batch in self._relative_group(configs_i):
-            result = _merge_inside(configs_i, result, batch)
-        assert result is not None
-        index_i, index_j, coefs = result
+        result = []
+        for batch in (self._raw_to_inside(raw, configs_i) for raw in self._relative_group(configs_i)):
+            result.append(batch)
+            if len(result) >= 2:
+                result = [self._merge_inside(result)]
+        index_i, index_j, coefs = result[0]
         return index_i, index_j, torch.view_as_complex(coefs)
 
     def outside(
         self,
         configs_i: torch.Tensor,
-    ) -> tuple[
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-    ]:
+    ) -> _Outside:
         """
         Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
         This function considers both the inside and outside configurations, ensuring that the input configurations are the first `batch_size` configurations in the result.
@@ -274,28 +197,10 @@ class Hamiltonian:
         # coefs : complex128[...]
         # configs_j : bool[dst_size, n_qubits]
 
-        result: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None
-        for batch in self._relative_group(configs_i):
-            result = _merge_outside(configs_i, result, batch)
-        assert result is not None
-        index_i, index_j, coefs, configs_j = result
-
-        pool, both_to_pool = torch.unique(torch.cat([configs_i, configs_j], dim=0), dim=0, sorted=False, return_inverse=True, return_counts=False)
-
-        del configs_j
-
-        src_size = configs_i.size(0)
-        pool_size = pool.size(0)
-
-        pool_to_target = torch.full([pool_size], -1, dtype=torch.int64, device=device)
-        pool_to_target[both_to_pool[:src_size]] = torch.arange(src_size, device=device)
-        pool_to_target[pool_to_target == -1] = torch.arange(src_size, pool_size, device=device)
-
-        target = torch.empty_like(pool)
-        target[pool_to_target] = pool
-
-        del pool
-
-        target_index_j = pool_to_target[both_to_pool[src_size:]][index_j]
-
-        return index_i, target_index_j, torch.view_as_complex(coefs), target
+        result = []
+        for batch in (self._raw_to_outside(raw, configs_i) for raw in self._relative_group(configs_i)):
+            result.append(batch)
+            if len(result) >= 2:
+                result = [self._merge_outside(result, configs_i)]
+        index_i, index_j, coefs, configs_j = result[0]
+        return index_i, index_j, torch.view_as_complex(coefs), configs_j
