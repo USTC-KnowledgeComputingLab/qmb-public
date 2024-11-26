@@ -16,7 +16,7 @@ from .openfermion import Model as OpenFermionModel
 from .model_dict import model_dict
 
 
-def _read_fcidump_impl(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
+def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
     # pylint: disable=too-many-locals
     with gzip.open(file_name, "rt", encoding="utf-8") as file:
         n_orbit: int = -1
@@ -67,19 +67,6 @@ def _read_fcidump_impl(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], .
     return {k: complex(v) for k, v in openfermion.normal_ordered(fermion_operator).terms.items()}  # type: ignore[no-untyped-call]
 
 
-def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
-    checksum = hashlib.sha256(file_name.read_bytes()).hexdigest() + "v3"
-    cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
-    if cache_file.exists():
-        with torch.serialization.safe_globals([complex]):
-            result = torch.load(cache_file, map_location="cpu", weights_only=True)
-    else:
-        result = _read_fcidump_impl(file_name)
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(result, cache_file)
-    return result
-
-
 class Model(OpenFermionModel):
     """
     This class handles the models from FCIDUMP files.
@@ -88,9 +75,30 @@ class Model(OpenFermionModel):
     def __init__(self, model_name: str, model_path: pathlib.Path) -> None:
         # pylint: disable=super-init-not-called
         model_file_name = model_path / f"{model_name}.FCIDUMP.gz"
-        logging.info("Loading FCIDUMP Hamiltonian '%s' from file: %s", model_name, model_file_name)
-        openfermion_hamiltonian = _read_fcidump(model_file_name)
-        logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
+
+        checksum = hashlib.sha256(model_file_name.read_bytes()).hexdigest() + "v4"
+        cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
+        if cache_file.exists():
+            logging.info("Loading FCIDUMP Hamiltonian '%s' from cache", model_name)
+            openfermion_hamiltonian_data = torch.load(cache_file, map_location="cpu", weights_only=True)
+            logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
+
+            logging.info("Recovering internal Hamiltonian representation for model '%s'", model_name)
+            self.hamiltonian = Hamiltonian(openfermion_hamiltonian_data, kind="fermi")
+            logging.info("Internal Hamiltonian representation for model '%s' successfully recovered", model_name)
+        else:
+            logging.info("Loading FCIDUMP Hamiltonian '%s' from file: %s", model_name, model_file_name)
+            openfermion_hamiltonian_dict = _read_fcidump(model_file_name)
+            logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
+
+            logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
+            self.hamiltonian = Hamiltonian(openfermion_hamiltonian_dict, kind="fermi")
+            logging.info("Internal Hamiltonian representation for model '%s' has been successfully created", model_name)
+
+            logging.info("Caching OpenFermion Hamiltonian for model '%s'", model_name)
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            torch.save((self.hamiltonian.site, self.hamiltonian.kind, self.hamiltonian.coef), cache_file)
+            logging.info("OpenFermion Hamiltonian for model '%s' successfully cached", model_name)
 
         match = re.match(r"\w*_(\d*)_(\d*)", model_name)
         assert match is not None
@@ -103,10 +111,6 @@ class Model(OpenFermionModel):
             fcidump_ref_energy = json.load(file)
         self.ref_energy: float = fcidump_ref_energy.get(model_name, torch.nan)
         logging.info("Reference energy for model '%s' is %.10f", model_name, self.ref_energy)
-
-        logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
-        self.hamiltonian: Hamiltonian = Hamiltonian(openfermion_hamiltonian, kind="fermi")
-        logging.info("Internal Hamiltonian representation for model '%s' has been successfully created", model_name)
 
 
 model_dict["fcidump"] = Model

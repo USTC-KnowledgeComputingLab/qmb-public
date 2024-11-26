@@ -19,6 +19,7 @@ class Hamiltonian:
 
     _hamiltonian_module: object = None
     _collection_module: object = None
+    _kernel_loaded: bool = False
 
     @classmethod
     def _get_hamiltonian_module(cls) -> object:
@@ -46,6 +47,12 @@ class Hamiltonian:
         return cls._collection_module
 
     @classmethod
+    def _load_kernel(cls) -> None:
+        if not cls._kernel_loaded:
+            cls._get_hamiltonian_module()
+            cls._kernel_loaded = True
+
+    @classmethod
     def _prepare(cls, hamiltonian: dict[tuple[tuple[int, int], ...], complex]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return getattr(cls._get_hamiltonian_module(), "prepare")(hamiltonian)
 
@@ -69,11 +76,15 @@ class Hamiltonian:
     def _merge_outside(cls, outsides: list[_Outside], configs_i: torch.Tensor) -> _Outside:
         return getattr(cls._get_collection_module(), "merge_outside")(outsides, configs_i)
 
-    def __init__(self, hamiltonian: dict[tuple[tuple[int, int], ...], complex], *, kind: str) -> None:
+    def __init__(self, hamiltonian: dict[tuple[tuple[int, int], ...], complex] | tuple[torch.Tensor, torch.Tensor, torch.Tensor], *, kind: str) -> None:
         self.site: torch.Tensor
         self.kind: torch.Tensor
         self.coef: torch.Tensor
-        self.site, self.kind, self.coef = self._prepare(hamiltonian)
+        if isinstance(hamiltonian, dict):
+            self.site, self.kind, self.coef = self._prepare(hamiltonian)
+        else:
+            self.site, self.kind, self.coef = hamiltonian
+        self._load_kernel()
         self._relative_impl: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
         self._relative_impl = getattr(torch.ops._hamiltonian, kind)
 
