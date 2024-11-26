@@ -55,7 +55,7 @@ def pack_int(tensor: torch.Tensor, size: int) -> torch.Tensor:
     return packed
 
 
-#@torch.jit.script
+@torch.jit.script
 def unpack_int(tensor: torch.Tensor, size: int, last_dim: int) -> torch.Tensor:
     """
     Unpacks bytes into multiple small int values based on the specified size.
