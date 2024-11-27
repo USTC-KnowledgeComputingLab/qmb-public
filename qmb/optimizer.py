@@ -7,22 +7,41 @@ import pathlib
 import torch
 
 
+def _migrate_tensor(tensor: torch.Tensor, device: torch.device) -> None:
+    """
+    Migrates the tensor to the specified device.
+    """
+    tensor.data = tensor.data.to(device=device)
+    if tensor.grad is not None:
+        tensor.grad.data = tensor.grad.data.to(device=device)
+
+
 def _migrate_optimizer(optimizer: torch.optim.Optimizer) -> None:
     """
     Migrates the optimizer to the device of the model parameters.
     """
+    # pylint: disable=too-many-nested-blocks
+    # pylint: disable=too-many-branches
     device: torch.device = optimizer.param_groups[0]["params"][0].device
     for param in optimizer.state.values():
         if isinstance(param, torch.Tensor):
-            param.data = param.data.to(device=device)
-            if param.grad is not None:
-                param.grad.data = param.grad.data.to(device=device)
+            _migrate_tensor(param, device)
+        elif isinstance(param, list):
+            for subparam in param:
+                if isinstance(subparam, torch.Tensor):
+                    _migrate_tensor(subparam, device)
+        elif isinstance(param, int | float):
+            pass
         elif isinstance(param, dict):
             for subparam in param.values():
                 if isinstance(subparam, torch.Tensor):
-                    subparam.data = subparam.data.to(device=device)
-                    if subparam.grad is not None:
-                        subparam.grad.data = subparam.grad.data.to(device=device)
+                    _migrate_tensor(subparam, device)
+                elif isinstance(subparam, list):
+                    for subsubparam in subparam:
+                        if isinstance(subsubparam, torch.Tensor):
+                            _migrate_tensor(subsubparam, device)
+                elif isinstance(subparam, int | float):
+                    pass
                 else:
                     raise ValueError(f"Unexpected parameter type: {type(subparam)}")
         else:
