@@ -371,6 +371,126 @@ auto merge_apply_outside(std::vector<Sparse> sparses, std::optional<torch::Tenso
     }
 }
 
+class Node {
+    using Value = std::complex<double>;
+    struct Leaf {
+        Value value;
+        std::int64_t index;
+    };
+    using Children = std::array<std::unique_ptr<Node>, 1 << 8>;
+
+    std::variant<std::monostate, Leaf, Children> data;
+
+    bool add(std::uint8_t* begin, std::uint8_t* end, Value value) {
+        if (std::distance(begin, end) == 0) {
+            // Add value to this node
+            if (!std::holds_alternative<Leaf>(data)) {
+                data = Leaf{value, -1};
+                return true;
+            } else {
+                std::get<Leaf>(data).value += value;
+                return false;
+            }
+        } else {
+            // Go deeper
+            if (!std::holds_alternative<Children>(data)) {
+                data = Children{};
+            }
+            auto& child = std::get<Children>(data)[*begin];
+            if (!child) {
+                child = std::make_unique<Node>();
+            }
+            return child->add(begin + 1, end, value);
+        }
+    }
+
+    void set_index(std::uint8_t* begin, std::uint8_t* end, std::int64_t& index) {
+        if (std::distance(begin, end) == 0) {
+            std::get<Leaf>(data).index = index++;
+        } else {
+            // We will only find item which exists definitely, skip checking.
+            auto& child = std::get<Children>(data)[*begin];
+            return child->set_index(begin + 1, end, index);
+        }
+    }
+
+    void fill_index(std::int64_t& index) {
+        if (std::holds_alternative<Leaf>(data)) {
+            if (std::get<Leaf>(data).index == -1) {
+                std::get<Leaf>(data).index = index++;
+            }
+        } else if (std::holds_alternative<Children>(data)) {
+            for (auto i = 0; i < 1 << 8; ++i) {
+                auto& child = std::get<Children>(data)[i];
+                if (child) {
+                    child->fill_index(index);
+                }
+            }
+        }
+    }
+
+    void place(torch::Tensor& psi, torch::Tensor& configs, std::vector<std::uint8_t>& config, bool is_complex) {
+        if (std::holds_alternative<Leaf>(data)) {
+            auto index = std::get<Leaf>(data).index;
+            psi[index][0] = std::get<Leaf>(data).value.real();
+            if (is_complex) {
+                psi[index][1] = std::get<Leaf>(data).value.imag();
+            }
+            for (auto i = 0; i < config.size(); ++i) {
+                configs[index][i] = config[i];
+            }
+        } else if (std::holds_alternative<Children>(data)) {
+            for (auto i = 0; i < 1 << 8; ++i) {
+                auto& child = std::get<Children>(data)[i];
+                if (child) {
+                    config.push_back(i);
+                    child->place(psi, configs, config, is_complex);
+                    config.pop_back();
+                }
+            }
+        }
+    }
+
+  public:
+    std::int64_t add_tensor(torch::Tensor psi_pool, torch::Tensor configs_pool) {
+        bool is_complex = psi_pool.size(1) == 2;
+        std::int64_t size = configs_pool.size(0);
+        std::int64_t depth = configs_pool.size(1);
+        std::int64_t result = 0;
+        for (std::int64_t i = 0; i < size; ++i) {
+            auto config = configs_pool[i].data_ptr<std::uint8_t>();
+            double real = psi_pool[i][0].item<double>();
+            double imag = 0;
+            if (is_complex) {
+                imag = psi_pool[i][1].item<double>();
+            }
+            auto value = Value(real, imag);
+            result += add(config, config + depth, value);
+        }
+        return result;
+    }
+
+    auto get_tensor(torch::Tensor configs_pool, std::int64_t total_size, bool is_complex) {
+        std::int64_t src_size = configs_pool.size(0);
+        std::int64_t depth = configs_pool.size(1);
+        std::int64_t index = 0;
+        for (std::int64_t i = 0; i < src_size; ++i) {
+            auto config = configs_pool[i].data_ptr<std::uint8_t>();
+            set_index(config, config + depth, index);
+        }
+        fill_index(index);
+
+        torch::Tensor psi = torch::empty({total_size, 2}, torch::kDouble);
+        torch::Tensor configs = torch::empty({total_size, depth}, torch::kUInt8);
+        auto config = std::vector<std::uint8_t>();
+
+        place(psi, configs, config, is_complex);
+        return std::make_tuple(psi, configs);
+    }
+
+    Node() { }
+};
+
 PYBIND11_MODULE(_collection, m) {
     m.def("merge_raw", merge_raw, py::arg("raws"));
     m.def("raw_to_inside", raw_to_inside, py::arg("raw"), py::arg("configs_i"));
@@ -379,6 +499,7 @@ PYBIND11_MODULE(_collection, m) {
     m.def("merge_outside", merge_outside, py::arg("outsides"), py::arg("configs_i"));
     m.def("raw_apply_outside", raw_apply_outside, py::arg("raw"), py::arg("psi_i"), py::arg("configs_i"), py::arg("squared"));
     m.def("merge_apply_outside", merge_apply_outside, py::arg("applies"), py::arg("configs_i"));
+    py::class_<Node>(m, "Node").def(py::init<>()).def("add_tensor", &Node::add_tensor).def("get_tensor", &Node::get_tensor);
 }
 
 } // namespace qmb_collection

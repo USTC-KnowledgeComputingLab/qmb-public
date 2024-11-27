@@ -237,6 +237,9 @@ class Hamiltonian:
         return psi_j, configs_j
         ```
         """
+        return self._apply_outside_cpu(psi_i, configs_i, squared)
+
+    def _apply_outside_device(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
         device: torch.device = configs_i.device
         self._prepare_data(device)
 
@@ -252,7 +255,22 @@ class Hamiltonian:
             psi_j = torch.view_as_complex(psi_j)
         return psi_j, configs_j
 
-    def _apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    def _apply_outside_cpu(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+        device: torch.device = configs_i.device
+        self._prepare_data(device)
+
+        count_j = 0
+        node = getattr(self._get_collection_module(), "Node")()
+        for psi_j, configs_j in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
+            count_j += node.add_tensor(psi_j.cpu(), configs_j.cpu())
+        psi_j, configs_j = node.get_tensor(configs_i.cpu(), count_j, not squared)
+        if squared:
+            psi_j = psi_j[:, 0]
+        else:
+            psi_j = torch.view_as_complex(psi_j)
+        return psi_j.to(device=configs_i.device), configs_j.to(device=configs_i.device)
+
+    def _apply_outside_ref(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
         """
         The reference implementation of `apply_outside`.
         """
