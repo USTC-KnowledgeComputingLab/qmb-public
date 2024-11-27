@@ -175,12 +175,12 @@ class Hamiltonian:
         # index_i_and_j : int64[..., 2]
         # coefs : complex128[...]
 
-        result = []
+        result: list[_Inside] = []
         for batch in (self._raw_to_inside(raw, configs_i) for raw in self._relative_group(configs_i)):
-            result.append(batch)
             if len(result) >= 2:
                 result = [self._merge_inside(result)]
-        index_i, index_j, coefs = result[0]
+            result.append(batch)
+        index_i, index_j, coefs = self._merge_inside(result)
         return index_i, index_j, torch.view_as_complex(coefs)
 
     def outside(
