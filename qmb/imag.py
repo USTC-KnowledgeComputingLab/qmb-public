@@ -50,13 +50,14 @@ class _DynamicLanczos:
 
     def _extend(self, psi: torch.Tensor) -> None:
         logging.info("Extending basis...")
-        indices_i, indices_j, values, configs_extended = self.model.outside(self.configs)
         count_core = len(self.configs)
-        count_extended = len(configs_extended)
 
-        # Perform matrix multiplication manually to save memory
-        importance = torch.zeros(count_extended, dtype=torch.complex128, device=psi.device).scatter_add_(0, indices_j, psi[indices_i].conj() * values).abs()
+        importance, configs_extended = self.model.apply_outside(psi, self.configs, False)
+        importance = importance.abs()
         importance[:count_core] += importance.max()
+
+        count_extended = len(configs_extended)
+        logging.info("Number of full extended configurations: %d", count_extended)
 
         selected_indices = importance.sort(descending=True).indices[:count_core + self.count_extend].sort().values
         count_selected = len(selected_indices)

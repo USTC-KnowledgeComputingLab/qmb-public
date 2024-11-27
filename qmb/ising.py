@@ -228,6 +228,9 @@ class Model(ModelProto["Model"]):
     def outside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.hamiltonian.outside(configs_i)
 
+    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.hamiltonian.apply_outside(psi_i, configs_i, squared)
+
 
 model_dict["ising"] = Model
 

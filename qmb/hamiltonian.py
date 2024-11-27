@@ -10,6 +10,7 @@ import torch.utils.cpp_extension
 _Raw = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 _Inside = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 _Outside = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+_Sparse = tuple[torch.Tensor, torch.Tensor]
 
 
 class Hamiltonian:
@@ -73,8 +74,16 @@ class Hamiltonian:
         return getattr(cls._get_collection_module(), "raw_to_outside")(raw, configs_i)
 
     @classmethod
-    def _merge_outside(cls, outsides: list[_Outside], configs_i: torch.Tensor) -> _Outside:
+    def _merge_outside(cls, outsides: list[_Outside], configs_i: torch.Tensor | None) -> _Outside:
         return getattr(cls._get_collection_module(), "merge_outside")(outsides, configs_i)
+
+    @classmethod
+    def _raw_apply_outside(cls, raw: _Raw, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> _Sparse:
+        return getattr(cls._get_collection_module(), "raw_apply_outside")(raw, psi_i, configs_i, squared)
+
+    @classmethod
+    def _merge_apply_outside(cls, sparses: list[_Sparse], configs_i: torch.Tensor | None) -> _Sparse:
+        return getattr(cls._get_collection_module(), "merge_apply_outside")(sparses, configs_i)
 
     def __init__(self, hamiltonian: dict[tuple[tuple[int, int], ...], complex] | tuple[torch.Tensor, torch.Tensor, torch.Tensor], *, kind: str) -> None:
         self.site: torch.Tensor
@@ -208,10 +217,51 @@ class Hamiltonian:
         # coefs : complex128[...]
         # configs_j : bool[dst_size, n_qubits]
 
-        result = []
+        result: list[_Outside] = []
         for batch in (self._raw_to_outside(raw, configs_i) for raw in self._relative_group(configs_i)):
-            result.append(batch)
             if len(result) >= 2:
-                result = [self._merge_outside(result, configs_i)]
-        index_i, index_j, coefs, configs_j = result[0]
+                result = [self._merge_outside(result, None)]
+            result.append(batch)
+        index_i, index_j, coefs, configs_j = self._merge_outside(result, configs_i)
         return index_i, index_j, torch.view_as_complex(coefs), configs_j
+
+    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Applies the outside Hamiltonian to the given vector.
+
+        This method is equivalent to the following code:
+        ```
+        indices_i, indices_j, values, configs_j = self.outside(configs_i)
+        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_i, count_j], dtype=torch.complex128)
+        psi_j = psi_i.conj() @ hamiltonian
+        return psi_j, configs_j
+        ```
+        """
+        device: torch.device = configs_i.device
+        self._prepare_data(device)
+
+        result: list[_Sparse] = []
+        for batch in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
+            if len(result) >= 2:
+                result = [self._merge_apply_outside(result, None)]
+            result.append(batch)
+        psi_j, configs_j = self._merge_apply_outside(result, configs_i)
+        if squared:
+            psi_j = psi_j[:, 0]
+        else:
+            psi_j = torch.view_as_complex(psi_j)
+        return psi_j, configs_j
+
+    def _apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        The reference implementation of `apply_outside`.
+        """
+        indices_i, indices_j, values, configs_j = self.outside(configs_i)
+        count_i = configs_i.size(0)
+        count_j = configs_j.size(0)
+        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_i, count_j], dtype=torch.complex128)
+        if squared:
+            psi_j = (psi_i.conj() * psi_i).abs() @ (hamiltonian.conj() * hamiltonian).abs()
+        else:
+            psi_j = psi_i.conj() @ hamiltonian
+        return psi_j, configs_j

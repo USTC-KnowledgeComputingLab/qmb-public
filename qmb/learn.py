@@ -16,35 +16,6 @@ from .lobpcg import lobpcg
 from .optimizer import initialize_optimizer, scale_learning_rate
 
 
-def _outside_hamiltonian(
-    model: ModelProto,
-    configs_core: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    logging.info("Calculating outside Hamiltonian ...")
-    count_core = len(configs_core)
-    indices_i, indices_j, values, configs_extended = model.outside(configs_core)
-    count_extended = len(configs_extended)
-    hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_core, count_extended], dtype=torch.complex128)
-    logging.info("Outside Hamiltonian calculated")
-    return hamiltonian, configs_extended
-
-
-def _select_by_importance(
-    configs_extended: torch.Tensor,
-    hamiltonian: torch.Tensor,
-    psi_core: torch.Tensor,
-    count_selected: int,
-) -> torch.Tensor:
-    logging.info("Selecting by importance ...")
-    count_core = len(psi_core)
-    importance = (psi_core.conj() * psi_core).abs() @ (hamiltonian.conj() * hamiltonian).abs().to_sparse_csc()
-    importance[:count_core] += importance.max()
-    index_selected = importance.sort(descending=True).indices[:count_selected].sort().values
-    configs_selected = configs_extended[index_selected]
-    logging.info("Selected by importance")
-    return configs_selected
-
-
 def _extend_with_select(
     model: ModelProto,
     configs_core: torch.Tensor,
@@ -63,19 +34,18 @@ def _extend_with_select(
     count_core = len(configs_core)
     logging.info("Number of core configurations: %d", count_core)
 
-    hamiltonian, configs_extended = _outside_hamiltonian(model, configs_core)
+    importance, configs_extended = model.apply_outside(psi_core, configs_core, True)
+    importance[:count_core] += importance.max()
 
     count_extended = len(configs_extended)
-    logging.info("Number of extended configurations: %d", count_extended)
+    logging.info("Number of full extended configurations: %d", count_extended)
 
-    configs_selected = _select_by_importance(configs_extended, hamiltonian, psi_core, count_selected)
+    selected_indices = importance.sort(descending=True).indices[:count_selected].sort().values
+    count_selected = len(selected_indices)
 
-    count_selected = len(configs_selected)
-    logging.info("Number of selected configurations: %d", count_selected)
-
-    psi_selected = torch.cat([psi_core, torch.zeros([count_selected - count_core], dtype=psi_core.dtype, device=psi_core.device)], dim=0)
-
-    logging.info("Extend with selection process completed")
+    configs_selected = configs_extended[selected_indices]
+    psi_selected = torch.nn.functional.pad(psi_core, (0, count_selected - count_core))
+    logging.info("Extend with selection process completed, number of selected configurations: %d", count_selected)
     return configs_selected, psi_selected
 
 
