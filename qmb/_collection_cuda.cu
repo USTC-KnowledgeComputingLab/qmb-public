@@ -329,7 +329,7 @@ auto ensure_interface(torch::Tensor& key, torch::Tensor& value, torch::Tensor& c
     return std::make_tuple(key, value);
 }
 
-TORCH_LIBRARY_IMPL(_collection, CUDA, m) {
+TORCH_LIBRARY_IMPL(qmb_collection, CUDA, m) {
     m.impl("sort_", sort_interface<std::make_integer_sequence<int, 30>, std::integer_sequence<int, 1, 2>>);
     m.impl("merge", merge_interface<std::make_integer_sequence<int, 30>, std::integer_sequence<int, 1, 2>>);
     m.impl("reduce", reduce_interface<std::make_integer_sequence<int, 30>, std::integer_sequence<int, 1, 2>>);

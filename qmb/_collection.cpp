@@ -371,7 +371,7 @@ auto merge_apply_outside(std::vector<Sparse> sparses, std::optional<torch::Tenso
     }
 }
 
-PYBIND11_MODULE(_collection, m) {
+PYBIND11_MODULE(qmb_collection, m) {
     m.def("merge_raw", merge_raw, py::arg("raws"));
     m.def("raw_to_inside", raw_to_inside, py::arg("raw"), py::arg("configs_i"));
     m.def("merge_inside", merge_inside, py::arg("insides"));
@@ -381,7 +381,7 @@ PYBIND11_MODULE(_collection, m) {
     m.def("merge_apply_outside", merge_apply_outside, py::arg("applies"), py::arg("configs_i"));
 }
 
-TORCH_LIBRARY(_collection, m) {
+TORCH_LIBRARY(qmb_collection, m) {
     m.def("sort_(Tensor key, Tensor value) -> (Tensor, Tensor)");
     m.def("merge(Tensor key_1, Tensor value_1, Tensor key_2, Tensor value_2) -> (Tensor, Tensor)");
     m.def("reduce(Tensor key, Tensor value) -> (Tensor, Tensor)");

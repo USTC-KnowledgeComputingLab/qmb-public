@@ -80,7 +80,7 @@ auto prepare(py::dict hamiltonian) {
 }
 
 // Expose the `prepare` function to Python.
-PYBIND11_MODULE(_hamiltonian, m) {
+PYBIND11_MODULE(qmb_hamiltonian, m) {
     m.def("prepare", prepare</*max_op_number=*/4>, py::arg("hamiltonian"));
 }
 
@@ -97,7 +97,7 @@ PYBIND11_MODULE(_hamiltonian, m) {
 // - `configs_j`: An uint8 tensor of shape [valid_size, n_qubits], detailing the configurations of the results.
 // - `coefs`: A float64 tensor of shape [valid_size, 2], encoding the coefficients (both real and imaginary parts) of the terms.
 // Here, `valid_size` signifies the count of non-zero terms post-iteration over the Hamiltonian based on the provided configurations.
-TORCH_LIBRARY(_hamiltonian, m) {
+TORCH_LIBRARY(qmb_hamiltonian, m) {
     m.def("fermi(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
     m.def("bose2(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
 }

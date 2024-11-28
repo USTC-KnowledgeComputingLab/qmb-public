@@ -255,7 +255,7 @@ auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor
 }
 
 // Definition of the CUDA kernel implementation for operators.
-TORCH_LIBRARY_IMPL(_hamiltonian, CUDA, m) {
+TORCH_LIBRARY_IMPL(qmb_hamiltonian, CUDA, m) {
     m.impl("fermi", python_interface</*max_op_number=*/4, /*particle_cut=*/1>);
     m.impl("bose2", python_interface</*max_op_number=*/4, /*particle_cut=*/2>);
 }
