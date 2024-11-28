@@ -9,7 +9,7 @@ import qmb.hamiltonian
 # pylint: disable=protected-access
 
 
-def test_node() -> None:
+def test_collection() -> None:
     qmb.hamiltonian.Hamiltonian._get_collection_module()
 
     key1 = torch.tensor([[1, 3], [4, 1], [1, 2], [3, 1]], dtype=torch.uint8).cuda()

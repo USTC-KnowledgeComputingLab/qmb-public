@@ -13,5 +13,5 @@ def test_import() -> None:
     # pylint: disable=protected-access
     extension = qmb.hamiltonian.Hamiltonian._get_hamiltonian_module()
     _ = getattr(extension, "prepare")
-    _ = torch.ops._hamiltonian.bose2
-    _ = torch.ops._hamiltonian.fermi
+    _ = torch.ops.qmb_hamiltonian.bose2
+    _ = torch.ops.qmb_hamiltonian.fermi
