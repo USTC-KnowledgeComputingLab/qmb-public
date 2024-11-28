@@ -381,4 +381,11 @@ PYBIND11_MODULE(_collection, m) {
     m.def("merge_apply_outside", merge_apply_outside, py::arg("applies"), py::arg("configs_i"));
 }
 
+TORCH_LIBRARY(_collection, m) {
+    m.def("sort_(Tensor key, Tensor value) -> (Tensor, Tensor)");
+    m.def("merge(Tensor key_1, Tensor value_1, Tensor key_2, Tensor value_2) -> (Tensor, Tensor)");
+    m.def("reduce(Tensor key, Tensor value) -> (Tensor, Tensor)");
+    m.def("ensure_(Tensor key, Tensor value, Tensor config) -> (Tensor, Tensor)");
+}
+
 } // namespace qmb_collection

@@ -43,6 +43,7 @@ class Hamiltonian:
                 name="_collection",
                 sources=[
                     f"{folder}/_collection.cpp",
+                    f"{folder}/_collection_cuda.cu",
                 ],
             )
         return cls._collection_module
@@ -237,6 +238,33 @@ class Hamiltonian:
         return psi_j, configs_j
         ```
         """
+        return self._apply_outside_kernel(psi_i, configs_i, squared)
+
+    def _apply_outside_kernel(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+        device: torch.device = configs_i.device
+        self._prepare_data(device)
+
+        configs_j: torch.Tensor | None = None
+        psi_j: torch.Tensor | None = None
+        for batch_psi_j, batch_configs_j in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
+            batch_configs_j, batch_psi_j = torch.ops._collection.sort_(batch_configs_j, batch_psi_j)
+            batch_configs_j, batch_psi_j = torch.ops._collection.reduce(batch_configs_j, batch_psi_j)
+            if psi_j is None:
+                configs_j, psi_j = batch_configs_j, batch_psi_j
+            else:
+                configs_j, psi_j = torch.ops._collection.merge(configs_j, psi_j, batch_configs_j, batch_psi_j)
+                configs_j, psi_j = torch.ops._collection.reduce(configs_j, psi_j)
+        configs_j, psi_j = torch.ops._collection.ensure_(configs_j, psi_j, configs_i)
+        if squared:
+            psi_j = psi_j[:, 0]
+        else:
+            psi_j = torch.view_as_complex(psi_j)
+        return psi_j, configs_j
+
+    def _apply_outside_libtorch(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Libtorch implementation of `apply_outside`.
+        """
         device: torch.device = configs_i.device
         self._prepare_data(device)
 
@@ -252,7 +280,7 @@ class Hamiltonian:
             psi_j = torch.view_as_complex(psi_j)
         return psi_j, configs_j
 
-    def _apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    def _apply_outside_ref(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
         """
         The reference implementation of `apply_outside`.
         """
