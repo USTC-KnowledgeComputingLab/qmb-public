@@ -19,8 +19,7 @@ class Hamiltonian:
     """
 
     _hamiltonian_module: object = None
-    _collection_module: object = None
-    _kernel_loaded: bool = False
+    _collection_module: dict[int, object] = {}
 
     @classmethod
     def _get_hamiltonian_module(cls) -> object:
@@ -36,23 +35,30 @@ class Hamiltonian:
         return cls._hamiltonian_module
 
     @classmethod
-    def _get_collection_module(cls) -> object:
-        if cls._collection_module is None:
+    def _get_collection_module(cls, n_qubytes: int = 0) -> object:
+        if n_qubytes not in cls._collection_module:
             folder = os.path.dirname(__file__)
-            cls._collection_module = torch.utils.cpp_extension.load(
-                name="qmb_collection",
+            cls._collection_module[n_qubytes] = torch.utils.cpp_extension.load(
+                name="qmb_collection" if n_qubytes == 0 else f"qmb_collection_{n_qubytes}",
                 sources=[
                     f"{folder}/_collection.cpp",
                     f"{folder}/_collection_cuda.cu",
                 ],
+                is_python_module=n_qubytes == 0,
+                extra_cflags=[f"-DNQUBYTES={n_qubytes}"],
+                extra_cuda_cflags=[f"-DNQUBYTES={n_qubytes}"],
             )
-        return cls._collection_module
+        return cls._collection_module[n_qubytes]
 
     @classmethod
-    def _load_kernel(cls) -> None:
-        if not cls._kernel_loaded:
-            cls._get_hamiltonian_module()
-            cls._kernel_loaded = True
+    def _load_hamiltonian(cls) -> object:
+        cls._get_hamiltonian_module()
+        return torch.ops.qmb_hamiltonian
+
+    @classmethod
+    def _load_collection(cls, n_qubytes: int) -> object:
+        cls._get_collection_module(n_qubytes=n_qubytes)
+        return getattr(torch.ops, f"qmb_collection_{n_qubytes}")
 
     @classmethod
     def _prepare(cls, hamiltonian: dict[tuple[tuple[int, int], ...], complex]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -94,9 +100,8 @@ class Hamiltonian:
             self.site, self.kind, self.coef = self._prepare(hamiltonian)
         else:
             self.site, self.kind, self.coef = hamiltonian
-        self._load_kernel()
         self._relative_impl: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
-        self._relative_impl = getattr(torch.ops.qmb_hamiltonian, kind)
+        self._relative_impl = getattr(self._load_hamiltonian(), kind)
 
     def _prepare_data(self, device: torch.device) -> None:
         self.site = self.site.to(device=device).contiguous()
@@ -244,17 +249,23 @@ class Hamiltonian:
         device: torch.device = configs_i.device
         self._prepare_data(device)
 
+        module = self._load_collection(configs_i.size(1))
+        op_sort_ = getattr(module, "sort_")
+        op_merge = getattr(module, "merge")
+        op_reduce = getattr(module, "reduce")
+        op_ensure_ = getattr(module, "ensure_")
+
         configs_j: torch.Tensor | None = None
         psi_j: torch.Tensor | None = None
         for batch_psi_j, batch_configs_j in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
-            batch_configs_j, batch_psi_j = torch.ops.qmb_collection.sort_(batch_configs_j, batch_psi_j)
-            batch_configs_j, batch_psi_j = torch.ops.qmb_collection.reduce(batch_configs_j, batch_psi_j)
+            batch_configs_j, batch_psi_j = op_sort_(batch_configs_j, batch_psi_j)
+            batch_configs_j, batch_psi_j = op_reduce(batch_configs_j, batch_psi_j)
             if configs_j is None or psi_j is None:
                 configs_j, psi_j = batch_configs_j, batch_psi_j
             else:
-                configs_j, psi_j = torch.ops.qmb_collection.merge(configs_j, psi_j, batch_configs_j, batch_psi_j)
-                configs_j, psi_j = torch.ops.qmb_collection.reduce(configs_j, psi_j)
-        configs_j, psi_j = torch.ops.qmb_collection.ensure_(configs_j, psi_j, configs_i)
+                configs_j, psi_j = op_merge(configs_j, psi_j, batch_configs_j, batch_psi_j)
+                configs_j, psi_j = op_reduce(configs_j, psi_j)
+        configs_j, psi_j = op_ensure_(configs_j, psi_j, configs_i)
         assert configs_j is not None and psi_j is not None
         if squared:
             psi_j = psi_j[:, 0]

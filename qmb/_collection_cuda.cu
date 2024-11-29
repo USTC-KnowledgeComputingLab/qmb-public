@@ -364,11 +364,24 @@ auto ensure_interface(torch::Tensor& key, torch::Tensor& value, torch::Tensor& c
     return std::make_tuple(key, value);
 }
 
-TORCH_LIBRARY_IMPL(qmb_collection, CUDA, m) {
-    m.impl("sort_", sort_interface<std::make_integer_sequence<int, 30>, std::integer_sequence<int, 1, 2>>);
-    m.impl("merge", merge_interface<std::make_integer_sequence<int, 30>, std::integer_sequence<int, 1, 2>>);
-    m.impl("reduce", reduce_interface<std::make_integer_sequence<int, 30>, std::integer_sequence<int, 1, 2>>);
-    m.impl("ensure_", ensure_interface<std::make_integer_sequence<int, 30>, std::integer_sequence<int, 1, 2>>);
+#ifndef NQUBYTES
+#define NQUBYTES 0
+#endif
+
+#ifndef QMB_LIBRARY_HELPER
+#define QMB_LIBRARY_HELPER(x) qmb_collection_##x
+#endif
+#ifndef QMB_LIBRARY
+#define QMB_LIBRARY(x) QMB_LIBRARY_HELPER(x)
+#endif
+
+#if NQUBYTES != 0
+TORCH_LIBRARY_IMPL(QMB_LIBRARY(NQUBYTES), CUDA, m) {
+    m.impl("sort_", sort_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("merge", merge_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("reduce", reduce_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("ensure_", ensure_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
 }
+#endif
 
 } // namespace qmb_collection_cuda

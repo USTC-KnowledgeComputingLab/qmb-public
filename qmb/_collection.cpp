@@ -371,6 +371,11 @@ auto merge_apply_outside(std::vector<Sparse> sparses, std::optional<torch::Tenso
     }
 }
 
+#ifndef NQUBYTES
+#define NQUBYTES 0
+#endif
+
+#if NQUBYTES == 0
 PYBIND11_MODULE(qmb_collection, m) {
     m.def("merge_raw", merge_raw, py::arg("raws"));
     m.def("raw_to_inside", raw_to_inside, py::arg("raw"), py::arg("configs_i"));
@@ -380,12 +385,22 @@ PYBIND11_MODULE(qmb_collection, m) {
     m.def("raw_apply_outside", raw_apply_outside, py::arg("raw"), py::arg("psi_i"), py::arg("configs_i"), py::arg("squared"));
     m.def("merge_apply_outside", merge_apply_outside, py::arg("applies"), py::arg("configs_i"));
 }
+#endif
 
-TORCH_LIBRARY(qmb_collection, m) {
+#ifndef QMB_LIBRARY_HELPER
+#define QMB_LIBRARY_HELPER(x) qmb_collection_##x
+#endif
+#ifndef QMB_LIBRARY
+#define QMB_LIBRARY(x) QMB_LIBRARY_HELPER(x)
+#endif
+
+#if NQUBYTES != 0
+TORCH_LIBRARY_FRAGMENT(QMB_LIBRARY(NQUBYTES), m) {
     m.def("sort_(Tensor key, Tensor value) -> (Tensor, Tensor)");
     m.def("merge(Tensor key_1, Tensor value_1, Tensor key_2, Tensor value_2) -> (Tensor, Tensor)");
     m.def("reduce(Tensor key, Tensor value) -> (Tensor, Tensor)");
     m.def("ensure_(Tensor key, Tensor value, Tensor config) -> (Tensor, Tensor)");
 }
+#endif
 
 } // namespace qmb_collection
