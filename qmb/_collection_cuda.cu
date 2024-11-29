@@ -5,6 +5,8 @@
 #include <thrust/remove.h>
 #include <thrust/sort.h>
 #include <thrust/unique.h>
+
+#include <c10/cuda/CUDACachingAllocator.h>
 #include <torch/extension.h>
 
 namespace qmb_collection_cuda {
@@ -310,6 +312,7 @@ auto sort_interface(torch::Tensor& key, torch::Tensor& value) -> std::tuple<torc
     auto key_result = torch::empty({length, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device));
     auto value_result = torch::empty({length, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
 
+    c10::cuda::CUDACachingAllocator::emptyCache();
     sort<NQubits, NValues>(n_qubits, n_values, key, value, key_result, value_result);
 
     return std::make_tuple(key_result, value_result);
@@ -343,6 +346,7 @@ auto merge_interface(torch::Tensor& key_1, torch::Tensor& value_1, torch::Tensor
     auto key_result = torch::empty({length_1 + length_2, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device));
     auto value_result = torch::empty({length_1 + length_2, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
 
+    c10::cuda::CUDACachingAllocator::emptyCache();
     merge<NQubits, NValues>(n_qubits, n_values, key_1, value_1, key_2, value_2, key_result, value_result);
 
     return std::make_tuple(key_result, value_result);
@@ -363,6 +367,7 @@ auto reduce_interface(torch::Tensor& key, torch::Tensor& value) -> std::tuple<to
     auto key_result = torch::empty({length, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device));
     auto value_result = torch::empty({length, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
 
+    c10::cuda::CUDACachingAllocator::emptyCache();
     std::int64_t size = reduce<NQubits, NValues>(n_qubits, n_values, key, value, key_result, value_result);
     auto slice = torch::indexing::Slice(torch::indexing::None, size);
 
@@ -388,6 +393,7 @@ auto ensure_interface(torch::Tensor& key, torch::Tensor& value, torch::Tensor& c
     auto key_result = torch::empty({length_config + length, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device));
     auto value_result = torch::empty({length_config + length, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
 
+    c10::cuda::CUDACachingAllocator::emptyCache();
     std::int64_t size = ensure<NQubits, NValues>(n_qubits, n_values, key, value, config, key_result, value_result);
     auto slice = torch::indexing::Slice(torch::indexing::None, size);
 
