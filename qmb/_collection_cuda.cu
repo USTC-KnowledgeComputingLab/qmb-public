@@ -213,12 +213,12 @@ __global__ void ensure_kernel(
         } else if (compare(config[i], key[mid])) {
             high = mid - 1;
         } else {
-            break;
+            for (auto j = 0; j < n_values; ++j) {
+                value_result[i][j] = value[mid][j];
+                value[mid][j] = 0;
+            }
+            return;
         }
-    }
-    for (auto j = 0; j < n_values; ++j) {
-        value_result[i][j] = value[mid][j];
-        value[mid][j] = 0;
     }
 }
 
