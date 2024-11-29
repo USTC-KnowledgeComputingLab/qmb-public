@@ -12,6 +12,7 @@
 //    dimensions to ensure all terms and configurations are processed efficiently.
 // 4. `python_interface`: The PyTorch operator interface, which integrates the CUDA kernels into the PyTorch framework.
 
+#include <c10/cuda/CUDAStream.h>
 #include <cuda_runtime.h>
 #include <torch/extension.h>
 
@@ -185,7 +186,7 @@ void launch_search_kernel(
         (std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x,
         (std::int32_t(batch_size) + threads_per_block.y - 1) / threads_per_block.y
     };
-    search_kernel_interface<max_op_number, particle_cut><<<num_blocks, threads_per_block>>>(
+    search_kernel_interface<max_op_number, particle_cut><<<num_blocks, threads_per_block, 0, at::cuda::getCurrentCUDAStream(device_id)>>>(
         term_number,
         batch_size,
         site_accesor,
