@@ -11,7 +11,7 @@ import qmb.hamiltonian
 
 def test_collection() -> None:
     module = qmb.hamiltonian.Hamiltonian._load_collection(n_qubytes=2)
-    op_sort_ = getattr(module, "sort_")
+    op_sort = getattr(module, "sort")
     op_merge = getattr(module, "merge")
     op_reduce = getattr(module, "reduce")
     op_ensure = getattr(module, "ensure")
@@ -21,8 +21,8 @@ def test_collection() -> None:
     key2 = torch.tensor([[4, 1], [4, 2], [3, 1], [2, 4]], dtype=torch.uint8).cuda()
     value2 = torch.tensor([[4.], [5.], [3.], [6.]], dtype=torch.float64).cuda()
 
-    key1, value1 = op_sort_(key1, value1)
-    key2, value2 = op_sort_(key2, value2)
+    key1, value1 = op_sort(key1, value1)
+    key2, value2 = op_sort(key2, value2)
 
     assert torch.allclose(key1, torch.tensor([[1, 2], [1, 3], [3, 1], [4, 1]], dtype=torch.uint8).cuda())
     assert torch.allclose(value1, torch.tensor([[3.], [2.], [7.], [1.]], dtype=torch.float64).cuda())

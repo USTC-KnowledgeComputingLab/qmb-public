@@ -250,7 +250,7 @@ class Hamiltonian:
         self._prepare_data(device)
 
         module = self._load_collection(configs_i.size(1))
-        op_sort_ = getattr(module, "sort_")
+        op_sort = getattr(module, "sort")
         op_merge = getattr(module, "merge")
         op_reduce = getattr(module, "reduce")
         op_ensure = getattr(module, "ensure")
@@ -258,7 +258,7 @@ class Hamiltonian:
         configs_j: torch.Tensor | None = None
         psi_j: torch.Tensor | None = None
         for batch_psi_j, batch_configs_j in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
-            batch_configs_j, batch_psi_j = op_sort_(batch_configs_j, batch_psi_j)
+            batch_configs_j, batch_psi_j = op_sort(batch_configs_j, batch_psi_j)
             batch_configs_j, batch_psi_j = op_reduce(batch_configs_j, batch_psi_j)
             if configs_j is None or psi_j is None:
                 configs_j, psi_j = batch_configs_j, batch_psi_j
