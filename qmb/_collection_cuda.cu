@@ -192,22 +192,59 @@ std::int64_t reduce(int n_qubits, int n_values, torch::Tensor& key, torch::Tenso
 }
 
 template<int n_qubits, int n_values>
-void ensure_impl(torch::Tensor& key, torch::Tensor& value, torch::Tensor& config, torch::Tensor& tmp) {
+__global__ void ensure_kernel(
+    std::int64_t length,
+    std::int64_t length_config,
+    std::array<std::uint8_t, n_qubits>* key,
+    std::array<std::uint8_t, n_qubits>* config,
+    std::array<double, n_values>* value,
+    std::array<double, n_values>* tmp
+) {
+    std::int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= length_config) {
+        return;
+    }
+    std::int64_t low = 0;
+    std::int64_t high = length - 1;
+    std::int64_t mid = 0;
+    auto compare = array_less<std::uint8_t, n_qubits>();
+    while (low <= high) {
+        mid = (low + high) / 2;
+        if (compare(key[mid], config[i])) {
+            low = mid + 1;
+        } else if (compare(config[i], key[mid])) {
+            high = mid - 1;
+        } else {
+            break;
+        }
+    }
+    for (auto j = 0; j < n_values; ++j) {
+        tmp[i][j] = value[mid][j];
+        value[mid][j] = 0;
+    }
+}
+
+template<int n_qubits, int n_values>
+void ensure_impl(torch::Tensor& key, torch::Tensor& value, torch::Tensor& config) {
     std::int64_t length = key.size(0);
     std::int64_t length_config = config.size(0);
-    for (auto i = 0; i < length_config; ++i) {
-        auto [begin, end] = thrust::equal_range(
-            thrust::device,
-            reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()),
-            reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()) + length,
-            reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(config.data_ptr())[i],
-            array_less<std::uint8_t, n_qubits>()
-        );
-        TORCH_CHECK(begin + 1 == end, "Duplicate keys found in the input tensor.");
-        std::int64_t index = begin - reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr());
-        tmp.index_put_({i}, value.index({index}));
-        value.index_put_({index}, 0);
-    }
+    auto tmp = torch::zeros({length_config, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
+
+    std::int64_t device_id = config.device().index();
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device_id);
+    std::int64_t threads_per_block = prop.maxThreadsPerBlock;
+    std::int64_t num_blocks = (length_config + threads_per_block - 1) / threads_per_block;
+
+    ensure_kernel<n_qubits, n_values><<<num_blocks, threads_per_block>>>(
+        length,
+        length_config,
+        reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()),
+        reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(config.data_ptr()),
+        reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()),
+        reinterpret_cast<std::array<double, n_values>*>(tmp.data_ptr())
+    );
+
     thrust::stable_sort_by_key(
         thrust::device,
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()),
@@ -220,12 +257,12 @@ void ensure_impl(torch::Tensor& key, torch::Tensor& value, torch::Tensor& config
 }
 
 template<typename NQubits, typename NValues>
-void ensure(int n_qubits, int n_values, torch::Tensor& key, torch::Tensor& value, torch::Tensor& config, torch::Tensor& tmp) {
+void ensure(int n_qubits, int n_values, torch::Tensor& key, torch::Tensor& value, torch::Tensor& config) {
     std::visit(
         [&](auto n_qubits_handle, auto n_values_handle) {
             constexpr int n_qubits = n_qubits_handle.get_value();
             constexpr int n_values = n_values_handle.get_value();
-            ensure_impl<n_qubits, n_values>(key, value, config, tmp);
+            ensure_impl<n_qubits, n_values>(key, value, config);
         },
         to_const_int(n_qubits, NQubits()),
         to_const_int(n_values, NValues())
@@ -322,9 +359,7 @@ auto ensure_interface(torch::Tensor& key, torch::Tensor& value, torch::Tensor& c
     TORCH_CHECK(key.size(0) == value.size(0), "key and value must have the same length");
     TORCH_CHECK(config.size(1) == key.size(1), "config must have the same number of qubits as key");
 
-    auto tmp = torch::empty({length_config, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
-
-    ensure<NQubits, NValues>(n_qubits, n_values, key, value, config, tmp);
+    ensure<NQubits, NValues>(n_qubits, n_values, key, value, config);
 
     return std::make_tuple(key, value);
 }
