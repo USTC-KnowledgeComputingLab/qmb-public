@@ -206,6 +206,7 @@ void launch_search_kernel(
 // Refer to `_hamiltonian.cpp` for additional details and context.
 template<std::int64_t max_op_number, std::int64_t particle_cut>
 auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
+    std::int64_t device_id = configs_i.device().index();
     std::int64_t batch_size = configs_i.size(0);
     std::int64_t n_qubits = configs_i.size(1);
     std::int64_t term_number = site.size(0);
@@ -214,7 +215,7 @@ auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor
     // that captures the modifications to the input configurations by applying each term in the Hamiltonian.
     auto configs_j_matrix = configs_i.unsqueeze(0).repeat(std::initializer_list<std::int64_t>{term_number, 1, 1});
     // coefs_matrix: A tensor of shape [term_number, batch_size, 2] initialized to zero.
-    auto coefs_matrix = torch::zeros({term_number, batch_size, 2}, torch::TensorOptions().dtype(torch::kDouble).device(device));
+    auto coefs_matrix = torch::zeros({term_number, batch_size, 2}, torch::TensorOptions().dtype(torch::kDouble).device(device, device_id));
     // Obtain accessors for each relevant tensor to facilitate efficient data access within the kernel.
     auto site_accesor = site.template packed_accessor64<std::int16_t, 2>();
     auto kind_accesor = kind.template packed_accessor64<std::uint8_t, 2>();
@@ -231,11 +232,11 @@ auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor
         coef_accesor,
         configs_j_matrix_accesor,
         coefs_matrix_accesor,
-        configs_i.device().index()
+        device_id
     );
 
     // index_i : int64[batch_size]
-    auto index_i = torch::arange(batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device));
+    auto index_i = torch::arange(batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device, device_id));
     // index_i_matrix : int64[term_number, batch_size]
     auto index_i_matrix = index_i.unsqueeze(0).repeat({term_number, 1});
     // non_zero_matrix : bool[term_number, batch_size]
