@@ -309,6 +309,7 @@ auto sort_interface(torch::Tensor& key, torch::Tensor& value) -> std::tuple<torc
     TORCH_CHECK(value.ndimension() == 2, "value must be a 2D tensor");
     TORCH_CHECK(key.size(0) == value.size(0), "key and value must have the same length");
 
+    c10::cuda::CUDACachingAllocator::emptyCache();
     std::int64_t device_id = key.device().index();
     auto key_result = torch::empty({length, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id));
     auto value_result = torch::empty({length, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
@@ -344,6 +345,7 @@ auto merge_interface(torch::Tensor& key_1, torch::Tensor& value_1, torch::Tensor
     TORCH_CHECK(value_2.size(0) == length_2, "value_2 must have the correct length");
     TORCH_CHECK(value_2.size(1) == n_values, "value_2 must have the correct length");
 
+    c10::cuda::CUDACachingAllocator::emptyCache();
     std::int64_t device_id = key_1.device().index();
     auto key_result = torch::empty({length_1 + length_2, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id));
     auto value_result = torch::empty({length_1 + length_2, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
@@ -366,6 +368,7 @@ auto reduce_interface(torch::Tensor& key, torch::Tensor& value) -> std::tuple<to
     TORCH_CHECK(value.ndimension() == 2, "value must be a 2D tensor");
     TORCH_CHECK(key.size(0) == value.size(0), "key and value must have the same length");
 
+    c10::cuda::CUDACachingAllocator::emptyCache();
     std::int64_t device_id = key.device().index();
     auto key_result = torch::empty({length, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id));
     auto value_result = torch::empty({length, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
@@ -393,6 +396,7 @@ auto ensure_interface(torch::Tensor& key, torch::Tensor& value, torch::Tensor& c
     TORCH_CHECK(key.size(0) == value.size(0), "key and value must have the same length");
     TORCH_CHECK(config.size(1) == key.size(1), "config must have the same number of qubits as key");
 
+    c10::cuda::CUDACachingAllocator::emptyCache();
     std::int64_t device_id = key.device().index();
     auto key_result = torch::empty({length_config + length, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id));
     auto value_result = torch::empty({length_config + length, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
