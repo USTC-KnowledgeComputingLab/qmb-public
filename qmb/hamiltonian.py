@@ -253,7 +253,7 @@ class Hamiltonian:
         op_sort_ = getattr(module, "sort_")
         op_merge = getattr(module, "merge")
         op_reduce = getattr(module, "reduce")
-        op_ensure_ = getattr(module, "ensure_")
+        op_ensure = getattr(module, "ensure")
 
         configs_j: torch.Tensor | None = None
         psi_j: torch.Tensor | None = None
@@ -265,7 +265,7 @@ class Hamiltonian:
             else:
                 configs_j, psi_j = op_merge(configs_j, psi_j, batch_configs_j, batch_psi_j)
                 configs_j, psi_j = op_reduce(configs_j, psi_j)
-        configs_j, psi_j = op_ensure_(configs_j, psi_j, configs_i)
+        configs_j, psi_j = op_ensure(configs_j, psi_j, configs_i)
         assert configs_j is not None and psi_j is not None
         if squared:
             psi_j = psi_j[:, 0]

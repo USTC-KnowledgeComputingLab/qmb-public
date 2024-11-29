@@ -399,7 +399,7 @@ TORCH_LIBRARY_FRAGMENT(QMB_LIBRARY(NQUBYTES), m) {
     m.def("sort_(Tensor key, Tensor value) -> (Tensor, Tensor)");
     m.def("merge(Tensor key_1, Tensor value_1, Tensor key_2, Tensor value_2) -> (Tensor, Tensor)");
     m.def("reduce(Tensor key, Tensor value) -> (Tensor, Tensor)");
-    m.def("ensure_(Tensor key, Tensor value, Tensor config) -> (Tensor, Tensor)");
+    m.def("ensure(Tensor key, Tensor value, Tensor config) -> (Tensor, Tensor)");
 }
 #endif
 

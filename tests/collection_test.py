@@ -14,7 +14,7 @@ def test_collection() -> None:
     op_sort_ = getattr(module, "sort_")
     op_merge = getattr(module, "merge")
     op_reduce = getattr(module, "reduce")
-    op_ensure_ = getattr(module, "ensure_")
+    op_ensure = getattr(module, "ensure")
 
     key1 = torch.tensor([[1, 3], [4, 1], [1, 2], [3, 1]], dtype=torch.uint8).cuda()
     value1 = torch.tensor([[2.], [1.], [3.], [7.]], dtype=torch.float64).cuda()
@@ -38,6 +38,6 @@ def test_collection() -> None:
     assert torch.allclose(value, torch.tensor([[3.], [2.], [6.], [10.], [5.], [5.]], dtype=torch.float64).cuda())
 
     config = torch.tensor([[3, 1], [1, 3]], dtype=torch.uint8).cuda()
-    key, value = op_ensure_(key, value, config)
+    key, value = op_ensure(key, value, config)
     assert torch.allclose(key, torch.tensor([[3, 1], [1, 3], [1, 2], [2, 4], [4, 1], [4, 2]], dtype=torch.uint8).cuda())
     assert torch.allclose(value, torch.tensor([[10.], [2.], [3.], [6.], [5.], [5.]], dtype=torch.float64).cuda())

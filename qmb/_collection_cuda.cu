@@ -2,6 +2,7 @@
 #include <thrust/binary_search.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
+#include <thrust/remove.h>
 #include <thrust/sort.h>
 #include <thrust/unique.h>
 #include <torch/extension.h>
@@ -53,21 +54,6 @@ struct array_less {
 };
 
 template<typename T, int size>
-struct zero_check {
-    __host__ __device__ bool non_zero(const std::array<T, size>& value) const {
-        for (auto i = 0; i < size; ++i) {
-            if (value[i] != 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-    __host__ __device__ bool operator()(const std::array<T, size>& lhs, const std::array<T, size>& rhs) const {
-        return non_zero(lhs) < non_zero(rhs);
-    }
-};
-
-template<typename T, int size>
 struct array_equal {
     __host__ __device__ bool operator()(const std::array<T, size>& lhs, const std::array<T, size>& rhs) const {
         for (auto i = 0; i < size; ++i) {
@@ -87,6 +73,18 @@ struct array_reduce {
             result[i] = lhs[i] + rhs[i];
         }
         return result;
+    }
+};
+
+template<typename T, int size>
+struct is_zero {
+    __host__ __device__ bool operator()(const std::array<T, size>& value) const {
+        for (auto i = 0; i < size; ++i) {
+            if (value[i] != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 };
 
@@ -198,7 +196,7 @@ __global__ void ensure_kernel(
     std::array<std::uint8_t, n_qubits>* key,
     std::array<std::uint8_t, n_qubits>* config,
     std::array<double, n_values>* value,
-    std::array<double, n_values>* tmp
+    std::array<double, n_values>* value_result
 ) {
     std::int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= length_config) {
@@ -219,16 +217,19 @@ __global__ void ensure_kernel(
         }
     }
     for (auto j = 0; j < n_values; ++j) {
-        tmp[i][j] = value[mid][j];
+        value_result[i][j] = value[mid][j];
         value[mid][j] = 0;
     }
 }
 
 template<int n_qubits, int n_values>
-void ensure_impl(torch::Tensor& key, torch::Tensor& value, torch::Tensor& config) {
+std::int64_t ensure_impl(torch::Tensor& key, torch::Tensor& value, torch::Tensor& config, torch::Tensor& key_result, torch::Tensor& value_result) {
     std::int64_t length = key.size(0);
     std::int64_t length_config = config.size(0);
-    auto tmp = torch::zeros({length_config, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
+
+    key_result.index_put_({torch::indexing::Slice(torch::indexing::None, length_config)}, config);
+    value_result.index_put_({torch::indexing::Slice(torch::indexing::None, length_config)}, 0);
+    value_result.index_put_({torch::indexing::Slice(length_config, torch::indexing::None)}, value);
 
     std::int64_t device_id = config.device().index();
     cudaDeviceProp prop;
@@ -241,28 +242,43 @@ void ensure_impl(torch::Tensor& key, torch::Tensor& value, torch::Tensor& config
         length_config,
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(config.data_ptr()),
-        reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()),
-        reinterpret_cast<std::array<double, n_values>*>(tmp.data_ptr())
+        reinterpret_cast<std::array<double, n_values>*>(value_result.data_ptr()) + length_config,
+        reinterpret_cast<std::array<double, n_values>*>(value_result.data_ptr())
     );
 
-    thrust::stable_sort_by_key(
+    thrust::remove_copy_if(
         thrust::device,
-        reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()),
-        reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length,
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()),
-        zero_check<double, n_values>()
+        reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()) + length,
+        reinterpret_cast<std::array<double, n_values>*>(value_result.data_ptr()) + length_config,
+        reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key_result.data_ptr()) + length_config,
+        is_zero<double, n_values>()
     );
-    key.index_put_({torch::indexing::Slice(torch::indexing::None, length_config)}, config);
-    value.index_put_({torch::indexing::Slice(torch::indexing::None, length_config)}, tmp);
+
+    auto end = thrust::remove_if(
+        thrust::device,
+        reinterpret_cast<std::array<double, n_values>*>(value_result.data_ptr()) + length_config,
+        reinterpret_cast<std::array<double, n_values>*>(value_result.data_ptr()) + length_config + length,
+        is_zero<double, n_values>()
+    );
+    return end - reinterpret_cast<std::array<double, n_values>*>(value_result.data_ptr());
 }
 
 template<typename NQubits, typename NValues>
-void ensure(int n_qubits, int n_values, torch::Tensor& key, torch::Tensor& value, torch::Tensor& config) {
-    std::visit(
+std::int64_t ensure(
+    int n_qubits,
+    int n_values,
+    torch::Tensor& key,
+    torch::Tensor& value,
+    torch::Tensor& config,
+    torch::Tensor& key_result,
+    torch::Tensor& value_result
+) {
+    return std::visit(
         [&](auto n_qubits_handle, auto n_values_handle) {
             constexpr int n_qubits = n_qubits_handle.get_value();
             constexpr int n_values = n_values_handle.get_value();
-            ensure_impl<n_qubits, n_values>(key, value, config);
+            return ensure_impl<n_qubits, n_values>(key, value, config, key_result, value_result);
         },
         to_const_int(n_qubits, NQubits()),
         to_const_int(n_values, NValues())
@@ -359,9 +375,13 @@ auto ensure_interface(torch::Tensor& key, torch::Tensor& value, torch::Tensor& c
     TORCH_CHECK(key.size(0) == value.size(0), "key and value must have the same length");
     TORCH_CHECK(config.size(1) == key.size(1), "config must have the same number of qubits as key");
 
-    ensure<NQubits, NValues>(n_qubits, n_values, key, value, config);
+    auto key_result = torch::empty({length_config + length, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device));
+    auto value_result = torch::empty({length_config + length, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device));
 
-    return std::make_tuple(key, value);
+    std::int64_t size = ensure<NQubits, NValues>(n_qubits, n_values, key, value, config, key_result, value_result);
+    auto slice = torch::indexing::Slice(torch::indexing::None, size);
+
+    return std::make_tuple(key_result.index({slice}), value_result.index({slice}));
 }
 
 #ifndef NQUBYTES
@@ -380,7 +400,7 @@ TORCH_LIBRARY_IMPL(QMB_LIBRARY(NQUBYTES), CUDA, m) {
     m.impl("sort_", sort_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
     m.impl("merge", merge_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
     m.impl("reduce", reduce_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
-    m.impl("ensure_", ensure_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("ensure", ensure_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
 }
 #endif
 
