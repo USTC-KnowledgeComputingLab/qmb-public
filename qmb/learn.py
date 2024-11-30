@@ -34,11 +34,7 @@ def _extend_with_select(
     count_core = len(configs_core)
     logging.info("Number of core configurations: %d", count_core)
 
-    _, configs_extended = model.apply_outside(psi_core, configs_core, True)
-    count_extended = len(configs_extended)
-    logging.info("Number of full extended configurations: %d", count_extended)
-
-    configs_selected = configs_extended[:count_selected]
+    _, configs_selected = model.apply_outside(psi_core, configs_core, True, count_selected)
     count_selected = len(configs_selected)
     psi_selected = torch.nn.functional.pad(psi_core, (0, count_selected - count_core))
     logging.info("Extend with selection process completed, number of selected configurations: %d", count_selected)

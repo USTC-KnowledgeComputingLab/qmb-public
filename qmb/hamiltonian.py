@@ -247,36 +247,137 @@ class Hamiltonian:
         index_i, index_j, coefs, configs_j = self._merge_outside(result, configs_i)
         return index_i, index_j, torch.view_as_complex(coefs), configs_j
 
-    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool, count_selected: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Applies the outside Hamiltonian to the given vector.
         """
+        # pylint: disable=too-many-locals
         device: torch.device = configs_i.device
         self._prepare_data(device)
+        n_qubytes: int = configs_i.size(1)
 
-        module = self._load_collection(configs_i.size(1))
-        op_sort_ = _collect_and_empty_cache(getattr(module, "sort_"))
+        task_queue: torch.multiprocessing.Queue = torch.multiprocessing.Queue()
+        result_queue: torch.multiprocessing.Queue = torch.multiprocessing.Queue()
+        devices = [torch.device(type="cuda", index=i) for i in range(torch.cuda.device_count())]
+        processes = []
+        for process_device in devices:
+            process = torch.multiprocessing.Process(target=Worker.worker, args=(
+                result_queue,
+                task_queue,
+                process_device,
+                n_qubytes,
+            ))
+            process.start()
+            processes.append(process)
+        for batch_psi_j, batch_configs_j in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
+            task_queue.put((batch_configs_j, batch_psi_j))
+        for _ in processes:
+            task_queue.put(configs_i)
+
+        module = Hamiltonian._load_collection(n_qubytes)
         op_merge = _collect_and_empty_cache(getattr(module, "merge"))
         op_reduce = _collect_and_empty_cache(getattr(module, "reduce"))
         op_ensure_ = _collect_and_empty_cache(getattr(module, "ensure_"))
 
         configs_j: torch.Tensor | None = None
         psi_j: torch.Tensor | None = None
-        for batch_psi_j, batch_configs_j in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
-            batch_configs_j, batch_psi_j = op_sort_(batch_configs_j, batch_psi_j)
-            batch_configs_j, batch_psi_j = op_reduce(batch_configs_j, batch_psi_j)
-            if configs_j is None or psi_j is None:
-                configs_j, psi_j = batch_configs_j, batch_psi_j
-            else:
-                configs_j, psi_j = op_merge(configs_j, psi_j, batch_configs_j, batch_psi_j)
-                configs_j, psi_j = op_reduce(configs_j, psi_j)
+        for _ in processes:
+            result = result_queue.get()
+            if result is not None:
+                batch_configs_j, batch_psi_j = result
+                batch_configs_j = batch_configs_j[:count_selected * len(devices)].to(device=device)
+                batch_psi_j = batch_psi_j[:count_selected * len(devices)].to(device=device)
+                if configs_j is None or psi_j is None:
+                    configs_j, psi_j = batch_configs_j, batch_psi_j
+                else:
+                    configs_j, psi_j = op_merge(configs_j, psi_j, batch_configs_j, batch_psi_j)
+                    configs_j, psi_j = op_reduce(configs_j, psi_j)
         assert configs_j is not None and psi_j is not None
         configs_j = torch.cat([configs_i, configs_j])
         psi_j = torch.cat([torch.zeros([configs_i.size(0), psi_j.size(1)], dtype=psi_j.dtype, device=psi_j.device), psi_j])
         configs_j, psi_j = op_ensure_(configs_j, psi_j, configs_i.size(0))
         assert configs_j is not None and psi_j is not None
+        configs_j = configs_j[:count_selected].clone()
+        psi_j = psi_j[:count_selected].clone()
+
+        for process in processes:
+            process.join()
+
         if squared:
             psi_j = psi_j[:, 0]
         else:
             psi_j = torch.view_as_complex(psi_j)
         return psi_j, configs_j
+
+
+class Worker:
+    """
+    The Worker class is responsible for processing `apply_outside`, with multiprocessing.
+    """
+
+    # pylint: disable=too-many-instance-attributes
+
+    def __init__(
+        self,
+        device: torch.device,
+        n_qubytes: int,
+    ):
+        self.device = device
+        self.n_qubytes = n_qubytes
+
+        module = Hamiltonian._load_collection(self.n_qubytes)
+        self.op_sort_ = _collect_and_empty_cache(getattr(module, "sort_"))
+        self.op_merge = _collect_and_empty_cache(getattr(module, "merge"))
+        self.op_reduce = _collect_and_empty_cache(getattr(module, "reduce"))
+        self.op_ensure_ = _collect_and_empty_cache(getattr(module, "ensure_"))
+
+        self.configs_j: torch.Tensor | None = None
+        self.psi_j: torch.Tensor | None = None
+
+    def put(self, batch_configs_j: torch.Tensor, batch_psi_j: torch.Tensor) -> None:
+        """
+        Processes and merges incoming batch configurations and wavefunctions
+        """
+        batch_configs_j, batch_psi_j = batch_configs_j.to(device=self.device), batch_psi_j.to(device=self.device)
+        batch_configs_j, batch_psi_j = self.op_sort_(batch_configs_j, batch_psi_j)
+        batch_configs_j, batch_psi_j = self.op_reduce(batch_configs_j, batch_psi_j)
+        if self.configs_j is None or self.psi_j is None:
+            self.configs_j, self.psi_j = batch_configs_j, batch_psi_j
+        else:
+            self.configs_j, self.psi_j = self.op_merge(self.configs_j, self.psi_j, batch_configs_j, batch_psi_j)
+            self.configs_j, self.psi_j = self.op_reduce(self.configs_j, self.psi_j)
+
+    def get(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """
+        Retrieves the processed configurations and wavefunctions
+        """
+        if self.configs_j is None or self.psi_j is None:
+            return None
+        configs_i = configs_i.to(device=self.device)
+        assert self.configs_j is not None and self.psi_j is not None
+        self.configs_j = torch.cat([configs_i, self.configs_j])
+        self.psi_j = torch.cat([torch.zeros([configs_i.size(0), self.psi_j.size(1)], dtype=self.psi_j.dtype, device=self.psi_j.device), self.psi_j])
+        self.configs_j, self.psi_j = self.op_ensure_(self.configs_j, self.psi_j, configs_i.size(0))
+        assert self.configs_j is not None and self.psi_j is not None
+        return self.configs_j, self.psi_j
+
+    @classmethod
+    def worker(
+        cls,
+        result_queue: torch.multiprocessing.Queue,
+        task_queue: torch.multiprocessing.Queue,
+        device: torch.device,
+        n_qubytes: int,
+    ) -> None:
+        """
+        A class method that runs the worker process
+        """
+        instance = cls(device, n_qubytes)
+        task: tuple[torch.Tensor, torch.Tensor] | torch.Tensor
+        while True:
+            task = task_queue.get()
+            if isinstance(task, torch.Tensor):
+                break
+            batch_configs_j, batch_psi_j = task
+            instance.put(batch_configs_j, batch_psi_j)
+        result_queue.put(instance.get(task))
