@@ -11,10 +11,10 @@ import qmb.hamiltonian
 
 def test_collection() -> None:
     module = qmb.hamiltonian.Hamiltonian._load_collection(n_qubytes=2)
-    op_sort = getattr(module, "sort")
+    op_sort = getattr(module, "sort_")
     op_merge = getattr(module, "merge")
     op_reduce = getattr(module, "reduce")
-    op_ensure = getattr(module, "ensure")
+    op_ensure = getattr(module, "ensure_")
 
     key1 = torch.tensor([[1, 3], [4, 1], [1, 2], [3, 1]], dtype=torch.uint8).cuda()
     value1 = torch.tensor([[2.], [1.], [3.], [7.]], dtype=torch.float64).cuda()
@@ -38,6 +38,8 @@ def test_collection() -> None:
     assert torch.allclose(value, torch.tensor([[3.], [2.], [6.], [10.], [5.], [5.]], dtype=torch.float64).cuda())
 
     config = torch.tensor([[3, 1], [1, 3]], dtype=torch.uint8).cuda()
-    key, value = op_ensure(key, value, config)
+    key = torch.cat([config, key])
+    value = torch.cat([torch.zeros([config.size(0), value.size(1)], dtype=value.dtype, device=value.device), value])
+    key, value = op_ensure(key, value, config.size(0))
     assert torch.allclose(key, torch.tensor([[3, 1], [1, 3], [2, 4], [4, 1], [4, 2], [1, 2]], dtype=torch.uint8).cuda())
     assert torch.allclose(value, torch.tensor([[10.], [2.], [6.], [5.], [5.], [3.]], dtype=torch.float64).cuda())
