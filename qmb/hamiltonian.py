@@ -3,6 +3,8 @@ This file contains the Hamiltonian class, which is used to store the Hamiltonian
 """
 
 import os
+import gc
+import functools
 import typing
 import torch
 import torch.utils.cpp_extension
@@ -11,6 +13,20 @@ _Raw = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 _Inside = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 _Outside = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 _Sparse = tuple[torch.Tensor, torch.Tensor]
+
+_P = typing.ParamSpec("_P")
+_R = typing.TypeVar("_R")
+
+
+def _collect_and_empty_cache(func: typing.Callable[_P, _R]) -> typing.Callable[_P, _R]:
+
+    @functools.wraps(func)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        gc.collect()
+        torch.cuda.empty_cache()
+        return func(*args, **kwargs)
+
+    return wrapper
 
 
 class Hamiltonian:
@@ -250,10 +266,10 @@ class Hamiltonian:
         self._prepare_data(device)
 
         module = self._load_collection(configs_i.size(1))
-        op_sort = getattr(module, "sort")
-        op_merge = getattr(module, "merge")
-        op_reduce = getattr(module, "reduce")
-        op_ensure = getattr(module, "ensure")
+        op_sort = _collect_and_empty_cache(getattr(module, "sort"))
+        op_merge = _collect_and_empty_cache(getattr(module, "merge"))
+        op_reduce = _collect_and_empty_cache(getattr(module, "reduce"))
+        op_ensure = _collect_and_empty_cache(getattr(module, "ensure"))
 
         configs_j: torch.Tensor | None = None
         psi_j: torch.Tensor | None = None
