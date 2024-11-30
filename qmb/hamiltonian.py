@@ -250,18 +250,7 @@ class Hamiltonian:
     def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Applies the outside Hamiltonian to the given vector.
-
-        This method is equivalent to the following code:
-        ```
-        indices_i, indices_j, values, configs_j = self.outside(configs_i)
-        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_i, count_j], dtype=torch.complex128)
-        psi_j = psi_i.conj() @ hamiltonian
-        return psi_j, configs_j
-        ```
         """
-        return self._apply_outside_kernel(psi_i, configs_i, squared)
-
-    def _apply_outside_kernel(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
         device: torch.device = configs_i.device
         self._prepare_data(device)
 
@@ -287,37 +276,4 @@ class Hamiltonian:
             psi_j = psi_j[:, 0]
         else:
             psi_j = torch.view_as_complex(psi_j)
-        return psi_j, configs_j
-
-    def _apply_outside_libtorch(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Libtorch implementation of `apply_outside`.
-        """
-        device: torch.device = configs_i.device
-        self._prepare_data(device)
-
-        result: list[_Sparse] = []
-        for batch in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
-            if len(result) >= 2:
-                result = [self._merge_apply_outside(result, None)]
-            result.append(batch)
-        psi_j, configs_j = self._merge_apply_outside(result, configs_i)
-        if squared:
-            psi_j = psi_j[:, 0]
-        else:
-            psi_j = torch.view_as_complex(psi_j)
-        return psi_j, configs_j
-
-    def _apply_outside_ref(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        The reference implementation of `apply_outside`.
-        """
-        indices_i, indices_j, values, configs_j = self.outside(configs_i)
-        count_i = configs_i.size(0)
-        count_j = configs_j.size(0)
-        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_i, count_j], dtype=torch.complex128)
-        if squared:
-            psi_j = (psi_i.conj() * psi_i).abs() @ (hamiltonian.conj() * hamiltonian).abs()
-        else:
-            psi_j = psi_i.conj() @ hamiltonian
         return psi_j, configs_j

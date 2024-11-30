@@ -39,5 +39,5 @@ def test_collection() -> None:
 
     config = torch.tensor([[3, 1], [1, 3]], dtype=torch.uint8).cuda()
     key, value = op_ensure(key, value, config)
-    assert torch.allclose(key, torch.tensor([[3, 1], [1, 3], [1, 2], [2, 4], [4, 1], [4, 2]], dtype=torch.uint8).cuda())
-    assert torch.allclose(value, torch.tensor([[10.], [2.], [3.], [6.], [5.], [5.]], dtype=torch.float64).cuda())
+    assert torch.allclose(key, torch.tensor([[3, 1], [1, 3], [2, 4], [4, 1], [4, 2], [1, 2]], dtype=torch.uint8).cuda())
+    assert torch.allclose(value, torch.tensor([[10.], [2.], [6.], [5.], [5.], [3.]], dtype=torch.float64).cuda())

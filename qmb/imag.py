@@ -50,19 +50,16 @@ class _DynamicLanczos:
 
     def _extend(self, psi: torch.Tensor) -> None:
         logging.info("Extending basis...")
+
         count_core = len(self.configs)
+        logging.info("Number of core configurations: %d", count_core)
 
-        importance, configs_extended = self.model.apply_outside(psi, self.configs, False)
-        importance = importance.abs()
-        importance[:count_core] += importance.max()
-
+        _, configs_extended = self.model.apply_outside(psi, self.configs, False)
         count_extended = len(configs_extended)
         logging.info("Number of full extended configurations: %d", count_extended)
 
-        selected_indices = importance.sort(descending=True).indices[:count_core + self.count_extend].sort().values
-        count_selected = len(selected_indices)
-
-        self.configs = configs_extended[selected_indices]
+        self.configs = configs_extended[:count_core + self.count_extend]
+        count_selected = len(self.configs)
         self.psi = torch.nn.functional.pad(self.psi, (0, count_selected - count_core))
         logging.info("Basis extended from %d to %d", count_core, count_selected)
 
