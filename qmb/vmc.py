@@ -6,6 +6,7 @@ import logging
 import typing
 import dataclasses
 import torch
+import torch.utils.tensorboard
 import tyro
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
@@ -52,7 +53,7 @@ class VmcConfig:
         # pylint: disable=too-many-statements
         # pylint: disable=too-many-locals
 
-        model, network = self.common.main()
+        model, network, data = self.common.main()
 
         logging.info(
             "Arguments Summary: "
@@ -80,8 +81,13 @@ class VmcConfig:
             network.parameters(),
             use_lbfgs=self.use_lbfgs,
             learning_rate=self.learning_rate,
-            optimizer_path=self.common.checkpoint_path / f"{self.common.job_name}.opt.pt",
+            state_dict=data.get("optimizer"),
         )
+
+        if "vmc" not in data:
+            data["vmc"] = {"global": 0, "local": 0}
+
+        writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
         while True:
             logging.info("Starting a new optimization cycle")
@@ -161,6 +167,10 @@ class VmcConfig:
                 for i in range(self.local_step):
                     deviation: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step: %d, energy: %.10f, deviation: %.10f", i, deviation.energy.item(), deviation.item())  # type: ignore[attr-defined]
+                    writer.add_scalars("local/value", {"target": deviation.energy, "ref": model.ref_energy}, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
+                    writer.add_scalars("local/error", {"target": deviation.energy - model.ref_energy, "threshold": 1.6e-3}, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
+                    writer.add_scalars("local/deviation", {"value": deviation}, data["vmc"]["local"])  # type: ignore[no-untyped-call]
+                    data["vmc"]["local"] += 1
             else:
 
                 def closure() -> torch.Tensor:
@@ -201,12 +211,20 @@ class VmcConfig:
                 for i in range(self.local_step):
                     energy: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step: %d, energy: %.10f, deviation: %.10f", i, energy.item(), energy.deviation.item())  # type: ignore[attr-defined]
+                    writer.add_scalars("local/value", {"target": energy, "ref": model.ref_energy}, data["vmc"]["local"])  # type: ignore[no-untyped-call]
+                    writer.add_scalars("local/error", {"target": energy - model.ref_energy, "threshold": 1.6e-3}, data["vmc"]["local"])  # type: ignore[no-untyped-call]
+                    writer.add_scalars("local/deviation", {"value": energy.deviation}, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
+                    data["vmc"]["local"] += 1
 
             logging.info("Local optimization process completed")
 
+            writer.flush()  # type: ignore[no-untyped-call]
+
             logging.info("Saving model checkpoint")
-            torch.save(network.state_dict(), self.common.checkpoint_path / f"{self.common.job_name}.pt")
-            torch.save(optimizer.state_dict(), self.common.checkpoint_path / f"{self.common.job_name}.opt.pt")
+            data["vmc"]["global"] += 1
+            data["network"] = network.state_dict()
+            data["optimizer"] = optimizer.state_dict()
+            self.common.save(data, data["vmc"]["global"])
             logging.info("Checkpoint successfully saved")
 
             logging.info("Current optimization cycle completed")

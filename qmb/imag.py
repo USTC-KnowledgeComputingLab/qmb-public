@@ -8,6 +8,7 @@ import typing
 import dataclasses
 import scipy
 import torch
+import torch.utils.tensorboard
 import tyro
 from . import losses
 from .common import CommonConfig
@@ -63,50 +64,63 @@ class _DynamicLanczos:
         self.psi = torch.nn.functional.pad(self.psi, (0, count_selected - count_core))
         logging.info("Basis extended from %d to %d", count_core, count_selected)
 
-    def run(self, keep_until: int = -1) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def run(self) -> typing.Iterable[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
         """
         Run the dynamic Lanczos algorithm.
         """
+        keep_until = -1
         while True:
-            result = self._run(keep_until=keep_until)
-            if result is not None:
-                return result
+            alpha, beta, v, hamiltonian, completed = self._run(keep_until=keep_until)
+            if len(beta) != 0:
+                energy, result = self._eigh_tridiagonal(alpha, beta, v, hamiltonian.device)
+                yield hamiltonian, energy, self.configs, result
+                if completed:
+                    break
             keep_until = keep_until + 1
 
-    def _run(self, keep_until: int = -1) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None:
+    def _run(self, keep_until: int = -1) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], torch.Tensor, bool]:
         hamiltonian = self._hamiltonian()
 
-        v = [self.psi / torch.linalg.norm(self.psi)]  # pylint: disable=not-callable
-        alpha = torch.tensor([], dtype=hamiltonian.dtype.to_real(), device=hamiltonian.device)
-        beta = torch.tensor([], dtype=hamiltonian.dtype.to_real(), device=hamiltonian.device)
+        v: list[torch.Tensor] = [self.psi / torch.linalg.norm(self.psi)]  # pylint: disable=not-callable
+        alpha: list[torch.Tensor] = []
+        beta: list[torch.Tensor] = []
 
+        w = hamiltonian @ v[-1]
+        alpha.append((v[-1].conj() @ w).real)
         if keep_until == -1:
             self._extend(v[-1])
-            return None
-        w = hamiltonian @ v[-1]
-        alpha = torch.cat((alpha, (v[-1].conj() @ w).real.view([1])), dim=0)
+            return (alpha, beta, v, hamiltonian, False)
         w = w - alpha[-1] * v[-1]
         for i in range(self.step):
             norm_w = torch.linalg.norm(w)  # pylint: disable=not-callable
             if norm_w < self.threshold:
                 break
-            beta = torch.cat((beta, norm_w.view([1])), dim=0)
+            beta.append(norm_w)
             v.append(w / beta[-1])
+            w = hamiltonian @ v[-1]
+            alpha.append((v[-1].conj() @ w).real)
             if keep_until == i:
                 self._extend(v[-1])
-                return None
-            w = hamiltonian @ v[-1]
-            alpha = torch.cat((alpha, (v[-1].conj() @ w).real.view([1])), dim=0)
+                return (alpha, beta, v, hamiltonian, False)
             w = w - alpha[-1] * v[-1] - beta[-1] * v[-2]
 
+        return (alpha, beta, v, hamiltonian, True)
+
+    def _eigh_tridiagonal(
+        self,
+        alpha: list[torch.Tensor],
+        beta: list[torch.Tensor],
+        v: list[torch.Tensor],
+        device: torch.device,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         # Currently, PyTorch does not support eigh_tridiagonal natively, so we resort to using SciPy for this operation.
         # We can only use 'stebz' or 'stemr' drivers in the current version of SciPy.
         # However, 'stemr' consumes a lot of memory, so we opt for 'stebz' here.
         # 'stebz' is efficient and only takes a few seconds even for large matrices with dimensions up to 10,000,000.
-        vals, vecs = scipy.linalg.eigh_tridiagonal(alpha.cpu(), beta.cpu(), lapack_driver="stebz", select="i", select_range=(0, 0))
+        vals, vecs = scipy.linalg.eigh_tridiagonal(torch.stack(alpha, dim=0).cpu(), torch.stack(beta, dim=0).cpu(), lapack_driver="stebz", select="i", select_range=(0, 0))
         energy = torch.as_tensor(vals[0])
-        result = torch.sum(torch.as_tensor(vecs[:, 0]).to(device=hamiltonian.device) * torch.stack(v, dim=1), dim=1)
-        return hamiltonian, energy, self.configs, result
+        result = torch.sum(torch.as_tensor(vecs[:, 0]).to(device=device) * torch.stack(v, dim=1), dim=1)
+        return energy, result
 
 
 @dataclasses.dataclass
@@ -155,7 +169,7 @@ class ImaginaryConfig:
         # pylint: disable=too-many-locals
         # pylint: disable=too-many-statements
 
-        model, network = self.common.main()
+        model, network, data = self.common.main()
 
         logging.info(
             "Arguments Summary: "
@@ -187,8 +201,13 @@ class ImaginaryConfig:
             network.parameters(),
             use_lbfgs=self.use_lbfgs,
             learning_rate=self.learning_rate,
-            optimizer_path=self.common.checkpoint_path / f"{self.common.job_name}.opt.pt",
+            state_dict=data.get("optimizer"),
         )
+
+        if "imag" not in data:
+            data["imag"] = {"global": 0, "local": 0, "lanczos": 0}
+
+        writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
         while True:
             logging.info("Starting a new optimization cycle")
@@ -198,14 +217,20 @@ class ImaginaryConfig:
             logging.info("Sampling completed")
 
             logging.info("Computing the target for local optimization")
-            hamiltonian, target_energy, configs, psi = _DynamicLanczos(
-                model=model,
-                configs=configs,
-                psi=psi,
-                step=self.krylov_iteration,
-                threshold=self.krylov_threshold,
-                count_extend=self.krylov_extend_count,
-            ).run()
+            hamiltonian: torch.Tensor
+            target_energy: torch.Tensor
+            for hamiltonian, target_energy, configs, psi in _DynamicLanczos(
+                    model=model,
+                    configs=configs,
+                    psi=psi,
+                    step=self.krylov_iteration,
+                    threshold=self.krylov_threshold,
+                    count_extend=self.krylov_extend_count,
+            ).run():
+                logging.info("The current energy is %.10f", target_energy.item())
+                writer.add_scalars("lanczos/value", {"target": target_energy, "ref": model.ref_energy}, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
+                writer.add_scalars("lanczos/error", {"target": target_energy - model.ref_energy, "threshold": 1.6e-3}, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
+                data["imag"]["lanczos"] += 1
             max_index = psi.abs().argmax()
             psi = psi / psi[max_index]
             logging.info("Local optimization target calculated, the target energy is %.10f", target_energy.item())
@@ -238,9 +263,12 @@ class ImaginaryConfig:
                 logging.info("Starting local optimization process")
                 success = True
                 scale_learning_rate(optimizer, 1 / (1 << try_index))
+                local_step: int = data["imag"]["local"]
                 for i in range(self.local_step):
                     loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
+                    writer.add_scalars("loss", {self.loss_name: loss}, local_step)  # type: ignore[no-untyped-call]
+                    local_step += 1
                     if torch.isnan(loss):
                         logging.warning("Loss is NaN, restoring the previous state and exiting the optimization loop")
                         success = False
@@ -255,15 +283,11 @@ class ImaginaryConfig:
                         success = False
                 if success:
                     logging.info("Local optimization process completed")
+                    data["imag"]["local"] = local_step
                     break
                 network.load_state_dict(state_backup)
                 optimizer.load_state_dict(optimizer_backup)
                 try_index = try_index + 1
-
-            logging.info("Saving model checkpoint")
-            torch.save(network.state_dict(), self.common.checkpoint_path / f"{self.common.job_name}.pt")
-            torch.save(optimizer.state_dict(), self.common.checkpoint_path / f"{self.common.job_name}.opt.pt")
-            logging.info("Checkpoint successfully saved")
 
             logging.info("Current optimization cycle completed")
 
@@ -278,11 +302,25 @@ class ImaginaryConfig:
                 model.ref_energy,
                 final_energy.item() - model.ref_energy,
             )
+            step = data["imag"]["global"]
+            writer.add_scalars("energy/value", {"state": final_energy, "target": target_energy, "ref": model.ref_energy}, step)  # type: ignore[no-untyped-call]
+            writer.add_scalars("energy/error", {"state": final_energy - model.ref_energy, "target": target_energy - model.ref_energy, "threshold": 1.6e-3}, step)  # type: ignore[no-untyped-call]
             logging.info("Displaying the largest amplitudes")
             indices = psi.abs().argsort(descending=True)
+            text = []
             for index in indices[:self.logging_psi]:
                 this_config = "".join(f"{i:08b}"[::-1] for i in configs[index].cpu().numpy())
                 logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{psi[index].item():.8f}", f"{amplitudes[index].item():.8f}")
+                text.append(f"Configuration: {this_config}, Target amplitude: {psi[index].item():.8f}, Final amplitude: {amplitudes[index].item():.8f}")
+            writer.add_text("config", "\n".join(text), step)  # type: ignore[no-untyped-call]
+            writer.flush()  # type: ignore[no-untyped-call]
+
+            logging.info("Saving model checkpoint")
+            data["imag"]["global"] += 1
+            data["network"] = network.state_dict()
+            data["optimizer"] = optimizer.state_dict()
+            self.common.save(data, data["imag"]["global"])
+            logging.info("Checkpoint successfully saved")
 
 
 subcommand_dict["imag"] = ImaginaryConfig

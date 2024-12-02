@@ -29,38 +29,52 @@ class CommonConfig:
     # Arguments for network
     network_args: typing.Annotated[tuple[str, ...], tyro.conf.arg(aliases=["-N"]), tyro.conf.UseAppendAction] = ()
 
-    # The job name used in checkpoint and log, leave empty to use the preset job name given by the model and network
-    job_name: typing.Annotated[str | None, tyro.conf.arg(aliases=["-J"])] = None
-    # The checkpoint path
-    checkpoint_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-C"])] = pathlib.Path("checkpoints")
     # The log path
     log_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-L"])] = pathlib.Path("logs")
+    # The group name, leave empty to use the preset one given by the model
+    group_name: typing.Annotated[str | None, tyro.conf.arg(aliases=["-G"])] = None
+    # The job name, where it is recommended to use distinct job names for runs with varying parameters
+    job_name: typing.Annotated[str, tyro.conf.arg(aliases=["-J"])] = "main"
     # The manual random seed, leave empty for set seed automatically
     random_seed: typing.Annotated[int | None, tyro.conf.arg(aliases=["-S"])] = None
 
-    def main(self) -> tuple[ModelProto, NetworkProto]:
+    def folder(self) -> pathlib.Path:
+        """
+        Get the folder name for the current job.
+        """
+        assert self.group_name is not None
+        return self.log_path / self.group_name / self.job_name
+
+    def save(self, data: typing.Any, step: int) -> None:
+        """
+        Save data to checkpoint.
+        """
+        torch.save(data, self.folder() / f"data.{step}.pth")
+        (self.folder() / "data.pth").unlink(missing_ok=True)
+        (self.folder() / "data.pth").symlink_to(f"data.{step}.pth")
+
+    def main(self) -> tuple[ModelProto, NetworkProto, typing.Any]:
         """
         The main function to create the model and network.
         """
 
         if "-h" in self.network_args or "--help" in self.network_args:
             model_dict[self.model_name].network_dict[self.network_name](object(), self.network_args)
-        default_job_name: str = model_dict[self.model_name].preparse(self.physics_args)
-        if self.job_name is None:
-            self.job_name = default_job_name
+        default_group_name: str = model_dict[self.model_name].preparse(self.physics_args)
+        if self.group_name is None:
+            self.group_name = default_group_name
 
-        self.checkpoint_path.mkdir(parents=True, exist_ok=True)
-        self.log_path.mkdir(parents=True, exist_ok=True)
+        self.folder().mkdir(parents=True, exist_ok=True)
 
         logging.basicConfig(
-            handlers=[logging.StreamHandler(), logging.FileHandler(self.log_path / f"{self.job_name}.log")],
+            handlers=[logging.StreamHandler(), logging.FileHandler(self.folder() / "run.log")],
             level=logging.INFO,
-            format=f"[%(process)d] %(asctime)s {self.job_name}({self.network_name}) %(levelname)s: %(message)s",
+            format=f"[%(process)d] %(asctime)s {self.group_name}({self.network_name}) %(levelname)s: %(message)s",
         )
 
         logging.info("Starting script with arguments: %a", sys.argv)
-        logging.info("Model: %s, Network: %s, Job: %s", self.model_name, self.network_name, self.job_name)
-        logging.info("Log directory: %s, Checkpoint directory: %s", self.log_path, self.checkpoint_path)
+        logging.info("Model: %s, Network: %s", self.model_name, self.network_name)
+        logging.info("Log directory: %s, Group name: %s, Job name: %s", self.log_path, self.group_name, self.job_name)
         logging.info("Physics arguments: %a", self.physics_args)
         logging.info("Network arguments: %a", self.network_args)
 
@@ -82,15 +96,20 @@ class CommonConfig:
         logging.info("Network initialized successfully")
 
         logging.info("Attempting to load checkpoint")
-        checkpoint_path = self.checkpoint_path / f"{self.job_name}.pt"
+        data: typing.Any = {}
+        checkpoint_path = self.folder() / "data.pth"
         if checkpoint_path.exists():
             logging.info("Checkpoint found at: %s, loading...", checkpoint_path)
-            network.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
+            data = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
             logging.info("Checkpoint loaded successfully")
         else:
             logging.info("Checkpoint not found at: %s", checkpoint_path)
+        if "network" in data:
+            logging.info("Loading state dict of the network")
+            network.load_state_dict(data["network"])
+        else:
+            logging.info("Skipping loading state dict of the network")
         logging.info("Moving model to CUDA")
         network.cuda()
-        logging.info("Model moved to CUDA successfully")
 
-        return model, network
+        return model, network, data

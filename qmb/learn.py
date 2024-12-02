@@ -7,6 +7,7 @@ import logging
 import typing
 import dataclasses
 import torch
+import torch.utils.tensorboard
 import tyro
 from . import losses
 from .common import CommonConfig
@@ -183,7 +184,7 @@ class LearnConfig:
         # pylint: disable=too-many-statements
         # pylint: disable=too-many-branches
 
-        model, network = self.common.main()
+        model, network, data = self.common.main()
 
         logging.info(
             "Arguments Summary: "
@@ -213,8 +214,13 @@ class LearnConfig:
             network.parameters(),
             use_lbfgs=self.use_lbfgs,
             learning_rate=self.learning_rate,
-            optimizer_path=self.common.checkpoint_path / f"{self.common.job_name}.opt.pt",
+            state_dict=data.get("optimizer"),
         )
+
+        if "learn" not in data:
+            data["learn"] = {"global": 0, "local": 0}
+
+        writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
         while True:
             logging.info("Starting a new optimization cycle")
@@ -290,9 +296,12 @@ class LearnConfig:
                 logging.info("Starting local optimization process")
                 success = True
                 scale_learning_rate(optimizer, 1 / (1 << try_index))
+                local_step: int = data["imag"]["local"]
                 for i in range(self.local_step):
                     loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
+                    writer.add_scalars("loss", {self.loss_name: loss}, local_step)  # type: ignore[no-untyped-call]
+                    local_step += 1
                     if torch.isnan(loss):
                         logging.warning("Loss is NaN, restoring the previous state and exiting the optimization loop")
                         success = False
@@ -304,6 +313,7 @@ class LearnConfig:
                 if success:
                     if any(torch.isnan(param).any() for param in network.parameters()):
                         logging.warning("NaN detected in parameters, restoring the previous state and exiting the optimization loop")
+                        data["imag"]["local"] = local_step
                         success = False
                 if success:
                     logging.info("Local optimization process completed")
@@ -311,11 +321,6 @@ class LearnConfig:
                 network.load_state_dict(state_backup)
                 optimizer.load_state_dict(optimizer_backup)
                 try_index = try_index + 1
-
-            logging.info("Saving model checkpoint")
-            torch.save(network.state_dict(), self.common.checkpoint_path / f"{self.common.job_name}.pt")
-            torch.save(optimizer.state_dict(), self.common.checkpoint_path / f"{self.common.job_name}.opt.pt")
-            logging.info("Checkpoint successfully saved")
 
             logging.info("Current optimization cycle completed")
 
@@ -330,11 +335,25 @@ class LearnConfig:
                 model.ref_energy,
                 final_energy.item() - model.ref_energy,
             )
+            step = data["imag"]["global"]
+            writer.add_scalars("energy/value", {"state": final_energy, "target": target_energy, "ref": model.ref_energy}, step)  # type: ignore[no-untyped-call]
+            writer.add_scalars("energy/error", {"state": final_energy - model.ref_energy, "target": target_energy - model.ref_energy, "threshold": 1.6e-3}, step)  # type: ignore[no-untyped-call]
             logging.info("Displaying the largest amplitudes")
             indices = psi.abs().argsort(descending=True)
+            text = []
             for index in indices[:self.logging_psi]:
                 this_config = "".join(f"{i:08b}"[::-1] for i in configs[index].cpu().numpy())
                 logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{psi[index].item():.8f}", f"{amplitudes[index].item():.8f}")
+                text.append(f"Configuration: {this_config}, Target amplitude: {psi[index].item():.8f}, Final amplitude: {amplitudes[index].item():.8f}")
+            writer.add_text("config", "\n".join(text), step)  # type: ignore[no-untyped-call]
+            writer.flush()  # type: ignore[no-untyped-call]
+
+            logging.info("Saving model checkpoint")
+            data["learn"]["global"] += 1
+            data["network"] = network.state_dict()
+            data["optimizer"] = optimizer.state_dict()
+            self.common.save(data, data["learn"]["global"])
+            logging.info("Checkpoint successfully saved")
 
 
 subcommand_dict["learn"] = LearnConfig
