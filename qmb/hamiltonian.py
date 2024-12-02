@@ -266,22 +266,25 @@ class Hamiltonian:
         self._prepare_data(device)
 
         module = self._load_collection(configs_i.size(1))
-        op_sort = _collect_and_empty_cache(getattr(module, "sort"))
+        op_sort_ = _collect_and_empty_cache(getattr(module, "sort_"))
         op_merge = _collect_and_empty_cache(getattr(module, "merge"))
         op_reduce = _collect_and_empty_cache(getattr(module, "reduce"))
-        op_ensure = _collect_and_empty_cache(getattr(module, "ensure"))
+        op_ensure_ = _collect_and_empty_cache(getattr(module, "ensure_"))
 
         configs_j: torch.Tensor | None = None
         psi_j: torch.Tensor | None = None
         for batch_psi_j, batch_configs_j in (self._raw_apply_outside(raw, torch.view_as_real(psi_i), configs_i, squared) for raw in self._relative_group(configs_i)):
-            batch_configs_j, batch_psi_j = op_sort(batch_configs_j, batch_psi_j)
+            batch_configs_j, batch_psi_j = op_sort_(batch_configs_j, batch_psi_j)
             batch_configs_j, batch_psi_j = op_reduce(batch_configs_j, batch_psi_j)
             if configs_j is None or psi_j is None:
                 configs_j, psi_j = batch_configs_j, batch_psi_j
             else:
                 configs_j, psi_j = op_merge(configs_j, psi_j, batch_configs_j, batch_psi_j)
                 configs_j, psi_j = op_reduce(configs_j, psi_j)
-        configs_j, psi_j = op_ensure(configs_j, psi_j, configs_i)
+        assert configs_j is not None and psi_j is not None
+        configs_j = torch.cat([configs_i, configs_j])
+        psi_j = torch.cat([torch.zeros([configs_i.size(0), psi_j.size(1)], dtype=psi_j.dtype, device=psi_j.device), psi_j])
+        configs_j, psi_j = op_ensure_(configs_j, psi_j, configs_i.size(0))
         assert configs_j is not None and psi_j is not None
         if squared:
             psi_j = psi_j[:, 0]
