@@ -41,5 +41,5 @@ def test_collection() -> None:
     key = torch.cat([config, key])
     value = torch.cat([torch.zeros([config.size(0), value.size(1)], dtype=value.dtype, device=value.device), value])
     key, value = op_ensure(key, value, config.size(0))
-    assert torch.allclose(key, torch.tensor([[3, 1], [1, 3], [1, 2], [2, 4], [4, 1], [4, 2]], dtype=torch.uint8).cuda())
-    assert torch.allclose(value, torch.tensor([[10.], [2.], [3.], [6.], [5.], [5.]], dtype=torch.float64).cuda())
+    assert torch.allclose(key, torch.tensor([[3, 1], [1, 3], [2, 4], [4, 1], [4, 2], [1, 2]], dtype=torch.uint8).cuda())
+    assert torch.allclose(value, torch.tensor([[10.], [2.], [6.], [5.], [5.], [3.]], dtype=torch.float64).cuda())

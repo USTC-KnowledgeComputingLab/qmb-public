@@ -78,14 +78,16 @@ struct array_reduce {
 };
 
 template<typename T, int size>
-struct is_zero {
-    __host__ __device__ bool operator()(const std::array<T, size>& value) const {
+struct array_square_greater {
+    __host__ __device__ T square(const std::array<T, size>& value) const {
+        T result = 0;
         for (auto i = 0; i < size; ++i) {
-            if (value[i] != 0) {
-                return false;
-            }
+            result += value[i] * value[i];
         }
-        return true;
+        return result;
+    }
+    __host__ __device__ bool operator()(const std::array<T, size>& lhs, const std::array<T, size>& rhs) const {
+        return square(lhs) > square(rhs);
     }
 };
 
@@ -193,7 +195,7 @@ reduce(int n_qubits, int n_values, const torch::Tensor& key, const torch::Tensor
 
 template<int n_qubits, int n_values>
 __global__ void
-ensure_kernel(std::int64_t length, std::int64_t length_config, std::array<std::uint8_t, n_qubits>* key, std::array<double, n_values>* value) {
+ensure_kernel(std::int64_t length, std::int64_t length_config, const std::array<std::uint8_t, n_qubits>* key, std::array<double, n_values>* value) {
     std::int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= length_config) {
         return;
@@ -235,19 +237,21 @@ std::int64_t ensure_impl(torch::Tensor& key, torch::Tensor& value, std::int64_t 
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr())
     );
 
-    thrust::remove_if(
-        thrust::device.on(at::cuda::getCurrentCUDAStream(device_id)),
-        reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()) + length_config,
-        reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()) + length_config + length,
-        reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config,
-        is_zero<double, n_values>()
-    );
-
-    auto end = thrust::remove_if(
+    thrust::sort_by_key(
         thrust::device.on(at::cuda::getCurrentCUDAStream(device_id)),
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config,
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config + length,
-        is_zero<double, n_values>()
+        reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()) + length_config,
+        array_square_greater<double, n_values>()
+    );
+
+    std::array<double, n_values> zero_array;
+    auto end = thrust::lower_bound(
+        thrust::device.on(at::cuda::getCurrentCUDAStream(device_id)),
+        reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config,
+        reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config + length,
+        zero_array,
+        array_square_greater<double, n_values>()
     );
     return end - reinterpret_cast<std::array<double, n_values>*>(value.data_ptr());
 }
