@@ -11,18 +11,32 @@
 
 namespace qmb_collection {
 
+// The raw format is the output directly from the kernel, and it follows this structure:
+// - `index_i`: An int64 tensor of shape [batch_size], which indexes the original terms.
+// - `configs_j`: An uint8 tensor of shape [batch_size, n_qubits], providing the configuration details of the results.
+// - `coefs`: A float64 tensor of shape [batch_size, 2], encoding the coefficients (both real and imaginary parts) of the terms.
+// Here, `batch_size` represents the number of non-zero terms after iterating over the Hamiltonian based on the given configurations.
 using Raw = std::tuple<
     torch::Tensor, // index_i
     torch::Tensor, // configs_j
     torch::Tensor // coefs
     >;
 
+// The inside format is a collection of terms that are inside the subspace, and it follows this structure:
+// - `index_i`: An int64 tensor of shape [batch_size], which indexes the original configs.
+// - `index_j`: An int64 tensor of shape [batch_size], which indexes the original configs.
+// - `coefs`: A float64 tensor of shape [batch_size, 2], encoding the coefficients (both real and imaginary parts) of the terms.
 using Inside = std::tuple<
     torch::Tensor, // index_i
     torch::Tensor, // index_j
     torch::Tensor // coefs
     >;
 
+// The outside format is a collection of terms that are outside the subspace, and it follows this structure:
+// - `index_i`: An int64 tensor of shape [batch_size], which indexes the original configs.
+// - `index_j`: An int64 tensor of shape [batch_size], which indexes the result configs.
+// - `coefs`: A float64 tensor of shape [batch_size, 2], encoding the coefficients (both real and imaginary parts) of the terms.
+// - `configs_j`: A uint8 tensor of shape [batch_size, num_qubits], encoding the result configs.
 using Outside = std::tuple<
     torch::Tensor, // index_i
     torch::Tensor, // index_j
@@ -30,11 +44,17 @@ using Outside = std::tuple<
     torch::Tensor // configs_j
     >;
 
+// Differently from the former three formats, which are a sparse representation of the hamiltonian.
+// Sometimes we need to represent the sparse wavefunction only, which is what this format is for.
+// The sparse format of wavefunctions is a collection of configuration and the corresponding wavefunction values, and it follows this structure:
+// - `psi_j`: A float64 tensor of shape [batch_size, 1/2], encoding the wavefunction values of the terms, which maybe real of complex.
+// - `configs_j`: A uint8 tensor of shape [batch_size, num_qubits], encoding the result configs.
 using Sparse = std::tuple<
     torch::Tensor, // psi_j
     torch::Tensor // configs_j
     >;
 
+// Merge a collection of Raw objects into a single Raw object.
 auto merge_raw(std::vector<Raw> raws) -> Raw {
     auto index_i_pool = std::vector<torch::Tensor>();
     auto configs_j_pool = std::vector<torch::Tensor>();
@@ -54,6 +74,7 @@ auto merge_raw(std::vector<Raw> raws) -> Raw {
     return Raw(index_i, configs_j, coefs);
 }
 
+// Convert a Raw object to an Inside object.
 auto raw_to_inside(Raw raw, torch::Tensor configs_i) -> Inside {
     auto device = configs_i.device();
     auto& [index_i, configs_j, coefs] = raw;
@@ -90,6 +111,7 @@ auto raw_to_inside(Raw raw, torch::Tensor configs_i) -> Inside {
     return Inside(usable_index_i, usable_index_j, usable_coefs);
 }
 
+// Merge a collection of Inside objects into a single Inside object.
 auto merge_inside(std::vector<Inside> insides) -> Inside {
     auto index_i_pool = std::vector<torch::Tensor>();
     auto index_j_pool = std::vector<torch::Tensor>();
@@ -109,6 +131,7 @@ auto merge_inside(std::vector<Inside> insides) -> Inside {
     return Inside(index_i, index_j, coefs);
 }
 
+// Convert a Raw object into an Outside object.
 auto raw_to_outside(Raw raw, torch::Tensor configs_i) -> Outside {
     auto device = configs_i.device();
     auto& [index_i, configs_j, coefs] = raw;
@@ -153,6 +176,7 @@ auto raw_to_outside(Raw raw, torch::Tensor configs_i) -> Outside {
     return Outside(index_i, dst_to_target, coefs, target);
 }
 
+// Merge a collection of Outside objects into a single Outside object.
 auto merge_outside(std::vector<Outside> outsides, std::optional<torch::Tensor> configs_i) -> Outside {
     if (configs_i.has_value()) {
         auto device = configs_i.value().device();
@@ -265,6 +289,9 @@ auto merge_outside(std::vector<Outside> outsides, std::optional<torch::Tensor> c
     }
 }
 
+// Convert a Raw object to a Sparse object.
+// Differently from former three formats, we need psi_i and configs_i to compute the result.
+// The result of this function is v.conj() @ H when squared is false, and |v.^2| @ |H.^2| when squared is true.
 auto raw_apply_outside(Raw raw, torch::Tensor psi_i, torch::Tensor configs_i, bool squared) -> Sparse {
     auto& [index_i, configs_j, coefs] = raw;
     std::int64_t count_j = configs_j.size(0);
@@ -289,6 +316,7 @@ auto raw_apply_outside(Raw raw, torch::Tensor psi_i, torch::Tensor configs_i, bo
     }
 }
 
+// Merge a collection of Sparse objects into a single Sparse object.
 auto merge_apply_outside(std::vector<Sparse> sparses, std::optional<torch::Tensor> configs_i) -> Sparse {
     if (configs_i.has_value()) {
         auto device = configs_i.value().device();
@@ -386,6 +414,16 @@ PYBIND11_MODULE(qmb_collection, m) {
     m.def("merge_apply_outside", merge_apply_outside, py::arg("applies"), py::arg("configs_i"));
 }
 #endif
+
+// The merging of Sparse object is slow above, so we use torch kernels to merge them.
+// The following code is the declaration of the kernels, which are:
+// - sort_ : sort the given key(uint8[batch_size, n_qubits]) and value(float[batch_size, 1/2]) tensors by key.
+// - merge : merge two key-value pairs into one.
+// - reduce : reduce the key-value pairs, sum the values for each group of consecutive same keys.
+// - ensure_ : ensure the first length_config config is in the front of key-value pairs.
+// It should be noticed that user need to call key = [config, key] and value = [0, value] before calling ensure_.
+// The ensure_ kernel will move the value of the first length_config config to the front of value and leave the origin value as 0.
+// After moving, the rest of key-value pairs will be sorted by value(descending).
 
 #ifndef QMB_LIBRARY_HELPER
 #define QMB_LIBRARY_HELPER(x) qmb_collection_##x

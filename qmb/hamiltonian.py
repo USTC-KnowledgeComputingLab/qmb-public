@@ -250,6 +250,23 @@ class Hamiltonian:
     def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Applies the outside Hamiltonian to the given vector.
+
+        This function calculate v.conj() @ H when squared is False and |v.^2| @ |H.^2| when squared is True.
+
+        Parameters
+        ----------
+        psi_i : torch.Tensor
+            A tensor of shape [batch_size, 2] representing the input amplitudes on the girven configurations.
+        configs_i : torch.Tensor
+            A tensor of shape [batch_size, n_qubits] representing the input configurations.
+        squared : bool
+            Whether to square the wavefunction and Hamiltonian.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            The resulting amplitudes and configurations after applying the Hamiltonian, respectively.
+            The order of the configurations is guaranteed to be the same as the input for the first `batch_size` configurations and sorted by psi for the remaining configurations.
         """
         device: torch.device = configs_i.device
         self._prepare_data(device)

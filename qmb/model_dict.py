@@ -75,14 +75,6 @@ class ModelProto(typing.Protocol[_Model]):
     def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Applies the outside Hamiltonian to the given vector.
-
-        This method is equivalent to the following code:
-        ```
-        indices_i, indices_j, values, configs_j = model.outside(configs_i)
-        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_i, count_j], dtype=torch.complex128)
-        psi_j = psi_i @ hamiltonian
-        return psi_j, configs_j
-        ```
         """
 
 
