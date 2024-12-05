@@ -291,6 +291,7 @@ class LearnConfig:
 
                 logging.info("Starting local optimization process")
                 success = True
+                last_loss: float = 0.0
                 scale_learning_rate(optimizer, 1 / (1 << try_index))
                 local_step: int = data["learn"]["local"]
                 for i in range(self.local_step):
@@ -305,6 +306,10 @@ class LearnConfig:
                     if loss < self.local_loss:
                         logging.info("Local optimization halted as the loss threshold has been met")
                         break
+                    if abs(loss - last_loss) < self.local_loss:
+                        logging.info("Local optimization halted as the loss difference is too small")
+                        break
+                    last_loss = loss.item()
                 scale_learning_rate(optimizer, 1 << try_index)
                 if success:
                     if any(torch.isnan(param).any() for param in network.parameters()):
