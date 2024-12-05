@@ -296,7 +296,7 @@ class LearnConfig:
                 logging.info("Starting local optimization process")
                 success = True
                 scale_learning_rate(optimizer, 1 / (1 << try_index))
-                local_step: int = data["imag"]["local"]
+                local_step: int = data["learn"]["local"]
                 for i in range(self.local_step):
                     loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
@@ -313,7 +313,7 @@ class LearnConfig:
                 if success:
                     if any(torch.isnan(param).any() for param in network.parameters()):
                         logging.warning("NaN detected in parameters, restoring the previous state and exiting the optimization loop")
-                        data["imag"]["local"] = local_step
+                        data["learn"]["local"] = local_step
                         success = False
                 if success:
                     logging.info("Local optimization process completed")
@@ -335,7 +335,7 @@ class LearnConfig:
                 model.ref_energy,
                 final_energy.item() - model.ref_energy,
             )
-            step = data["imag"]["global"]
+            step = data["learn"]["global"]
             writer.add_scalars("energy/value", {"state": final_energy, "target": target_energy, "ref": model.ref_energy}, step)  # type: ignore[no-untyped-call]
             writer.add_scalars("energy/error", {"state": final_energy - model.ref_energy, "target": target_energy - model.ref_energy, "threshold": 1.6e-3}, step)  # type: ignore[no-untyped-call]
             logging.info("Displaying the largest amplitudes")
