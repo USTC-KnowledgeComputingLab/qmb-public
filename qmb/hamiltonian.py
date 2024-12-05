@@ -270,6 +270,7 @@ class Hamiltonian:
             The resulting configurations after applying the Hamiltonian, only the first `count_selected` configurations are guaranteed to be returned.
             The order of the configurations is guaranteed to be the same as the input for the first `batch_size` configurations and sorted by psi for the remaining configurations.
         """
+        # pylint: disable=too-many-locals
         device: torch.device = configs_i.device
         self._prepare_data(device)
 
@@ -295,3 +296,60 @@ class Hamiltonian:
         configs_j, psi_j = op_ensure_(configs_j, psi_j, configs_i.size(0))
         assert configs_j is not None and psi_j is not None
         return configs_j[:count_selected].clone()
+
+
+class Worker:
+    """
+    The Worker class is responsible for processing `apply_outside`, with multiprocessing.
+    """
+
+    # pylint: disable=too-many-instance-attributes
+
+    def __init__(self, device: torch.device) -> None:
+        self.device = device
+        self.configs_j: torch.Tensor | None = None
+        self.psi_j: torch.Tensor | None = None
+        self.op_sort_: typing.Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]] | None = None
+        self.op_merge: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]] | None = None
+        self.op_reduce: typing.Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]] | None = None
+        self.op_ensure_: typing.Callable[[torch.Tensor, torch.Tensor, int], tuple[torch.Tensor, torch.Tensor]] | None = None
+
+    def begin(self, n_qubytes: int) -> None:
+        """
+        Begin the worker.
+        """
+        module = Hamiltonian._load_collection(n_qubytes)  # pylint: disable=protected-access
+        self.op_sort_ = _collect_and_empty_cache(getattr(module, "sort_"))
+        self.op_merge = _collect_and_empty_cache(getattr(module, "merge"))
+        self.op_reduce = _collect_and_empty_cache(getattr(module, "reduce"))
+        self.op_ensure_ = _collect_and_empty_cache(getattr(module, "ensure_"))
+
+    def sink(self, batch_configs_j: torch.Tensor, batch_psi_j: torch.Tensor) -> None:
+        """
+        Sink the batch of configs and psi.
+        """
+        assert self.op_sort_ is not None and self.op_merge is not None and self.op_reduce is not None and self.op_ensure_ is not None
+        batch_configs_j, batch_psi_j = batch_configs_j.to(device=self.device), batch_psi_j.to(device=self.device)
+        batch_configs_j, batch_psi_j = self.op_sort_(batch_configs_j, batch_psi_j)
+        batch_configs_j, batch_psi_j = self.op_reduce(batch_configs_j, batch_psi_j)
+        if self.configs_j is None or self.psi_j is None:
+            self.configs_j, self.psi_j = batch_configs_j, batch_psi_j
+        else:
+            self.configs_j, self.psi_j = self.op_merge(self.configs_j, self.psi_j, batch_configs_j, batch_psi_j)
+            self.configs_j, self.psi_j = self.op_reduce(self.configs_j, self.psi_j)
+
+    def end(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """
+        End the worker.
+        """
+        configs_j, psi_j = self.configs_j, self.psi_j
+        self.configs_j, self.psi_j = None, None
+        if configs_j is None or psi_j is None:
+            return None
+        configs_i = configs_i.to(device=self.device)
+        assert configs_j is not None and psi_j is not None
+        configs_j = torch.cat([configs_i, configs_j])
+        psi_j = torch.cat([torch.zeros([configs_i.size(0), psi_j.size(1)], dtype=psi_j.dtype, device=psi_j.device), psi_j])
+        configs_j, psi_j = self.op_ensure_(configs_j, psi_j, configs_i.size(0))
+        assert configs_j is not None and psi_j is not None
+        return configs_j, psi_j

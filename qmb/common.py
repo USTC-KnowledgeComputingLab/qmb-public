@@ -86,6 +86,8 @@ class CommonConfig:
 
         logging.info("Disabling PyTorch's default gradient computation")
         torch.set_grad_enabled(False)
+        logging.info("Setting PyTorch's multiprocessing start method to 'spawn'")
+        torch.multiprocessing.set_start_method("spawn")
 
         logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
         model: ModelProto = model_dict[self.model_name].parse(self.physics_args)
