@@ -254,7 +254,15 @@ class Hamiltonian:
         index_i, index_j, coefs, configs_j = self._merge_outside(result, configs_i)
         return index_i, index_j, torch.view_as_complex(coefs), configs_j
 
-    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool, count_selected: int) -> torch.Tensor:
+    def apply_outside(  # pylint: disable=too-many-arguments
+            self,
+            psi_i: torch.Tensor,
+            configs_i: torch.Tensor,
+            squared: bool,
+            count_selected: int,
+            *,
+            max_size: int = 1 << 34,
+    ) -> torch.Tensor:
         """
         Applies the outside Hamiltonian to the given vector.
 
@@ -277,6 +285,7 @@ class Hamiltonian:
             The resulting configurations after applying the Hamiltonian, only the first `count_selected` configurations are guaranteed to be returned.
             The order of the configurations is guaranteed to be the same as the input for the first `batch_size` configurations and sorted by psi for the remaining configurations.
         """
+        # pylint: disable=too-many-locals
         device: torch.device = configs_i.device
         self._prepare_data(device)
 
@@ -296,6 +305,11 @@ class Hamiltonian:
             else:
                 configs_j, psi_j = op_merge(configs_j, psi_j, batch_configs_j, batch_psi_j)
                 configs_j, psi_j = op_reduce(configs_j, psi_j)
+            assert configs_j is not None and psi_j is not None
+            if configs_j.nelement() * configs_j.element_size() + psi_j.nelement() * psi_j.element_size() >= max_size:
+                chop_size = len(configs_j) // 2
+                configs_j = configs_j[:chop_size].clone()
+                psi_j = psi_j[:chop_size].clone()
         assert configs_j is not None and psi_j is not None
         configs_j = torch.cat([configs_i, configs_j])
         psi_j = torch.cat([torch.zeros([configs_i.size(0), psi_j.size(1)], dtype=psi_j.dtype, device=psi_j.device), psi_j])
