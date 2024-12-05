@@ -130,7 +130,7 @@ class ImaginaryConfig:
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
     # The sampling count
-    sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4000
+    sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1
     # The extend count for the Krylov subspace
     krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 125
     # The number of Krylov iterations to perform
