@@ -314,10 +314,10 @@ class LearnConfig:
                 if success:
                     if any(torch.isnan(param).any() for param in network.parameters()):
                         logging.warning("NaN detected in parameters, restoring the previous state and exiting the optimization loop")
-                        data["learn"]["local"] = local_step
                         success = False
                 if success:
                     logging.info("Local optimization process completed")
+                    data["learn"]["local"] = local_step
                     break
                 network.load_state_dict(state_backup)
                 optimizer.load_state_dict(optimizer_backup)
