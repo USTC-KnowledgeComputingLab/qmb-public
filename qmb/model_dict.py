@@ -72,7 +72,7 @@ class ModelProto(typing.Protocol[_Model]):
         This function considers both the inside and outside configurations, ensuring that the input configurations are the first `batch_size` configurations in the result.
         """
 
-    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool, count_selected: int) -> torch.Tensor:
         """
         Applies the outside Hamiltonian to the given vector.
         """

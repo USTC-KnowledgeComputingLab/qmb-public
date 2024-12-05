@@ -247,7 +247,7 @@ class Hamiltonian:
         index_i, index_j, coefs, configs_j = self._merge_outside(result, configs_i)
         return index_i, index_j, torch.view_as_complex(coefs), configs_j
 
-    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool, count_selected: int) -> torch.Tensor:
         """
         Applies the outside Hamiltonian to the given vector.
 
@@ -261,11 +261,13 @@ class Hamiltonian:
             A tensor of shape [batch_size, n_qubits] representing the input configurations.
         squared : bool
             Whether to square the wavefunction and Hamiltonian.
+        count_selected : int
+            The number of selected configurations to be returned.
 
         Returns
         -------
-        tuple[torch.Tensor, torch.Tensor]
-            The resulting amplitudes and configurations after applying the Hamiltonian, respectively.
+        torch.Tensor
+            The resulting configurations after applying the Hamiltonian, only the first `count_selected` configurations are guaranteed to be returned.
             The order of the configurations is guaranteed to be the same as the input for the first `batch_size` configurations and sorted by psi for the remaining configurations.
         """
         device: torch.device = configs_i.device
@@ -292,8 +294,4 @@ class Hamiltonian:
         psi_j = torch.cat([torch.zeros([configs_i.size(0), psi_j.size(1)], dtype=psi_j.dtype, device=psi_j.device), psi_j])
         configs_j, psi_j = op_ensure_(configs_j, psi_j, configs_i.size(0))
         assert configs_j is not None and psi_j is not None
-        if squared:
-            psi_j = psi_j[:, 0]
-        else:
-            psi_j = torch.view_as_complex(psi_j)
-        return psi_j, configs_j
+        return configs_j[:count_selected].clone()

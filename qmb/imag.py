@@ -55,11 +55,7 @@ class _DynamicLanczos:
         count_core = len(self.configs)
         logging.info("Number of core configurations: %d", count_core)
 
-        _, configs_extended = self.model.apply_outside(psi, self.configs, False)
-        count_extended = len(configs_extended)
-        logging.info("Number of full extended configurations: %d", count_extended)
-
-        self.configs = configs_extended[:count_core + self.count_extend].clone()  # Clone it to avoid referencing the entire large configs_extended.
+        self.configs = self.model.apply_outside(psi, self.configs, False, count_core + self.count_extend)
         count_selected = len(self.configs)
         self.psi = torch.nn.functional.pad(self.psi, (0, count_selected - count_core))
         logging.info("Basis extended from %d to %d", count_core, count_selected)
