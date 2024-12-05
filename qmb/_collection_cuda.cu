@@ -3,14 +3,14 @@
 #include <thrust/binary_search.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
+#include <thrust/for_each.h>
+#include <thrust/iterator/counting_iterator.h>
 #include <thrust/remove.h>
 #include <thrust/sort.h>
 #include <thrust/unique.h>
 #include <torch/extension.h>
 
 namespace qmb_collection_cuda {
-
-constexpr torch::DeviceType device = torch::kCUDA;
 
 template<int value>
 struct ConstInt {
@@ -91,11 +91,20 @@ struct array_square_greater {
     }
 };
 
-template<int n_qubits, int n_values>
+template<torch::DeviceType device>
+auto get_policy(const torch::Tensor& tensor) {
+    if constexpr (device == torch::kCUDA) {
+        return thrust::device.on(at::cuda::getCurrentCUDAStream(tensor.device().index()));
+    } else if constexpr (device == torch::kCPU) {
+        return thrust::host;
+    }
+}
+
+template<torch::DeviceType device, int n_qubits, int n_values>
 void sort_impl(torch::Tensor& key, torch::Tensor& value) {
     std::int64_t length = key.size(0);
     thrust::sort_by_key(
-        thrust::device.on(at::cuda::getCurrentCUDAStream(key.device().index())),
+        get_policy<device>(key),
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()) + length,
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()),
@@ -103,20 +112,20 @@ void sort_impl(torch::Tensor& key, torch::Tensor& value) {
     );
 }
 
-template<typename NQubits, typename NValues>
+template<torch::DeviceType device, typename NQubits, typename NValues>
 void sort(int n_qubits, int n_values, torch::Tensor& key, torch::Tensor& value) {
     std::visit(
         [&](auto n_qubits_handle, auto n_values_handle) {
             constexpr int n_qubits = n_qubits_handle.get_value();
             constexpr int n_values = n_values_handle.get_value();
-            sort_impl<n_qubits, n_values>(key, value);
+            sort_impl<device, n_qubits, n_values>(key, value);
         },
         to_const_int(n_qubits, NQubits()),
         to_const_int(n_values, NValues())
     );
 }
 
-template<int n_qubits, int n_values>
+template<torch::DeviceType device, int n_qubits, int n_values>
 void merge_impl(
     const torch::Tensor& key_1,
     const torch::Tensor& value_1,
@@ -128,7 +137,7 @@ void merge_impl(
     std::int64_t length_1 = key_1.size(0);
     std::int64_t length_2 = key_2.size(0);
     thrust::merge_by_key(
-        thrust::device.on(at::cuda::getCurrentCUDAStream(key_1.device().index())),
+        get_policy<device>(key_1),
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key_1.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key_1.data_ptr()) + length_1,
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key_2.data_ptr()),
@@ -141,7 +150,7 @@ void merge_impl(
     );
 }
 
-template<typename NQubits, typename NValues>
+template<torch::DeviceType device, typename NQubits, typename NValues>
 void merge(
     int n_qubits,
     int n_values,
@@ -156,18 +165,18 @@ void merge(
         [&](auto n_qubits_handle, auto n_values_handle) {
             constexpr int n_qubits = n_qubits_handle.get_value();
             constexpr int n_values = n_values_handle.get_value();
-            merge_impl<n_qubits, n_values>(key_1, value_1, key_2, value_2, key_result, value_result);
+            merge_impl<device, n_qubits, n_values>(key_1, value_1, key_2, value_2, key_result, value_result);
         },
         to_const_int(n_qubits, NQubits()),
         to_const_int(n_values, NValues())
     );
 }
 
-template<int n_qubits, int n_values>
+template<torch::DeviceType device, int n_qubits, int n_values>
 std::int64_t reduce_impl(const torch::Tensor& key, const torch::Tensor& value, torch::Tensor& key_result, torch::Tensor& value_result) {
     std::int64_t length = key.size(0);
     auto [key_end, value_end] = thrust::reduce_by_key(
-        thrust::device.on(at::cuda::getCurrentCUDAStream(key.device().index())),
+        get_policy<device>(key),
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()) + length,
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()),
@@ -179,14 +188,14 @@ std::int64_t reduce_impl(const torch::Tensor& key, const torch::Tensor& value, t
     return key_end - reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key_result.data_ptr());
 }
 
-template<typename NQubits, typename NValues>
+template<torch::DeviceType device, typename NQubits, typename NValues>
 std::int64_t
 reduce(int n_qubits, int n_values, const torch::Tensor& key, const torch::Tensor& value, torch::Tensor& key_result, torch::Tensor& value_result) {
     return std::visit(
         [&](auto n_qubits_handle, auto n_values_handle) {
             constexpr int n_qubits = n_qubits_handle.get_value();
             constexpr int n_values = n_values_handle.get_value();
-            return reduce_impl<n_qubits, n_values>(key, value, key_result, value_result);
+            return reduce_impl<device, n_qubits, n_values>(key, value, key_result, value_result);
         },
         to_const_int(n_qubits, NQubits()),
         to_const_int(n_values, NValues())
@@ -194,51 +203,53 @@ reduce(int n_qubits, int n_values, const torch::Tensor& key, const torch::Tensor
 }
 
 template<int n_qubits, int n_values>
-__global__ void
-ensure_kernel(std::int64_t length, std::int64_t length_config, const std::array<std::uint8_t, n_qubits>* key, std::array<double, n_values>* value) {
-    std::int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= length_config) {
-        return;
-    }
-    std::int64_t low = 0;
-    std::int64_t high = length - 1;
-    std::int64_t mid = 0;
-    auto compare = array_less<std::uint8_t, n_qubits>();
-    while (low <= high) {
-        mid = (low + high) / 2;
-        if (compare(key[length_config + mid], key[i])) {
-            low = mid + 1;
-        } else if (compare(key[i], key[length_config + mid])) {
-            high = mid - 1;
-        } else {
-            for (auto j = 0; j < n_values; ++j) {
-                value[i][j] = value[length_config + mid][j];
-                value[length_config + mid][j] = 0;
+struct ensure_kernel {
+    std::int64_t length;
+    std::int64_t length_config;
+    const std::array<std::uint8_t, n_qubits>* key;
+    std::array<double, n_values>* value;
+
+    __host__ __device__ void operator()(std::int64_t i) const {
+        std::int64_t low = 0;
+        std::int64_t high = length - 1;
+        std::int64_t mid = 0;
+        auto compare = array_less<std::uint8_t, n_qubits>();
+        while (low <= high) {
+            mid = (low + high) / 2;
+            if (compare(key[length_config + mid], key[i])) {
+                low = mid + 1;
+            } else if (compare(key[i], key[length_config + mid])) {
+                high = mid - 1;
+            } else {
+                for (auto j = 0; j < n_values; ++j) {
+                    value[i][j] = value[length_config + mid][j];
+                    value[length_config + mid][j] = 0;
+                }
+                return;
             }
-            return;
         }
     }
-}
+};
 
-template<int n_qubits, int n_values>
+template<torch::DeviceType device, int n_qubits, int n_values>
 std::int64_t ensure_impl(torch::Tensor& key, torch::Tensor& value, std::int64_t length_config) {
     std::int64_t length = key.size(0) - length_config;
-
     std::int64_t device_id = key.device().index();
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, device_id);
-    std::int64_t threads_per_block = prop.maxThreadsPerBlock;
-    std::int64_t num_blocks = (length_config + threads_per_block - 1) / threads_per_block;
 
-    ensure_kernel<n_qubits, n_values><<<num_blocks, threads_per_block, 0, at::cuda::getCurrentCUDAStream(device_id)>>>(
-        length,
-        length_config,
-        reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()),
-        reinterpret_cast<std::array<double, n_values>*>(value.data_ptr())
+    thrust::for_each(
+        get_policy<device>(key),
+        thrust::make_counting_iterator<std::int64_t>(0),
+        thrust::make_counting_iterator<std::int64_t>(length_config),
+        ensure_kernel<n_qubits, n_values>{
+            length,
+            length_config,
+            reinterpret_cast<const std::array<std::uint8_t, n_qubits>*>(key.data_ptr()),
+            reinterpret_cast<std::array<double, n_values>*>(value.data_ptr())
+        }
     );
 
     thrust::sort_by_key(
-        thrust::device.on(at::cuda::getCurrentCUDAStream(device_id)),
+        get_policy<device>(key),
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config,
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config + length,
         reinterpret_cast<std::array<std::uint8_t, n_qubits>*>(key.data_ptr()) + length_config,
@@ -247,7 +258,7 @@ std::int64_t ensure_impl(torch::Tensor& key, torch::Tensor& value, std::int64_t 
 
     std::array<double, n_values> zero_array;
     auto end = thrust::lower_bound(
-        thrust::device.on(at::cuda::getCurrentCUDAStream(device_id)),
+        get_policy<device>(key),
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config,
         reinterpret_cast<std::array<double, n_values>*>(value.data_ptr()) + length_config + length,
         zero_array,
@@ -256,13 +267,13 @@ std::int64_t ensure_impl(torch::Tensor& key, torch::Tensor& value, std::int64_t 
     return end - reinterpret_cast<std::array<double, n_values>*>(value.data_ptr());
 }
 
-template<typename NQubits, typename NValues>
+template<torch::DeviceType device, typename NQubits, typename NValues>
 std::int64_t ensure(int n_qubits, int n_values, torch::Tensor& key, torch::Tensor& value, std::int64_t length_config) {
     return std::visit(
         [&](auto n_qubits_handle, auto n_values_handle) {
             constexpr int n_qubits = n_qubits_handle.get_value();
             constexpr int n_values = n_values_handle.get_value();
-            return ensure_impl<n_qubits, n_values>(key, value, length_config);
+            return ensure_impl<device, n_qubits, n_values>(key, value, length_config);
         },
         to_const_int(n_qubits, NQubits()),
         to_const_int(n_values, NValues())
@@ -272,7 +283,7 @@ std::int64_t ensure(int n_qubits, int n_values, torch::Tensor& key, torch::Tenso
 // key: A uint8 tensor of shape [length_x, n_qubits]
 // value: A float64 tensor of shape [length_x, n_values] where n_values = 1 or 2.
 
-template<typename NQubits, typename NValues>
+template<torch::DeviceType device, typename NQubits, typename NValues>
 auto sort_interface(torch::Tensor& key, torch::Tensor& value) -> std::tuple<torch::Tensor, torch::Tensor> {
     std::int64_t length = key.size(0);
     std::int64_t n_qubits = key.size(1);
@@ -284,12 +295,12 @@ auto sort_interface(torch::Tensor& key, torch::Tensor& value) -> std::tuple<torc
     TORCH_CHECK(value.ndimension() == 2, "value must be a 2D tensor");
     TORCH_CHECK(key.size(0) == value.size(0), "key and value must have the same length");
 
-    sort<NQubits, NValues>(n_qubits, n_values, key, value);
+    sort<device, NQubits, NValues>(n_qubits, n_values, key, value);
 
     return std::make_tuple(key, value);
 }
 
-template<typename NQubits, typename NValues>
+template<torch::DeviceType device, typename NQubits, typename NValues>
 auto merge_interface(const torch::Tensor& key_1, const torch::Tensor& value_1, const torch::Tensor& key_2, const torch::Tensor& value_2)
     -> std::tuple<torch::Tensor, torch::Tensor> {
     std::int64_t length_1 = key_1.size(0);
@@ -318,12 +329,12 @@ auto merge_interface(const torch::Tensor& key_1, const torch::Tensor& value_1, c
     auto key_result = torch::empty({length_1 + length_2, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id));
     auto value_result = torch::empty({length_1 + length_2, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
 
-    merge<NQubits, NValues>(n_qubits, n_values, key_1, value_1, key_2, value_2, key_result, value_result);
+    merge<device, NQubits, NValues>(n_qubits, n_values, key_1, value_1, key_2, value_2, key_result, value_result);
 
     return std::make_tuple(key_result, value_result);
 }
 
-template<typename NQubits, typename NValues>
+template<torch::DeviceType device, typename NQubits, typename NValues>
 auto reduce_interface(const torch::Tensor& key, const torch::Tensor& value) -> std::tuple<torch::Tensor, torch::Tensor> {
     std::int64_t length = key.size(0);
     std::int64_t n_qubits = key.size(1);
@@ -339,13 +350,13 @@ auto reduce_interface(const torch::Tensor& key, const torch::Tensor& value) -> s
     auto key_result = torch::empty({length, n_qubits}, torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id));
     auto value_result = torch::empty({length, n_values}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
 
-    std::int64_t size = reduce<NQubits, NValues>(n_qubits, n_values, key, value, key_result, value_result);
+    std::int64_t size = reduce<device, NQubits, NValues>(n_qubits, n_values, key, value, key_result, value_result);
     auto slice = torch::indexing::Slice(torch::indexing::None, size);
 
     return std::make_tuple(key_result.index({slice}), value_result.index({slice}));
 }
 
-template<typename NQubits, typename NValues>
+template<torch::DeviceType device, typename NQubits, typename NValues>
 auto ensure_interface(torch::Tensor& key, torch::Tensor& value, std::int64_t length_config) -> std::tuple<torch::Tensor, torch::Tensor> {
     std::int64_t length = key.size(0);
     std::int64_t n_qubits = key.size(1);
@@ -357,7 +368,7 @@ auto ensure_interface(torch::Tensor& key, torch::Tensor& value, std::int64_t len
     TORCH_CHECK(value.ndimension() == 2, "value must be a 2D tensor");
     TORCH_CHECK(key.size(0) == value.size(0), "key and value must have the same length");
 
-    std::int64_t size = ensure<NQubits, NValues>(n_qubits, n_values, key, value, length_config);
+    std::int64_t size = ensure<device, NQubits, NValues>(n_qubits, n_values, key, value, length_config);
     auto slice = torch::indexing::Slice(torch::indexing::None, size);
 
     return std::make_tuple(key.index({slice}), value.index({slice}));
@@ -376,10 +387,17 @@ auto ensure_interface(torch::Tensor& key, torch::Tensor& value, std::int64_t len
 
 #if NQUBYTES != 0
 TORCH_LIBRARY_IMPL(QMB_LIBRARY(NQUBYTES), CUDA, m) {
-    m.impl("sort_", sort_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
-    m.impl("merge", merge_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
-    m.impl("reduce", reduce_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
-    m.impl("ensure_", ensure_interface<std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("sort_", sort_interface<torch::kCUDA, std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("merge", merge_interface<torch::kCUDA, std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("reduce", reduce_interface<torch::kCUDA, std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("ensure_", ensure_interface<torch::kCUDA, std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+}
+
+TORCH_LIBRARY_IMPL(QMB_LIBRARY(NQUBYTES), CPU, m) {
+    m.impl("sort_", sort_interface<torch::kCPU, std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("merge", merge_interface<torch::kCPU, std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("reduce", reduce_interface<torch::kCPU, std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
+    m.impl("ensure_", ensure_interface<torch::kCPU, std::integer_sequence<int, NQUBYTES>, std::integer_sequence<int, 1, 2>>);
 }
 #endif
 
