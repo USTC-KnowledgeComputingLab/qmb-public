@@ -76,7 +76,7 @@ class Model(OpenFermionModel):
         # pylint: disable=super-init-not-called
         model_file_name = model_path / f"{model_name}.FCIDUMP.gz"
 
-        checksum = hashlib.sha256(model_file_name.read_bytes()).hexdigest() + "v4"
+        checksum = hashlib.sha256(model_file_name.read_bytes()).hexdigest() + "v5"
         cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
         if cache_file.exists():
             logging.info("Loading FCIDUMP Hamiltonian '%s' from cache", model_name)

@@ -114,10 +114,17 @@ class Hamiltonian:
         self.coef: torch.Tensor
         if isinstance(hamiltonian, dict):
             self.site, self.kind, self.coef = self._prepare(hamiltonian)
+            self._sort_site_kind_coef()
         else:
             self.site, self.kind, self.coef = hamiltonian
         self._relative_impl: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
         self._relative_impl = getattr(self._load_hamiltonian(), kind)
+
+    def _sort_site_kind_coef(self) -> None:
+        order = self.coef.norm(dim=1).argsort(descending=True)
+        self.site = self.site[order]
+        self.kind = self.kind[order]
+        self.coef = self.coef[order]
 
     def _prepare_data(self, device: torch.device) -> None:
         self.site = self.site.to(device=device).contiguous()
