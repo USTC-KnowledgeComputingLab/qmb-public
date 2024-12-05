@@ -308,7 +308,7 @@ class Hamiltonian:
             assert configs_j is not None and psi_j is not None
             if configs_j.nelement() * configs_j.element_size() + psi_j.nelement() * psi_j.element_size() >= max_size:
                 chop_size = len(configs_j) // 2
-                order = psi_j.norm(dim=1).argsort(descending=True)[:chop_size]
+                order = psi_j.norm(dim=1).sort(descending=True).indices[:chop_size].sort().values
                 configs_j = configs_j[order]
                 psi_j = psi_j[order]
         assert configs_j is not None and psi_j is not None
