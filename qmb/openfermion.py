@@ -77,6 +77,23 @@ class Model(ModelProto["Model"]):
     def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool, count_selected: int) -> torch.Tensor:
         return self.hamiltonian.apply_outside(psi_i, configs_i, squared, count_selected)
 
+    def show_config(self, config: torch.Tensor) -> str:
+        string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy())
+        return "[" + "".join(self._show_config_site(string[index * 2:index * 2 + 2]) for index in range(self.n_qubits // 2)) + "]"
+
+    def _show_config_site(self, string: str) -> str:
+        match string:
+            case "00":
+                return " "
+            case "10":
+                return "↑"
+            case "01":
+                return "↓"
+            case "11":
+                return "↕"
+            case _:
+                raise ValueError(f"Invalid string: {string}")
+
 
 model_dict["openfermion"] = Model
 

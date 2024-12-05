@@ -77,5 +77,10 @@ class ModelProto(typing.Protocol[_Model]):
         Applies the outside Hamiltonian to the given vector.
         """
 
+    def show_config(self, config: torch.Tensor) -> str:
+        """
+        Converts a configuration tensor to a string representation.
+        """
+
 
 model_dict: dict[str, typing.Type[ModelProto]] = {}

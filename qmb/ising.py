@@ -231,6 +231,10 @@ class Model(ModelProto["Model"]):
     def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool, count_selected: int) -> torch.Tensor:
         return self.hamiltonian.apply_outside(psi_i, configs_i, squared, count_selected)
 
+    def show_config(self, config: torch.Tensor) -> str:
+        string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy())
+        return "[" + ".".join("".join("↑" if string[i + j * self.m] == "0" else "↓" for i in range(self.m)) for j in range(self.n)) + "]"
+
 
 model_dict["ising"] = Model
 

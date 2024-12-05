@@ -311,7 +311,7 @@ class ImaginaryConfig:
             indices = psi.abs().argsort(descending=True)
             text = []
             for index in indices[:self.logging_psi]:
-                this_config = "".join(f"{i:08b}"[::-1] for i in configs[index].cpu().numpy())
+                this_config = model.show_config(configs[index])
                 logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{psi[index].item():.8f}", f"{amplitudes[index].item():.8f}")
                 text.append(f"Configuration: {this_config}, Target amplitude: {psi[index].item():.8f}, Final amplitude: {amplitudes[index].item():.8f}")
             writer.add_text("config", "\n".join(text), data["imag"]["global"])  # type: ignore[no-untyped-call]
