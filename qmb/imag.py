@@ -224,8 +224,8 @@ class ImaginaryConfig:
                     count_extend=self.krylov_extend_count,
             ).run():
                 logging.info("The current energy is %.10f", target_energy.item())
-                writer.add_scalars("lanczos/value", {"target": target_energy, "ref": model.ref_energy}, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
-                writer.add_scalars("lanczos/error", {"target": target_energy - model.ref_energy, "threshold": 1.6e-3}, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
+                writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
+                writer.add_scalar("imag/lanczos/error", target_energy - model.ref_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 data["imag"]["lanczos"] += 1
             max_index = psi.abs().argmax()
             psi = psi / psi[max_index]
@@ -263,7 +263,7 @@ class ImaginaryConfig:
                 for i in range(self.local_step):
                     loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
-                    writer.add_scalars("loss", {self.loss_name: loss}, local_step)  # type: ignore[no-untyped-call]
+                    writer.add_scalar(f"imag/loss/{self.loss_name}", loss, local_step)  # type: ignore[no-untyped-call]
                     local_step += 1
                     if torch.isnan(loss):
                         logging.warning("Loss is NaN, restoring the previous state and exiting the optimization loop")
@@ -298,9 +298,10 @@ class ImaginaryConfig:
                 model.ref_energy,
                 final_energy.item() - model.ref_energy,
             )
-            step = data["imag"]["global"]
-            writer.add_scalars("energy/value", {"state": final_energy, "target": target_energy, "ref": model.ref_energy}, step)  # type: ignore[no-untyped-call]
-            writer.add_scalars("energy/error", {"state": final_energy - model.ref_energy, "target": target_energy - model.ref_energy, "threshold": 1.6e-3}, step)  # type: ignore[no-untyped-call]
+            writer.add_scalar("imag/energy/state", final_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("imag/energy/target", target_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("imag/error/state", final_energy - model.ref_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("imag/error/target", target_energy - model.ref_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
             logging.info("Displaying the largest amplitudes")
             indices = psi.abs().argsort(descending=True)
             text = []
@@ -308,7 +309,7 @@ class ImaginaryConfig:
                 this_config = "".join(f"{i:08b}"[::-1] for i in configs[index].cpu().numpy())
                 logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{psi[index].item():.8f}", f"{amplitudes[index].item():.8f}")
                 text.append(f"Configuration: {this_config}, Target amplitude: {psi[index].item():.8f}, Final amplitude: {amplitudes[index].item():.8f}")
-            writer.add_text("config", "\n".join(text), step)  # type: ignore[no-untyped-call]
+            writer.add_text("config", "\n".join(text), data["imag"]["global"])  # type: ignore[no-untyped-call]
             writer.flush()  # type: ignore[no-untyped-call]
 
             logging.info("Saving model checkpoint")

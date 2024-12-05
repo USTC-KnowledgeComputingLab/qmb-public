@@ -296,7 +296,7 @@ class LearnConfig:
                 for i in range(self.local_step):
                     loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
-                    writer.add_scalars("loss", {self.loss_name: loss}, local_step)  # type: ignore[no-untyped-call]
+                    writer.add_scalar(f"learn/loss/{self.loss_name}", loss, local_step)  # type: ignore[no-untyped-call]
                     local_step += 1
                     if torch.isnan(loss):
                         logging.warning("Loss is NaN, restoring the previous state and exiting the optimization loop")
@@ -331,9 +331,10 @@ class LearnConfig:
                 model.ref_energy,
                 final_energy.item() - model.ref_energy,
             )
-            step = data["learn"]["global"]
-            writer.add_scalars("energy/value", {"state": final_energy, "target": target_energy, "ref": model.ref_energy}, step)  # type: ignore[no-untyped-call]
-            writer.add_scalars("energy/error", {"state": final_energy - model.ref_energy, "target": target_energy - model.ref_energy, "threshold": 1.6e-3}, step)  # type: ignore[no-untyped-call]
+            writer.add_scalar("learn/energy/state", final_energy, data["learn"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("learn/energy/target", target_energy, data["learn"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("learn/error/state", final_energy - model.ref_energy, data["learn"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("learn/error/target", target_energy - model.ref_energy, data["learn"]["global"])  # type: ignore[no-untyped-call]
             logging.info("Displaying the largest amplitudes")
             indices = psi.abs().argsort(descending=True)
             text = []
@@ -341,7 +342,7 @@ class LearnConfig:
                 this_config = "".join(f"{i:08b}"[::-1] for i in configs[index].cpu().numpy())
                 logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{psi[index].item():.8f}", f"{amplitudes[index].item():.8f}")
                 text.append(f"Configuration: {this_config}, Target amplitude: {psi[index].item():.8f}, Final amplitude: {amplitudes[index].item():.8f}")
-            writer.add_text("config", "\n".join(text), step)  # type: ignore[no-untyped-call]
+            writer.add_text("config", "\n".join(text), data["learn"]["global"])  # type: ignore[no-untyped-call]
             writer.flush()  # type: ignore[no-untyped-call]
 
             logging.info("Saving model checkpoint")

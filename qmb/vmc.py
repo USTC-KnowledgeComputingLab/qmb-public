@@ -167,9 +167,9 @@ class VmcConfig:
                 for i in range(self.local_step):
                     deviation: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step: %d, energy: %.10f, deviation: %.10f", i, deviation.energy.item(), deviation.item())  # type: ignore[attr-defined]
-                    writer.add_scalars("local/value", {"target": deviation.energy, "ref": model.ref_energy}, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
-                    writer.add_scalars("local/error", {"target": deviation.energy - model.ref_energy, "threshold": 1.6e-3}, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
-                    writer.add_scalars("local/deviation", {"value": deviation}, data["vmc"]["local"])  # type: ignore[no-untyped-call]
+                    writer.add_scalar("vmc/energy", deviation.energy, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
+                    writer.add_scalar("vmc/error", deviation.energy - model.ref_energy, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
+                    writer.add_scalar("vmc/deviation", deviation, data["vmc"]["local"])  # type: ignore[no-untyped-call]
                     data["vmc"]["local"] += 1
             else:
 
@@ -211,9 +211,9 @@ class VmcConfig:
                 for i in range(self.local_step):
                     energy: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step: %d, energy: %.10f, deviation: %.10f", i, energy.item(), energy.deviation.item())  # type: ignore[attr-defined]
-                    writer.add_scalars("local/value", {"target": energy, "ref": model.ref_energy}, data["vmc"]["local"])  # type: ignore[no-untyped-call]
-                    writer.add_scalars("local/error", {"target": energy - model.ref_energy, "threshold": 1.6e-3}, data["vmc"]["local"])  # type: ignore[no-untyped-call]
-                    writer.add_scalars("local/deviation", {"value": energy.deviation}, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
+                    writer.add_scalar("vmc/energy", energy, data["vmc"]["local"])  # type: ignore[no-untyped-call]
+                    writer.add_scalar("vmc/error", energy - model.ref_energy, data["vmc"]["local"])  # type: ignore[no-untyped-call]
+                    writer.add_scalar("vmc/deviation", energy.deviation, data["vmc"]["local"])  # type: ignore[no-untyped-call, attr-defined]
                     data["vmc"]["local"] += 1
 
             logging.info("Local optimization process completed")
