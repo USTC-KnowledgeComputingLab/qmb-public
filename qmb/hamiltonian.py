@@ -254,6 +254,16 @@ class Hamiltonian:
         index_i, index_j, coefs, configs_j = self._merge_outside(result, configs_i)
         return index_i, index_j, torch.view_as_complex(coefs), configs_j
 
+    @_collect_and_empty_cache
+    def _chop_apply_outside(
+        self,
+        configs_j: torch.Tensor,
+        psi_j: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        chop_size = configs_j.size(0) // 2
+        order = psi_j.norm(dim=1).sort(descending=True).indices[:chop_size].sort().values
+        return configs_j[order], psi_j[order]
+
     def apply_outside(  # pylint: disable=too-many-arguments
             self,
             psi_i: torch.Tensor,
@@ -307,10 +317,7 @@ class Hamiltonian:
                 configs_j, psi_j = op_reduce(configs_j, psi_j)
             assert configs_j is not None and psi_j is not None
             if configs_j.nelement() * configs_j.element_size() + psi_j.nelement() * psi_j.element_size() >= max_size:
-                chop_size = len(configs_j) // 2
-                order = psi_j.norm(dim=1).sort(descending=True).indices[:chop_size].sort().values
-                configs_j = configs_j[order]
-                psi_j = psi_j[order]
+                configs_j, psi_j = self._chop_apply_outside(configs_j, psi_j)
         assert configs_j is not None and psi_j is not None
         configs_j = torch.cat([configs_i, configs_j])
         psi_j = torch.cat([torch.zeros([configs_i.size(0), psi_j.size(1)], dtype=psi_j.dtype, device=psi_j.device), psi_j])
