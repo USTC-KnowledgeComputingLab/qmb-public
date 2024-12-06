@@ -37,6 +37,8 @@ class CommonConfig:
     job_name: typing.Annotated[str, tyro.conf.arg(aliases=["-J"])] = "main"
     # The manual random seed, leave empty for set seed automatically
     random_seed: typing.Annotated[int | None, tyro.conf.arg(aliases=["-S"])] = None
+    # The interval to save the checkpoint
+    checkpoint_interval: typing.Annotated[int, tyro.conf.arg(aliases=["-I"])] = 5
 
     def folder(self) -> pathlib.Path:
         """
@@ -49,9 +51,12 @@ class CommonConfig:
         """
         Save data to checkpoint.
         """
-        torch.save(data, self.folder() / f"data.{step}.pth")
-        (self.folder() / "data.pth").unlink(missing_ok=True)
-        (self.folder() / "data.pth").symlink_to(f"data.{step}.pth")
+        if step % self.checkpoint_interval == 0:
+            torch.save(data, self.folder() / f"data.{step}.pth")
+            (self.folder() / "data.pth").unlink(missing_ok=True)
+            (self.folder() / "data.pth").symlink_to(f"data.{step}.pth")
+        else:
+            torch.save(data, self.folder() / "data.pth")
 
     def main(self) -> tuple[ModelProto, NetworkProto, typing.Any]:
         """
