@@ -145,6 +145,8 @@ class ImaginaryConfig:
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
     # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
+    # The local batch count used to avoid memory overflow
+    local_batch_count: typing.Annotated[int, tyro.conf.arg(aliases=["-b"])] = 1
     # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"], help_behavior_hint="(default: 10000 for Adam, 1000 for LBFGS)")] = -1
     # The early break loss threshold for local optimization
@@ -177,6 +179,7 @@ class ImaginaryConfig:
             "Global Optimizer: %s, "
             "Use LBFGS: %s, "
             "Learning Rate: %.10f, "
+            "Local Batch Count: %d, "
             "Local Steps: %d, "
             "Local Loss Threshold: %.10f, "
             "Logging Psi: %d",
@@ -188,6 +191,7 @@ class ImaginaryConfig:
             "Yes" if self.global_opt else "No",
             "Yes" if self.use_lbfgs else "No",
             self.learning_rate,
+            self.local_batch_count,
             self.local_step,
             self.local_loss,
             self.logging_psi,
@@ -249,12 +253,34 @@ class ImaginaryConfig:
 
                 def closure() -> torch.Tensor:
                     optimizer.zero_grad()
-                    amplitudes = network(configs)
-                    amplitudes = amplitudes / amplitudes[max_index]
-                    loss = loss_func(amplitudes, psi)
-                    loss.backward()  # type: ignore[no-untyped-call]
-                    loss.amplitudes = amplitudes.detach()  # type: ignore[attr-defined]
-                    return loss
+                    total_size = len(configs)
+                    batch_size = total_size // self.local_batch_count
+                    remainder = total_size % self.local_batch_count
+                    total_loss = 0.0
+                    total_amplitudes = []
+                    for i in range(self.local_batch_count):
+                        if i < remainder:
+                            current_batch_size = batch_size + 1
+                        else:
+                            current_batch_size = batch_size
+                        start_index = i * batch_size + min(i, remainder)
+                        end_index = start_index + current_batch_size
+                        batch_indices = torch.arange(start_index, end_index, device=configs.device, dtype=torch.int64)
+                        psi_batch = psi[batch_indices]
+                        batch_indices = torch.cat((batch_indices, torch.tensor([max_index], device=configs.device, dtype=torch.int64)))
+                        batch_configs = configs[batch_indices]
+                        amplitudes = network(batch_configs)
+                        amplitude_max = amplitudes[-1]
+                        amplitudes = amplitudes[:-1]
+                        amplitudes = amplitudes / amplitude_max
+                        loss = loss_func(amplitudes, psi_batch)
+                        loss = loss * (current_batch_size / total_size)
+                        loss.backward()  # type: ignore[no-untyped-call]
+                        total_loss += loss.item()
+                        total_amplitudes.append(amplitudes.detach())
+                    total_loss_tensor = torch.tensor(total_loss)
+                    total_loss_tensor.amplitudes = torch.cat(total_amplitudes)  # type: ignore[attr-defined]
+                    return total_loss_tensor
 
                 logging.info("Starting local optimization process")
                 success = True
