@@ -28,7 +28,7 @@ class NetworkProto(typing.Protocol):
     def state_dict(self) -> dict[str, torch.Tensor]:
         """torch.nn.Module function"""
 
-    def cuda(self) -> typing.Any:
+    def to(self, device: torch.device) -> typing.Any:
         """torch.nn.Module function"""
 
     def parameters(self) -> typing.Iterable[torch.Tensor]:

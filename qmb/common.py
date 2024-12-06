@@ -39,6 +39,8 @@ class CommonConfig:
     random_seed: typing.Annotated[int | None, tyro.conf.arg(aliases=["-S"])] = None
     # The interval to save the checkpoint
     checkpoint_interval: typing.Annotated[int, tyro.conf.arg(aliases=["-I"])] = 5
+    # The device to run on
+    device: typing.Annotated[torch.device, tyro.conf.arg(aliases=["-D"])] = torch.device(type="cuda", index=0)
 
     def folder(self) -> pathlib.Path:
         """
@@ -114,7 +116,9 @@ class CommonConfig:
             network.load_state_dict(data["network"])
         else:
             logging.info("Skipping loading state dict of the network")
-        logging.info("Moving model to CUDA")
-        network.cuda()
+        logging.info("Moving model to the device: %a", self.device)
+        network.to(device=self.device)
+
+        logging.info("The checkpoints will be saved every %d steps", self.checkpoint_interval)
 
         return model, network, data
