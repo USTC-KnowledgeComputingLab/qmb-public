@@ -47,6 +47,8 @@ class Hamiltonian:
                     f"{folder}/_hamiltonian.cpp",
                     f"{folder}/_hamiltonian_cuda.cu",
                 ],
+                extra_cflags=["-O3", "-ffast-math", "-march=native"],
+                extra_cuda_cflags=["-O3", "--use_fast_math"],
             )
         return cls._hamiltonian_module
 
@@ -61,8 +63,8 @@ class Hamiltonian:
                     f"{folder}/_collection_cuda.cu",
                 ],
                 is_python_module=n_qubytes == 0,
-                extra_cflags=[f"-DNQUBYTES={n_qubytes}"],
-                extra_cuda_cflags=[f"-DNQUBYTES={n_qubytes}"],
+                extra_cflags=["-O3", "-ffast-math", "-march=native", f"-DNQUBYTES={n_qubytes}"],
+                extra_cuda_cflags=["-O3", "--use_fast_math", f"-DNQUBYTES={n_qubytes}"],
             )
         return cls._collection_module[n_qubytes]
 
