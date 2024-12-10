@@ -64,7 +64,10 @@ class _DynamicLanczos:
         """
         Run the dynamic Lanczos algorithm.
         """
-        keep_until = -1
+        if self.count_extend == 0:
+            keep_until = self.step
+        else:
+            keep_until = -1
         while True:
             alpha, beta, v, hamiltonian, completed = self._run(keep_until=keep_until)
             if len(beta) != 0:
