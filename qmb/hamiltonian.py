@@ -203,7 +203,8 @@ class Hamiltonian:
         # Parameters
         # configs_i : bool[src_size, n_qubits]
         # Returns
-        # index_i_and_j : int64[..., 2]
+        # index_i : int64[...]
+        # index_j : int64[...]
         # coefs : complex128[...]
 
         result: list[_Inside] = []
