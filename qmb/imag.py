@@ -219,7 +219,7 @@ class ImaginaryConfig:
             configs, psi, _, _ = network.generate_unique(self.sampling_count)
             import os
             C = os.environ["C"]
-            torch.save((configs, psi, model.hamiltonian.site, model.hamiltonian.kind, model.hamiltonian.coef), f"C{C}.pth")
+            torch.save((configs, psi, model.hamiltonian.site, model.hamiltonian.kind, model.hamiltonian.coef), f"{C}.pth")
             exit()
             logging.info("Sampling completed")
 

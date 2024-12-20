@@ -202,7 +202,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
         return torch.view_as_complex(torch.stack([total_amplitude, total_phase], dim=-1)).exp()
 
-    @torch.jit.ignore
+    @torch.jit.export
     def generate_unique(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate configurations uniquely.
@@ -215,16 +215,11 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         dtype: torch.dtype = self.dummy_param.dtype
 
         # x: local_batch_size * current_site * 2
-        #x: torch.Tensor = torch.empty([1, 0, 2], device=device, dtype=torch.uint8)
-        import os
-        C = int(os.environ["C"])
-        x: torch.Tensor = torch.tensor([[[C&1!=0,C&2!=0],[C&4!=0,C&8!=0]]], device=device, dtype=torch.uint8)
+        x: torch.Tensor = torch.empty([1, 0, 2], device=device, dtype=torch.uint8)
         # (un)perturbed_log_probability : local_batch_size
         unperturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         perturbed_probability: torch.Tensor = torch.tensor([0], dtype=dtype, device=device)
         for i, amplitude_m in enumerate(self.amplitude):
-            if i == 0 or i == 1:
-                continue
             local_batch_size: int = x.shape[0]
             x_float: torch.Tensor = x.to(dtype=dtype)
 
