@@ -60,21 +60,14 @@ class ModelProto(typing.Protocol[_Model]):
         The `parse` method is used to parse the arguments and return an instance of the model.
         """
 
-    def inside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def apply_within(self, configs_i: torch.Tensor, psi_i: torch.Tensor, configs_j: torch.Tensor) -> torch.Tensor:
         """
-        Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
-        This function only considers the terms that are within the configuration subspace.
-        """
-
-    def outside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Applies the Hamiltonian to the given configuration and obtains the resulting sparse Hamiltonian matrix block within the configuration subspace.
-        This function considers both the inside and outside configurations, ensuring that the input configurations are the first `batch_size` configurations in the result.
+        Applies the Hamiltonian to the given vector.
         """
 
-    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool, count_selected: int) -> torch.Tensor:
+    def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int) -> torch.Tensor:
         """
-        Applies the outside Hamiltonian to the given vector.
+        Find relative configurations to the given configurations.
         """
 
     def show_config(self, config: torch.Tensor) -> str:

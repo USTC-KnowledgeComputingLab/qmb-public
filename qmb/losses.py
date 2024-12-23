@@ -37,36 +37,24 @@ def hybrid(s: torch.Tensor, t: torch.Tensor, min_magnitude: float = 1e-12) -> to
     # For example, we want the effort for changes from -1 to +1 to be similar to that from -0.1 to +0.1.
     # Therefore, the angle difference should be multiplied by a factor that is constant at 1 near large values but linearly converges to 0 near small values.
 
-    if torch.is_complex(s):  # pylint: disable=no-else-return
-        s_abs = torch.sqrt(s.real**2 + s.imag**2)
-        t_abs = torch.sqrt(t.real**2 + t.imag**2)
+    s_abs = torch.sqrt(s.real**2 + s.imag**2)
+    t_abs = torch.sqrt(t.real**2 + t.imag**2)
 
-        s_angle = torch.atan2(s.imag, s.real)
-        t_angle = torch.atan2(t.imag, t.real)
+    s_angle = torch.atan2(s.imag, s.real)
+    t_angle = torch.atan2(t.imag, t.real)
 
-        s_magnitude = _scaled_abs(s_abs, min_magnitude)
-        t_magnitude = _scaled_abs(t_abs, min_magnitude)
+    s_magnitude = _scaled_abs(s_abs, min_magnitude)
+    t_magnitude = _scaled_abs(t_abs, min_magnitude)
 
-        error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
-        error_imag = (s_angle - t_angle) / (2 * torch.pi)
-        error_imag = error_imag - error_imag.round()
+    error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
+    error_imag = (s_angle - t_angle) / (2 * torch.pi)
+    error_imag = error_imag - error_imag.round()
 
-        scale = torch.where(s_abs > t_abs, s_abs, t_abs)
-        error_imag = error_imag * _scaled_angle(scale, min_magnitude)
+    scale = torch.where(s_abs > t_abs, s_abs, t_abs)
+    error_imag = error_imag * _scaled_angle(scale, min_magnitude)
 
-        loss = error_real**2 + error_imag**2
-        return loss.mean()
-    else:
-        s_abs = torch.abs(s)
-        t_abs = torch.abs(t)
-
-        s_magnitude = _scaled_abs(s_abs, min_magnitude) - (math.log(min_magnitude) - 1)
-        t_magnitude = _scaled_abs(t_abs, min_magnitude) - (math.log(min_magnitude) - 1)
-
-        error_real = (s_magnitude * s.sign() - t_magnitude * t.sign()) / (2 * torch.pi)
-
-        loss = error_real**2
-        return loss.mean()
+    loss = error_real**2 + error_imag**2
+    return loss.mean()
 
 
 @torch.jit.script
@@ -87,78 +75,6 @@ def log(s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
     error_imag = (s_angle - t_angle) / (2 * torch.pi)
     error_imag = error_imag - error_imag.round()
 
-    loss = error_real**2 + error_imag**2
-    return loss.mean()
-
-
-@torch.jit.script
-def target_reweighted_log(s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-    """
-    Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
-    but reweighted by the abs of the target wave function.
-    """
-    s_abs = torch.sqrt(s.real**2 + s.imag**2)
-    t_abs = torch.sqrt(t.real**2 + t.imag**2)
-
-    s_angle = torch.atan2(s.imag, s.real)
-    t_angle = torch.atan2(t.imag, t.real)
-
-    s_magnitude = torch.log(s_abs)
-    t_magnitude = torch.log(t_abs)
-
-    error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
-    error_imag = (s_angle - t_angle) / (2 * torch.pi)
-    error_imag = error_imag - error_imag.round()
-
-    loss = error_real**2 + error_imag**2
-    loss = loss * t_abs
-    return loss.mean()
-
-
-@torch.jit.script
-def target_filtered_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: float = 1e-10) -> torch.Tensor:
-    """
-    Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
-    but filtered by the abs of the target wave function.
-    """
-    s_abs = torch.sqrt(s.real**2 + s.imag**2)
-    t_abs = torch.sqrt(t.real**2 + t.imag**2)
-
-    s_angle = torch.atan2(s.imag, s.real)
-    t_angle = torch.atan2(t.imag, t.real)
-
-    s_magnitude = torch.log(s_abs)
-    t_magnitude = torch.log(t_abs)
-
-    error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
-    error_imag = (s_angle - t_angle) / (2 * torch.pi)
-    error_imag = error_imag - error_imag.round()
-
-    loss = error_real**2 + error_imag**2
-    loss = loss * _scaled_angle(t_abs, filter_threshold)
-    return loss.mean()
-
-
-@torch.jit.script
-def target_filtered_angle_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: float = 1e-10) -> torch.Tensor:
-    """
-    Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
-    but angle only filtered by the abs of the target wave function.
-    """
-    s_abs = torch.sqrt(s.real**2 + s.imag**2)
-    t_abs = torch.sqrt(t.real**2 + t.imag**2)
-
-    s_angle = torch.atan2(s.imag, s.real)
-    t_angle = torch.atan2(t.imag, t.real)
-
-    s_magnitude = torch.log(s_abs)
-    t_magnitude = torch.log(t_abs)
-
-    error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
-    error_imag = (s_angle - t_angle) / (2 * torch.pi)
-    error_imag = error_imag - error_imag.round()
-
-    error_imag = error_imag * _scaled_angle(t_abs, filter_threshold)
     loss = error_real**2 + error_imag**2
     return loss.mean()
 
@@ -188,7 +104,7 @@ def sum_reweighted_log(s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
 
 
 @torch.jit.script
-def sum_filtered_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: float = 1e-10) -> torch.Tensor:
+def sum_filtered_log(s: torch.Tensor, t: torch.Tensor, min_magnitude: float = 1e-10) -> torch.Tensor:
     """
     Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
     but filtered by the sum of the abs of the current state wave function and the target wave function.
@@ -207,12 +123,36 @@ def sum_filtered_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: float =
     error_imag = error_imag - error_imag.round()
 
     loss = error_real**2 + error_imag**2
-    loss = loss * _scaled_angle(t_abs + s_abs, filter_threshold)
+    loss = loss * _scaled_angle(t_abs + s_abs, min_magnitude)
     return loss.mean()
 
 
 @torch.jit.script
-def sum_filtered_angle_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: float = 1e-10) -> torch.Tensor:
+def sum_reweighted_angle_log(s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
+    but angle only reweighted by the sum of the abs of the current state wave function and the target wave function.
+    """
+    s_abs = torch.sqrt(s.real**2 + s.imag**2)
+    t_abs = torch.sqrt(t.real**2 + t.imag**2)
+
+    s_angle = torch.atan2(s.imag, s.real)
+    t_angle = torch.atan2(t.imag, t.real)
+
+    s_magnitude = torch.log(s_abs)
+    t_magnitude = torch.log(t_abs)
+
+    error_real = (s_magnitude - t_magnitude) / (2 * torch.pi)
+    error_imag = (s_angle - t_angle) / (2 * torch.pi)
+    error_imag = error_imag - error_imag.round()
+
+    error_imag = error_imag * (t_abs + s_abs)
+    loss = error_real**2 + error_imag**2
+    return loss.mean()
+
+
+@torch.jit.script
+def sum_filtered_angle_log(s: torch.Tensor, t: torch.Tensor, min_magnitude: float = 1e-10) -> torch.Tensor:
     """
     Calculate the loss based on the difference between the log of the current state wave function and the target wave function,
     but angle only filtered by the sum of the abs of the current state wave function and the target wave function.
@@ -230,7 +170,7 @@ def sum_filtered_angle_log(s: torch.Tensor, t: torch.Tensor, filter_threshold: f
     error_imag = (s_angle - t_angle) / (2 * torch.pi)
     error_imag = error_imag - error_imag.round()
 
-    error_imag = error_imag * _scaled_angle(t_abs + s_abs, filter_threshold)
+    error_imag = error_imag * _scaled_angle(t_abs + s_abs, min_magnitude)
     loss = error_real**2 + error_imag**2
     return loss.mean()
 
@@ -240,11 +180,6 @@ def direct(s: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
     """
     Calculate the loss based on the difference between the current state wave function and the target wave function directly.
     """
-    if torch.is_complex(s):  # pylint: disable=no-else-return
-        error = s - t
-        loss = error.real**2 + error.imag**2
-        return loss.mean()
-    else:
-        error = s - t
-        loss = error**2
-        return loss.mean()
+    error = s - t
+    loss = error.real**2 + error.imag**2
+    return loss.mean()

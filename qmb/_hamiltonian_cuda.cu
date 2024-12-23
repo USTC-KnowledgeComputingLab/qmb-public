@@ -14,11 +14,41 @@
 
 #include <c10/cuda/CUDAStream.h>
 #include <cuda_runtime.h>
+#include <thrust/sort.h>
 #include <torch/extension.h>
 
 namespace qmb_hamiltonian_cuda {
 
 constexpr torch::DeviceType device = torch::kCUDA;
+
+template<typename T, int size>
+struct array_less {
+    __host__ __device__ bool operator()(const std::array<T, size>& lhs, const std::array<T, size>& rhs) const {
+        for (auto i = 0; i < size; ++i) {
+            if (lhs[i] < rhs[i]) {
+                return true;
+            }
+            if (lhs[i] > rhs[i]) {
+                return false;
+            }
+        }
+        return false;
+    }
+};
+
+template<typename T, int size>
+struct array_square_greater {
+    __host__ __device__ T square(const std::array<T, size>& value) const {
+        T result = 0;
+        for (auto i = 0; i < size; ++i) {
+            result += value[i] * value[i];
+        }
+        return result;
+    }
+    __host__ __device__ bool operator()(const std::array<T, size>& lhs, const std::array<T, size>& rhs) const {
+        return square(lhs) > square(rhs);
+    }
+};
 
 __device__ bool get_bit(std::uint8_t* data, int index) {
     return ((*data) & (1 << index)) >> index;
@@ -32,234 +62,455 @@ __device__ bool set_bit(std::uint8_t* data, int index, bool value) {
     }
 }
 
-// The search kernel is designed for iterating over Hamiltonian terms in quantum many-body systems.
-// Each thread processes a single term of the Hamiltonian and a single configuration within the batch.
-// The parameter `max_op_number` typically has a value of 4, indicating the maximum number of operations for all terms in the Hamiltonian.
-// The parameter `particle_cut` differentiates between fermion and boson systems:
-//   - A value of 1 for `particle_cut` corresponds to a fermion system.
-//   - A value of 2 or greater for `particle_cut` designates a boson system with a specific particle cutoff, applicable to various spin systems,
-//     notably including spin-1/2 systems where particle_cut = 2.
-// The `site` and `kind` tensors are expected to have a shape of [term_number, max_op_number],
-// where `term_number` represents the number of terms in the Hamiltonian
-// and `max_op_number` is the maximum number of operations for all terms.
-// The `coef` tensor has a shape of [term_number, 2], with the second dimension representing the real and imaginary parts of the coefficient.
-// This structure is chosen because the C++ API of PyTorch does not support complex numbers well.
-// The `configs_j_matrix` and `coefs_matrix` tensors are output matrices.
-// The `configs_j_matrix` has a shape of [batch_size, term_number, n_qubits],
-// The `coefs_matrix` tensor is structured as [batch_size, term_number, 2],
-// where the last dimension delineates the real and imaginary components of the coefficients.
-template<std::int64_t max_op_number, std::int64_t particle_cut>
-__device__ void search_kernel(
+template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
+__device__ std::pair<bool, bool> hamiltonian_apply_kernel(
+    std::array<std::uint8_t, n_qubytes>& current_configs,
     std::int64_t term_index,
     std::int64_t batch_index,
-    std::int64_t batch_size,
-    std::int64_t term_number,
-    torch::PackedTensorAccessor64<std::int16_t, 2>& site_accesor,
-    torch::PackedTensorAccessor64<std::uint8_t, 2>& kind_accesor,
-    torch::PackedTensorAccessor64<double, 2>& coef_accesor,
-    torch::PackedTensorAccessor64<std::uint8_t, 3>& configs_j_matrix_accesor,
-    torch::PackedTensorAccessor64<double, 3>& coefs_matrix_accesor
+    const std::array<std::int16_t, max_op_number>* site, // term_number
+    const std::array<std::uint8_t, max_op_number>* kind // term_number
 ) {
-    if constexpr (particle_cut == 1) {
-        // Occasionally, such as when attempting to annihilate on a vacuum state, the state may become zero. In such cases, we need to skip these
-        // terms.
-        bool success = true;
-        // The parity is crucial when applying fermion operators to the state, due to the anti-commutation rules of fermions.
-        bool parity = false;
-        // Apply the operators in reverse order to the state.
-#pragma unroll
-        for (auto op_index = max_op_number; op_index-- > 0;) {
-            auto site_single = site_accesor[term_index][op_index];
-            auto kind_single = kind_accesor[term_index][op_index];
-            // When `kind_single` equals 2, it represents an empty operator, effectively an identity operation that has no impact on the state.
-            // Thus, we proceed to process the next operation in the sequence.
-            if (kind_single == 2) {
-                continue;
-            }
-            // When `kind_single` is 1, it represents a creation operator, and when it is 0, it represents an annihilation operator.
-            // We must verify whether the state is already occupied or vacant, and adjust the state accordingly.
-            auto to_what = kind_single;
-            if (get_bit(&configs_j_matrix_accesor[term_index][batch_index][site_single / 8], site_single % 8) == to_what) {
-                success = false;
-                break;
-            }
-            set_bit(&configs_j_matrix_accesor[term_index][batch_index][site_single / 8], site_single % 8, to_what);
-            // Calculate the parity by summing the parity of the particle number up to the current site.
+    static_assert(particle_cut == 1 || particle_cut == 2, "particle_cut != 1 or 2 not implemented");
+    bool success = true;
+    bool parity = false;
+    for (auto op_index = max_op_number; op_index-- > 0;) {
+        auto site_single = site[term_index][op_index];
+        auto kind_single = kind[term_index][op_index];
+        if (kind_single == 2) {
+            continue;
+        }
+        auto to_what = kind_single;
+        if (get_bit(&current_configs[site_single / 8], site_single % 8) == to_what) {
+            success = false;
+            break;
+        }
+        set_bit(&current_configs[site_single / 8], site_single % 8, to_what);
+        if constexpr (particle_cut == 1) {
             for (auto s = 0; s < site_single; ++s) {
-                parity ^= get_bit(&configs_j_matrix_accesor[term_index][batch_index][s / 8], s % 8);
+                parity ^= get_bit(&current_configs[s / 8], s % 8);
             }
         }
-        // Upon successful completion, store the coefficients in the `coefs_matrix` tensor.
-        // This involves applying the sign to both the real and imaginary parts of the coefficients.
-        // The configuration matrix `configs_j` has already been computed in the preceding steps.
-        if (success) {
-            std::int8_t sign = parity ? -1 : +1;
-            coefs_matrix_accesor[term_index][batch_index][0] = sign * coef_accesor[term_index][0];
-            coefs_matrix_accesor[term_index][batch_index][1] = sign * coef_accesor[term_index][1];
-        }
-    } else if constexpr (particle_cut == 2) {
-        // For the boson case with a particle cutoff of 2, the operations are identical to those in the fermion case,
-        // with the notable exception that parity considerations are not required.
-        bool success = true;
-#pragma unroll
-        for (auto op_index = max_op_number; op_index-- > 0;) {
-            auto site_single = site_accesor[term_index][op_index];
-            auto kind_single = kind_accesor[term_index][op_index];
-            if (kind_single == 2) {
-                continue;
-            }
-            auto to_what = kind_single;
-            if (get_bit(&configs_j_matrix_accesor[term_index][batch_index][site_single / 8], site_single % 8) == to_what) {
-                success = false;
-                break;
-            }
-            set_bit(&configs_j_matrix_accesor[term_index][batch_index][site_single / 8], site_single % 8, to_what);
-        }
-        if (success) {
-            coefs_matrix_accesor[term_index][batch_index][0] = coef_accesor[term_index][0];
-            coefs_matrix_accesor[term_index][batch_index][1] = coef_accesor[term_index][1];
-        }
-    } else {
-        static_assert(particle_cut <= 2, "particle_cut > 2 not implemented");
     }
+    return std::make_pair(success, parity);
 }
 
-// The kernel interface for invoking the `search_kernel`.
-// This interface is responsible for calculating the `term_index` and `batch_index` based on the block and thread indices.
-template<std::int64_t max_op_number, std::int64_t particle_cut>
-__global__ void search_kernel_interface(
+template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
+__device__ void apply_within_kernel(
+    std::int64_t term_index,
+    std::int64_t batch_index,
     std::int64_t term_number,
     std::int64_t batch_size,
-    torch::PackedTensorAccessor64<std::int16_t, 2> site_accesor,
-    torch::PackedTensorAccessor64<std::uint8_t, 2> kind_accesor,
-    torch::PackedTensorAccessor64<double, 2> coef_accesor,
-    torch::PackedTensorAccessor64<std::uint8_t, 3> configs_j_matrix_accesor,
-    torch::PackedTensorAccessor64<double, 3> coefs_matrix_accesor
+    std::int64_t result_batch_size,
+    const std::array<std::int16_t, max_op_number>* site, // term_number
+    const std::array<std::uint8_t, max_op_number>* kind, // term_number
+    const std::array<double, 2>* coef, // term_number
+    const std::array<std::uint8_t, n_qubytes>* configs, // batch_size
+    const std::array<double, 2>* psi, // batch_size
+    const std::array<std::uint8_t, n_qubytes>* result_configs, // result_batch_size
+    std::array<double, 2>* result_psi
+) {
+    std::array<std::uint8_t, n_qubytes> current_configs = configs[batch_index];
+    auto [success, parity] = hamiltonian_apply_kernel<max_op_number, n_qubytes, particle_cut>(current_configs, term_index, batch_index, site, kind);
+
+    if (!success) {
+        return;
+    }
+    success = false;
+    std::int64_t low = 0;
+    std::int64_t high = result_batch_size - 1;
+    std::int64_t mid = 0;
+    auto compare = array_less<std::uint8_t, n_qubytes>();
+    while (low <= high) {
+        mid = (low + high) / 2;
+        if (compare(current_configs, result_configs[mid])) {
+            high = mid - 1;
+        } else if (compare(result_configs[mid], current_configs)) {
+            low = mid + 1;
+        } else {
+            success = true;
+            break;
+        }
+    }
+    if (!success) {
+        return;
+    }
+    std::int8_t sign = parity ? -1 : +1;
+    atomicAdd(&result_psi[mid][0], sign * (coef[term_index][0] * psi[batch_index][0] - coef[term_index][1] * psi[batch_index][1]));
+    atomicAdd(&result_psi[mid][1], sign * (coef[term_index][0] * psi[batch_index][1] + coef[term_index][1] * psi[batch_index][0]));
+}
+
+template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
+__global__ void apply_within_kernel_interface(
+    std::int64_t term_number,
+    std::int64_t batch_size,
+    std::int64_t result_batch_size,
+    const std::array<std::int16_t, max_op_number>* site, // term_number
+    const std::array<std::uint8_t, max_op_number>* kind, // term_number
+    const std::array<double, 2>* coef, // term_number
+    const std::array<std::uint8_t, n_qubytes>* configs, // batch_size
+    const std::array<double, 2>* psi, // batch_size
+    const std::array<std::uint8_t, n_qubytes>* result_configs, // result_batch_size
+    std::array<double, 2>* result_psi
 ) {
     int term_index = blockIdx.x * blockDim.x + threadIdx.x;
     int batch_index = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (term_index < term_number && batch_index < batch_size) {
-        search_kernel<max_op_number, particle_cut>(
+        apply_within_kernel<max_op_number, n_qubytes, particle_cut>(
             term_index,
             batch_index,
-            batch_size,
             term_number,
-            site_accesor,
-            kind_accesor,
-            coef_accesor,
-            configs_j_matrix_accesor,
-            coefs_matrix_accesor
+            batch_size,
+            result_batch_size,
+            site,
+            kind,
+            coef,
+            configs,
+            psi,
+            result_configs,
+            result_psi
         );
     }
 }
 
-std::int64_t int_sqrt(std::int64_t x) {
-    for (std::int64_t i = 0;; ++i) {
-        if (1 << (2 * i) > x) {
-            return 1 << (i - 1);
-        }
-    }
-}
+template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
+auto apply_within_interface(
+    const torch::Tensor& configs,
+    const torch::Tensor& psi,
+    const torch::Tensor& result_configs,
+    const torch::Tensor& site,
+    const torch::Tensor& kind,
+    const torch::Tensor& coef
+) -> torch::Tensor {
+    std::int64_t device_id = configs.device().index();
+    std::int64_t batch_size = configs.size(0);
+    std::int64_t result_batch_size = result_configs.size(0);
+    std::int64_t term_number = site.size(0);
 
-// Launch the search kernel, specifying the grid and block dimensions.
-// We utilize the term index for the x-axis and the batch index for the y-axis.
-// Each block consists of sqrt(max_threads_per_block) threads along the x-axis and sqrt(max_threads_per_block) threads along the y-axis.
-template<std::int64_t max_op_number, std::int64_t particle_cut>
-void launch_search_kernel(
-    std::int64_t term_number,
-    std::int64_t batch_size,
-    torch::PackedTensorAccessor64<std::int16_t, 2>& site_accesor,
-    torch::PackedTensorAccessor64<std::uint8_t, 2>& kind_accesor,
-    torch::PackedTensorAccessor64<double, 2>& coef_accesor,
-    torch::PackedTensorAccessor64<std::uint8_t, 3>& configs_j_matrix_accesor,
-    torch::PackedTensorAccessor64<double, 3>& coefs_matrix_accesor,
-    std::int64_t device_id
-) {
+    auto stream = at::cuda::getCurrentCUDAStream(device_id);
+    auto policy = thrust::device.on(stream);
+
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, device_id);
     std::int64_t max_threads_per_block = prop.maxThreadsPerBlock;
-    std::int64_t sqrt_max_threads_per_block = int_sqrt(max_threads_per_block);
 
-    auto threads_per_block = dim3{sqrt_max_threads_per_block, sqrt_max_threads_per_block};
+    auto sorted_result_configs = result_configs.clone(torch::MemoryFormat::Contiguous);
+    auto result_sort_index = torch::arange(result_batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device, device_id));
+    auto sorted_result_psi = torch::zeros({result_batch_size, 2}, torch::TensorOptions().dtype(torch::kDouble).device(device, device_id));
+
+    thrust::sort_by_key(
+        policy,
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()),
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()) + result_batch_size,
+        reinterpret_cast<std::int64_t*>(result_sort_index.data_ptr()),
+        array_less<std::uint8_t, n_qubytes>()
+    );
+
+    auto threads_per_block = dim3{1, max_threads_per_block >> 1}; // I don't know why, but need to divide by 2 to avoid errors
     auto num_blocks = dim3{
         (std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x,
         (std::int32_t(batch_size) + threads_per_block.y - 1) / threads_per_block.y
     };
-    search_kernel_interface<max_op_number, particle_cut><<<num_blocks, threads_per_block, 0, at::cuda::getCurrentCUDAStream(device_id)>>>(
+
+    apply_within_kernel_interface<max_op_number, n_qubytes, particle_cut><<<num_blocks, threads_per_block, 0, stream>>>(
         term_number,
         batch_size,
-        site_accesor,
-        kind_accesor,
-        coef_accesor,
-        configs_j_matrix_accesor,
-        coefs_matrix_accesor
+        result_batch_size,
+        reinterpret_cast<const std::array<std::int16_t, max_op_number>*>(site.data_ptr()),
+        reinterpret_cast<const std::array<std::uint8_t, max_op_number>*>(kind.data_ptr()),
+        reinterpret_cast<const std::array<double, 2>*>(coef.data_ptr()),
+        reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(configs.data_ptr()),
+        reinterpret_cast<const std::array<double, 2>*>(psi.data_ptr()),
+        reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()),
+        reinterpret_cast<std::array<double, 2>*>(sorted_result_psi.data_ptr())
     );
+    cudaStreamSynchronize(stream);
 
-    cudaDeviceSynchronize();
+    auto result_psi = torch::zeros_like(sorted_result_psi);
+    result_psi.index_put_({result_sort_index}, sorted_result_psi);
+    return result_psi;
 }
 
-// This function computes the relative configurations and coefficients based on a given set of input configurations.
-// It applies the Hamiltonian terms to the input configurations and evaluate the coefficients accordingly.
-// The function returns the indices of the valid input configurations, the corresponding output configurations, and the coefficients.
-// The last three arguments are prepared by the `prepare` function and stored on the Python side.
-// Refer to `_hamiltonian.cpp` for additional details and context.
-template<std::int64_t max_op_number, std::int64_t particle_cut>
-auto python_interface(torch::Tensor configs_i, torch::Tensor site, torch::Tensor kind, torch::Tensor coef) {
-    std::int64_t device_id = configs_i.device().index();
-    std::int64_t batch_size = configs_i.size(0);
-    std::int64_t n_qubits = configs_i.size(1);
+constexpr std::uint64_t max_uint8_t = 256;
+using largest_atomic_int = unsigned int;
+using smallest_atomic_int = unsigned short int;
+
+template<std::int64_t n_qubytes>
+struct dictionary_tree {
+    using child_t = dictionary_tree<n_qubytes - 1>;
+    child_t* children[max_uint8_t];
+    smallest_atomic_int exist[max_uint8_t];
+    largest_atomic_int nonzero_count;
+
+    __device__ bool add(std::uint8_t* begin, double real, double imag) {
+        std::uint8_t index = *begin;
+        if (children[index] == nullptr) {
+            if (atomicCAS(&exist[index], smallest_atomic_int(0), smallest_atomic_int(1))) {
+                while (atomicCAS((largest_atomic_int*)&children[index], largest_atomic_int(0), largest_atomic_int(0)) == 0) {
+                }
+            } else {
+                auto new_child = (child_t*)malloc(sizeof(child_t));
+                memset(new_child, 0, sizeof(child_t));
+                children[index] = new_child;
+                __threadfence();
+            }
+        }
+        if (children[index]->add(begin + 1, real, imag)) {
+            atomicAdd(&nonzero_count, 1);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    template<std::int64_t n_total_qubytes>
+    __device__ bool collect(std::uint64_t index, std::array<std::uint8_t, n_total_qubytes>* configs, std::array<double, 2>* psi) {
+        std::uint64_t size_counter = 0;
+        for (auto i = 0; i < max_uint8_t; ++i) {
+            if (exist[i]) {
+                std::uint64_t new_size_counter = size_counter + children[i]->nonzero_count;
+                if (new_size_counter > index) {
+                    std::uint64_t new_index = index - size_counter;
+                    configs[index][n_total_qubytes - n_qubytes] = i;
+                    bool empty = children[i]->collect<n_total_qubytes>(new_index, &configs[size_counter], &psi[size_counter]);
+                    if (empty) {
+                        free(children[i]);
+                        children[i] = nullptr;
+                        if (!atomicSub(&nonzero_count, 1)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                size_counter += children[i]->nonzero_count;
+            }
+        }
+        return !atomicSub(&nonzero_count, 1);
+    }
+};
+
+template<>
+struct dictionary_tree<1> {
+    double values[max_uint8_t][2];
+    smallest_atomic_int exist[max_uint8_t];
+    largest_atomic_int nonzero_count;
+
+    __device__ bool add(std::uint8_t* begin, double real, double imag) {
+        std::uint8_t index = *begin;
+        atomicAdd(&values[index][0], real);
+        atomicAdd(&values[index][1], imag);
+        if (atomicCAS(&exist[index], smallest_atomic_int(0), smallest_atomic_int(1))) {
+            return false;
+        } else {
+            atomicAdd(&nonzero_count, 1);
+            return true;
+        }
+    }
+
+    template<std::int64_t n_total_qubytes>
+    __device__ bool collect(std::uint64_t index, std::array<std::uint8_t, n_total_qubytes>* configs, std::array<double, 2>* psi) {
+        std::uint64_t size_counter = 0;
+        for (auto i = 0; i < max_uint8_t; ++i) {
+            if (exist[i]) {
+                if (size_counter == index) {
+                    configs[index][n_total_qubytes - 1] = i;
+                    psi[index][0] = values[i][0];
+                    psi[index][1] = values[i][1];
+                    return !atomicSub(&nonzero_count, 1);
+                }
+                size_counter += 1;
+            }
+        }
+    }
+};
+
+template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
+__device__ void find_relative_kernel(
+    std::int64_t term_index,
+    std::int64_t batch_index,
+    std::int64_t term_number,
+    std::int64_t batch_size,
+    const std::array<std::int16_t, max_op_number>* site, // term_number
+    const std::array<std::uint8_t, max_op_number>* kind, // term_number
+    const std::array<double, 2>* coef, // term_number
+    const std::array<std::uint8_t, n_qubytes>* configs, // batch_size
+    const std::array<double, 2>* psi, // batch_size
+    dictionary_tree<n_qubytes>* result_tree
+) {
+    std::array<std::uint8_t, n_qubytes> current_configs = configs[batch_index];
+    auto [success, parity] = hamiltonian_apply_kernel<max_op_number, n_qubytes, particle_cut>(current_configs, term_index, batch_index, site, kind);
+
+    if (!success) {
+        return;
+    }
+    success = true;
+    std::int64_t low = 0;
+    std::int64_t high = batch_size - 1;
+    std::int64_t mid = 0;
+    auto compare = array_less<std::uint8_t, n_qubytes>();
+    while (low <= high) {
+        mid = (low + high) / 2;
+        if (compare(current_configs, configs[mid])) {
+            high = mid - 1;
+        } else if (compare(configs[mid], current_configs)) {
+            low = mid + 1;
+        } else {
+            success = false;
+            break;
+        }
+    }
+    if (!success) {
+        return;
+    }
+    std::int8_t sign = parity ? -1 : +1;
+    result_tree->add(
+        current_configs.data(),
+        sign * (coef[term_index][0] * psi[batch_index][0] - coef[term_index][1] * psi[batch_index][1]),
+        sign * (coef[term_index][0] * psi[batch_index][1] + coef[term_index][1] * psi[batch_index][0])
+    );
+}
+
+template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
+__global__ void find_relative_kernel_interface(
+    std::int64_t term_number,
+    std::int64_t batch_size,
+    const std::array<std::int16_t, max_op_number>* site, // term_number
+    const std::array<std::uint8_t, max_op_number>* kind, // term_number
+    const std::array<double, 2>* coef, // term_number
+    const std::array<std::uint8_t, n_qubytes>* configs, // batch_size
+    const std::array<double, 2>* psi, // batch_size
+    dictionary_tree<n_qubytes>* result_tree
+) {
+    int term_index = blockIdx.x * blockDim.x + threadIdx.x;
+    int batch_index = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (term_index < term_number && batch_index < batch_size) {
+        find_relative_kernel<max_op_number, n_qubytes, particle_cut>(
+            term_index,
+            batch_index,
+            term_number,
+            batch_size,
+            site,
+            kind,
+            coef,
+            configs,
+            psi,
+            result_tree
+        );
+    }
+}
+
+template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
+__global__ void collect_kernel_interface(
+    std::uint64_t result_size,
+    dictionary_tree<n_qubytes>* result_tree,
+    std::array<std::uint8_t, n_qubytes>* configs,
+    std::array<double, 2>* psi
+) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index < result_size) {
+        result_tree->collect<n_qubytes>(index, configs, psi);
+    }
+}
+
+template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
+auto find_relative_interface(
+    const torch::Tensor& configs,
+    const torch::Tensor& psi,
+    const std::int64_t count_selected,
+    const torch::Tensor& site,
+    const torch::Tensor& kind,
+    const torch::Tensor& coef
+) -> torch::Tensor {
+    std::int64_t device_id = configs.device().index();
+    std::int64_t batch_size = configs.size(0);
     std::int64_t term_number = site.size(0);
 
-    // configs_j_matrix: A uint8 tensor of shape [term_number, batch_size, n_qubits],
-    // that captures the modifications to the input configurations by applying each term in the Hamiltonian.
-    auto configs_j_matrix = configs_i.unsqueeze(0).repeat(std::initializer_list<std::int64_t>{term_number, 1, 1});
-    // coefs_matrix: A tensor of shape [term_number, batch_size, 2] initialized to zero.
-    auto coefs_matrix = torch::zeros({term_number, batch_size, 2}, torch::TensorOptions().dtype(torch::kDouble).device(device, device_id));
-    // Obtain accessors for each relevant tensor to facilitate efficient data access within the kernel.
-    auto site_accesor = site.template packed_accessor64<std::int16_t, 2>();
-    auto kind_accesor = kind.template packed_accessor64<std::uint8_t, 2>();
-    auto coef_accesor = coef.template packed_accessor64<double, 2>();
-    auto configs_j_matrix_accesor = configs_j_matrix.template packed_accessor64<std::uint8_t, 3>();
-    auto coefs_matrix_accesor = coefs_matrix.template packed_accessor64<double, 3>();
-    // Apply all Hamiltonian terms to the configurations in configs_j_matrix(copyied from configs_i),
-    // and evaluate the corresponding coefficients in coefs_matrix.
-    launch_search_kernel<max_op_number, particle_cut>(
-        term_number,
-        batch_size,
-        site_accesor,
-        kind_accesor,
-        coef_accesor,
-        configs_j_matrix_accesor,
-        coefs_matrix_accesor,
-        device_id
+    auto stream = at::cuda::getCurrentCUDAStream(device_id);
+    auto policy = thrust::device.on(stream);
+
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device_id);
+    std::int64_t max_threads_per_block = prop.maxThreadsPerBlock;
+
+    auto sorted_configs = configs.clone(torch::MemoryFormat::Contiguous);
+    auto sorted_psi = psi.clone(torch::MemoryFormat::Contiguous);
+
+    thrust::sort_by_key(
+        policy,
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_configs.data_ptr()),
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_configs.data_ptr()) + batch_size,
+        reinterpret_cast<std::array<double, 2>*>(sorted_psi.data_ptr()),
+        array_less<std::uint8_t, n_qubytes>()
     );
 
-    // index_i : int64[batch_size]
-    auto index_i = torch::arange(batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device, device_id));
-    // index_i_matrix : int64[term_number, batch_size]
-    auto index_i_matrix = index_i.unsqueeze(0).repeat({term_number, 1});
-    // non_zero_matrix : bool[term_number, batch_size]
-    auto non_zero_matrix = torch::any(coefs_matrix != 0, -1);
+    dictionary_tree<n_qubytes>* result_tree;
+    cudaMalloc(&result_tree, sizeof(dictionary_tree<n_qubytes>));
+    cudaMemset(result_tree, 0, sizeof(dictionary_tree<n_qubytes>));
 
-    // View configs_j_matrix, coefs_matrix, index_i_matrix, and non_zero_matrix into vector form
-    auto configs_j_vector = configs_j_matrix.view({-1, n_qubits});
-    auto coefs_vector = coefs_matrix.view({-1, 2});
-    auto index_i_vector = index_i_matrix.view({-1});
-    auto non_zero_vector = non_zero_matrix.view({-1});
+    auto threads_per_block = dim3{1, max_threads_per_block >> 1}; // I don't know why, but need to divide by 2 to avoid errors
+    auto num_blocks = dim3{
+        (std::int32_t(term_number) + threads_per_block.x - 1) / threads_per_block.x,
+        (std::int32_t(batch_size) + threads_per_block.y - 1) / threads_per_block.y
+    };
+    find_relative_kernel_interface<max_op_number, n_qubytes, particle_cut><<<num_blocks, threads_per_block, 0, stream>>>(
+        term_number,
+        batch_size,
+        reinterpret_cast<const std::array<std::int16_t, max_op_number>*>(site.data_ptr()),
+        reinterpret_cast<const std::array<std::uint8_t, max_op_number>*>(kind.data_ptr()),
+        reinterpret_cast<const std::array<double, 2>*>(coef.data_ptr()),
+        reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_configs.data_ptr()),
+        reinterpret_cast<const std::array<double, 2>*>(sorted_psi.data_ptr()),
+        result_tree
+    );
+    cudaStreamSynchronize(stream);
 
-    // Select the valid configurations, coefficients, and indices based on non-zero elements
-    auto valid_configs_j = configs_j_vector.index({non_zero_vector});
-    auto valid_coefs = coefs_vector.index({non_zero_vector});
-    auto valid_index_i = index_i_vector.index({non_zero_vector});
+    largest_atomic_int result_size;
+    cudaMemcpy(&result_size, &result_tree->nonzero_count, sizeof(largest_atomic_int), cudaMemcpyDeviceToHost);
 
-    return std::make_tuple(valid_index_i, valid_configs_j, valid_coefs);
+    auto result_configs = torch::zeros({result_size, n_qubytes}, torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id));
+    auto result_psi = torch::zeros({result_size, 2}, torch::TensorOptions().dtype(torch::kDouble).device(device, device_id));
+
+    auto threads_per_block_collect = max_threads_per_block >> 1;
+    auto num_blocks_collect = (std::int32_t(result_size) + threads_per_block_collect - 1) / threads_per_block_collect;
+    collect_kernel_interface<max_op_number, n_qubytes, particle_cut><<<num_blocks_collect, threads_per_block_collect, 0, stream>>>(
+        result_size,
+        result_tree,
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(result_configs.data_ptr()),
+        reinterpret_cast<std::array<double, 2>*>(result_psi.data_ptr())
+    );
+    cudaStreamSynchronize(stream);
+
+    cudaFree(result_tree);
+
+    thrust::sort_by_key(
+        policy,
+        reinterpret_cast<std::array<double, 2>*>(result_psi.data_ptr()),
+        reinterpret_cast<std::array<double, 2>*>(result_psi.data_ptr()) + result_size,
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(result_configs.data_ptr()),
+        array_square_greater<double, 2>()
+    );
+
+    return result_configs.index({torch::indexing::Slice(torch::indexing::None, count_selected)});
 }
 
-// Definition of the CUDA kernel implementation for operators.
-TORCH_LIBRARY_IMPL(qmb_hamiltonian, CUDA, m) {
-    m.impl("fermi", python_interface</*max_op_number=*/4, /*particle_cut=*/1>);
-    m.impl("bose2", python_interface</*max_op_number=*/4, /*particle_cut=*/2>);
+#ifndef N_QUBYTES
+#define N_QUBYTES 0
+#endif
+#ifndef PARTICLE_CUT
+#define PARTICLE_CUT 0
+#endif
+
+#if N_QUBYTES != 0
+#define QMB_LIBRARY_HELPER(x, y) qmb_hamiltonian_##x##_##y
+#define QMB_LIBRARY(x, y) QMB_LIBRARY_HELPER(x, y)
+TORCH_LIBRARY_IMPL(QMB_LIBRARY(N_QUBYTES, PARTICLE_CUT), CUDA, m) {
+    m.impl("apply_within", apply_within_interface</*max_op_number=*/4, /*n_qubytes=*/N_QUBYTES, /*particle_cut=*/PARTICLE_CUT>);
+    m.impl("find_relative", find_relative_interface</*max_op_number=*/4, /*n_qubytes=*/N_QUBYTES, /*particle_cut=*/PARTICLE_CUT>);
 }
+#undef QMB_LIBRARY
+#undef QMB_LIBRARY_HELPER
+#endif
 
 } // namespace qmb_hamiltonian_cuda

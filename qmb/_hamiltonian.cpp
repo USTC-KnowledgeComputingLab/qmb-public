@@ -79,27 +79,29 @@ auto prepare(py::dict hamiltonian) {
     return std::make_tuple(site, kind, coef);
 }
 
+#ifndef N_QUBYTES
+#define N_QUBYTES 0
+#endif
+#ifndef PARTICLE_CUT
+#define PARTICLE_CUT 0
+#endif
+
+#if N_QUBYTES == 0
 // Expose the `prepare` function to Python.
 PYBIND11_MODULE(qmb_hamiltonian, m) {
     m.def("prepare", prepare</*max_op_number=*/4>, py::arg("hamiltonian"));
 }
+#endif
 
-// This section declares the custom PyTorch operators such as `fermi` and `bose2`.
-// These operators are designed to work in conjunction with the structured tuple of tensors produced by the `prepare` function.
-// The operators take the following inputs:
-// - `configs_i`: An uint8 tensor of shape [batch_size, n_qubits], representing the given configurations of the system.
-// - `site`: An int16 tensor of shape [term_number, max_op_number], produced by the `prepare` function.
-// - `kind`: An uint8 tensor of shape [term_number, max_op_number], produced by the `prepare` function.
-// - `coef`: A float64 tensor of shape [term_number, 2], produced by the `prepare` function.
-//
-// The operators sequentially apply the operators for each term based on the provided configurations, resulting in the following outputs:
-// - `index_i`: An int64 tensor of shape [valid_size], indexing the original terms.
-// - `configs_j`: An uint8 tensor of shape [valid_size, n_qubits], detailing the configurations of the results.
-// - `coefs`: A float64 tensor of shape [valid_size, 2], encoding the coefficients (both real and imaginary parts) of the terms.
-// Here, `valid_size` signifies the count of non-zero terms post-iteration over the Hamiltonian based on the provided configurations.
-TORCH_LIBRARY(qmb_hamiltonian, m) {
-    m.def("fermi(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
-    m.def("bose2(Tensor configs_i, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor, Tensor)");
+#if N_QUBYTES != 0
+#define QMB_LIBRARY_HELPER(x, y) qmb_hamiltonian_##x##_##y
+#define QMB_LIBRARY(x, y) QMB_LIBRARY_HELPER(x, y)
+TORCH_LIBRARY_FRAGMENT(QMB_LIBRARY(N_QUBYTES, PARTICLE_CUT), m) {
+    m.def("apply_within(Tensor configs_i, Tensor psi_i, Tensor configs_j, Tensor site, Tensor kind, Tensor coef) -> Tensor");
+    m.def("find_relative(Tensor configs_i, Tensor psi_i, int count_selected, Tensor site, Tensor kind, Tensor coef) -> Tensor");
 }
+#undef QMB_LIBRARY
+#undef QMB_LIBRARY_HELPER
+#endif
 
 } // namespace qmb_hamiltonian
