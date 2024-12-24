@@ -3,6 +3,7 @@ This is the main entry point for the command line application.
 """
 
 import tyro
+from . import cuda_limit as _  # type: ignore[no-redef]
 from . import openfermion as _  # type: ignore[no-redef]
 from . import fcidump as _  # type: ignore[no-redef]
 from . import ising as _  # type: ignore[no-redef]

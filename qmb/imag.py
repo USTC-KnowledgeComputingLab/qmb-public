@@ -41,26 +41,18 @@ class _DynamicLanczos:
         self.threshold = threshold
         self.count_extend = count_extend
 
-    def _hamiltonian(self) -> torch.Tensor:
-        logging.info("Constructing Hamiltonian...")
-        indices_i, indices_j, values = self.model.inside(self.configs)
-        count_config = len(self.configs)
-        hamiltonian = torch.sparse_coo_tensor(torch.stack([indices_i, indices_j], dim=0), values, [count_config, count_config], dtype=torch.complex128).to_sparse_csr()
-        logging.info("Hamiltonian constructed")
-        return hamiltonian
-
     def _extend(self, psi: torch.Tensor) -> None:
         logging.info("Extending basis...")
 
         count_core = len(self.configs)
         logging.info("Number of core configurations: %d", count_core)
 
-        self.configs = self.model.apply_outside(psi, self.configs, False, count_core + self.count_extend)
+        self.configs = torch.cat([self.configs, self.model.find_relative(self.configs, psi, self.count_extend)])
         count_selected = len(self.configs)
         self.psi = torch.nn.functional.pad(self.psi, (0, count_selected - count_core))
         logging.info("Basis extended from %d to %d", count_core, count_selected)
 
-    def run(self) -> typing.Iterable[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    def run(self) -> typing.Iterable[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         """
         Run the dynamic Lanczos algorithm.
         """
@@ -69,26 +61,24 @@ class _DynamicLanczos:
         else:
             keep_until = -1
         while True:
-            alpha, beta, v, hamiltonian, completed = self._run(keep_until=keep_until)
+            alpha, beta, v, completed = self._run(keep_until=keep_until)
             if len(beta) != 0:
-                energy, result = self._eigh_tridiagonal(alpha, beta, v, hamiltonian.device)
-                yield hamiltonian, energy, self.configs, result
+                energy, result = self._eigh_tridiagonal(alpha, beta, v, self.configs.device)
+                yield energy, self.configs, result
                 if completed:
                     break
             keep_until = keep_until + 1
 
-    def _run(self, keep_until: int = -1) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], torch.Tensor, bool]:
-        hamiltonian = self._hamiltonian()
-
+    def _run(self, keep_until: int = -1) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], bool]:
         v: list[torch.Tensor] = [self.psi / torch.linalg.norm(self.psi)]  # pylint: disable=not-callable
         alpha: list[torch.Tensor] = []
         beta: list[torch.Tensor] = []
 
-        w = hamiltonian @ v[-1]
+        w = self.model.apply_within(self.configs, v[-1], self.configs)
         alpha.append((v[-1].conj() @ w).real)
         if keep_until == -1:
             self._extend(v[-1])
-            return (alpha, beta, v, hamiltonian, False)
+            return (alpha, beta, v, False)
         w = w - alpha[-1] * v[-1]
         for i in range(self.step):
             norm_w = torch.linalg.norm(w)  # pylint: disable=not-callable
@@ -96,14 +86,14 @@ class _DynamicLanczos:
                 break
             beta.append(norm_w)
             v.append(w / beta[-1])
-            w = hamiltonian @ v[-1]
+            w = self.model.apply_within(self.configs, v[-1], self.configs)
             alpha.append((v[-1].conj() @ w).real)
             if keep_until == i:
                 self._extend(v[-1])
-                return (alpha, beta, v, hamiltonian, False)
+                return (alpha, beta, v, False)
             w = w - alpha[-1] * v[-1] - beta[-1] * v[-2]
 
-        return (alpha, beta, v, hamiltonian, True)
+        return (alpha, beta, v, True)
 
     def _eigh_tridiagonal(
         self,
@@ -141,7 +131,7 @@ class ImaginaryConfig:
     # The threshold for the Krylov iteration
     krylov_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-d"])] = 1e-8
     # The name of the loss function to use
-    loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "sum_filtered_angle_log"
+    loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "sum_reweighted_angle_log"
     # Whether to use the global optimizer
     global_opt: typing.Annotated[bool, tyro.conf.arg(aliases=["-g"])] = False
     # Whether to use LBFGS instead of Adam
@@ -216,16 +206,15 @@ class ImaginaryConfig:
             logging.info("Starting a new optimization cycle")
 
             logging.info("Sampling configurations")
-            configs, psi, _, _ = network.generate_unique(self.sampling_count)
+            configs, target_psi, _, _ = network.generate_unique(self.sampling_count)
             logging.info("Sampling completed")
 
             logging.info("Computing the target for local optimization")
-            hamiltonian: torch.Tensor
             target_energy: torch.Tensor
-            for hamiltonian, target_energy, configs, psi in _DynamicLanczos(
+            for target_energy, configs, target_psi in _DynamicLanczos(
                     model=model,
                     configs=configs,
-                    psi=psi,
+                    psi=target_psi,
                     step=self.krylov_iteration,
                     threshold=self.krylov_threshold,
                     count_extend=self.krylov_extend_count,
@@ -234,8 +223,8 @@ class ImaginaryConfig:
                 writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 writer.add_scalar("imag/lanczos/error", target_energy - model.ref_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 data["imag"]["lanczos"] += 1
-            max_index = psi.abs().argmax()
-            psi = psi / psi[max_index]
+            max_index = target_psi.abs().argmax()
+            target_psi = target_psi / target_psi[max_index]
             logging.info("Local optimization target calculated, the target energy is %.10f", target_energy.item())
 
             loss_func: typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = getattr(losses, self.loss_name)
@@ -248,42 +237,42 @@ class ImaginaryConfig:
                 optimizer=optimizer,
             )
 
+            def closure() -> torch.Tensor:
+                optimizer.zero_grad()
+                total_size = len(configs)
+                batch_size = total_size // self.local_batch_count
+                remainder = total_size % self.local_batch_count
+                total_loss = 0.0
+                total_psi = []
+                for i in range(self.local_batch_count):
+                    if i < remainder:
+                        current_batch_size = batch_size + 1
+                    else:
+                        current_batch_size = batch_size
+                    start_index = i * batch_size + min(i, remainder)
+                    end_index = start_index + current_batch_size
+                    batch_indices = torch.arange(start_index, end_index, device=configs.device, dtype=torch.int64)
+                    psi_batch = target_psi[batch_indices]
+                    batch_indices = torch.cat((batch_indices, torch.tensor([max_index], device=configs.device, dtype=torch.int64)))
+                    batch_configs = configs[batch_indices]
+                    psi = network(batch_configs)
+                    psi_max = psi[-1]
+                    psi = psi[:-1]
+                    psi = psi / psi_max
+                    loss = loss_func(psi, psi_batch)
+                    loss = loss * (current_batch_size / total_size)
+                    loss.backward()  # type: ignore[no-untyped-call]
+                    total_loss += loss.item()
+                    total_psi.append(psi.detach())
+                total_loss_tensor = torch.tensor(total_loss)
+                total_loss_tensor.psi = torch.cat(total_psi)  # type: ignore[attr-defined]
+                return total_loss_tensor
+
             loss: torch.Tensor
             try_index = 0
             while True:
                 state_backup = copy.deepcopy(network.state_dict())
                 optimizer_backup = copy.deepcopy(optimizer.state_dict())
-
-                def closure() -> torch.Tensor:
-                    optimizer.zero_grad()
-                    total_size = len(configs)
-                    batch_size = total_size // self.local_batch_count
-                    remainder = total_size % self.local_batch_count
-                    total_loss = 0.0
-                    total_amplitudes = []
-                    for i in range(self.local_batch_count):
-                        if i < remainder:
-                            current_batch_size = batch_size + 1
-                        else:
-                            current_batch_size = batch_size
-                        start_index = i * batch_size + min(i, remainder)
-                        end_index = start_index + current_batch_size
-                        batch_indices = torch.arange(start_index, end_index, device=configs.device, dtype=torch.int64)
-                        psi_batch = psi[batch_indices]
-                        batch_indices = torch.cat((batch_indices, torch.tensor([max_index], device=configs.device, dtype=torch.int64)))
-                        batch_configs = configs[batch_indices]
-                        amplitudes = network(batch_configs)
-                        amplitude_max = amplitudes[-1]
-                        amplitudes = amplitudes[:-1]
-                        amplitudes = amplitudes / amplitude_max
-                        loss = loss_func(amplitudes, psi_batch)
-                        loss = loss * (current_batch_size / total_size)
-                        loss.backward()  # type: ignore[no-untyped-call]
-                        total_loss += loss.item()
-                        total_amplitudes.append(amplitudes.detach())
-                    total_loss_tensor = torch.tensor(total_loss)
-                    total_loss_tensor.amplitudes = torch.cat(total_amplitudes)  # type: ignore[attr-defined]
-                    return total_loss_tensor
 
                 logging.info("Starting local optimization process")
                 success = True
@@ -322,8 +311,8 @@ class ImaginaryConfig:
             logging.info("Current optimization cycle completed")
 
             loss = typing.cast(torch.Tensor, torch.enable_grad(closure)())  # type: ignore[no-untyped-call,call-arg]
-            amplitudes: torch.Tensor = loss.amplitudes  # type: ignore[attr-defined]
-            final_energy = ((amplitudes.conj() @ (hamiltonian @ amplitudes)) / (amplitudes.conj() @ amplitudes)).real
+            psi: torch.Tensor = loss.psi  # type: ignore[attr-defined]
+            final_energy = ((psi.conj() @ model.apply_within(configs, psi, configs)) / (psi.conj() @ psi)).real
             logging.info(
                 "Loss during local optimization: %.10f, Final energy: %.10f, Target energy: %.10f, Reference energy: %.10f, Final error: %.10f",
                 loss.item(),
@@ -337,12 +326,12 @@ class ImaginaryConfig:
             writer.add_scalar("imag/error/state", final_energy - model.ref_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("imag/error/target", target_energy - model.ref_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
             logging.info("Displaying the largest amplitudes")
-            indices = psi.abs().argsort(descending=True)
+            indices = target_psi.abs().argsort(descending=True)
             text = []
             for index in indices[:self.logging_psi]:
                 this_config = model.show_config(configs[index])
-                logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{psi[index].item():.8f}", f"{amplitudes[index].item():.8f}")
-                text.append(f"Configuration: {this_config}, Target amplitude: {psi[index].item():.8f}, Final amplitude: {amplitudes[index].item():.8f}")
+                logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{target_psi[index].item():.8f}", f"{psi[index].item():.8f}")
+                text.append(f"Configuration: {this_config}, Target amplitude: {target_psi[index].item():.8f}, Final amplitude: {psi[index].item():.8f}")
             writer.add_text("config", "\n".join(text), data["imag"]["global"])  # type: ignore[no-untyped-call]
             writer.flush()  # type: ignore[no-untyped-call]
 
@@ -352,6 +341,8 @@ class ImaginaryConfig:
             data["optimizer"] = optimizer.state_dict()
             self.common.save(data, data["imag"]["global"])
             logging.info("Checkpoint successfully saved")
+
+            logging.info("Current optimization cycle completed")
 
 
 subcommand_dict["imag"] = ImaginaryConfig

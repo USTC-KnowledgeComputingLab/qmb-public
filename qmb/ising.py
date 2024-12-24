@@ -222,14 +222,11 @@ class Model(ModelProto["Model"]):
         self.hamiltonian: Hamiltonian = Hamiltonian(hamiltonian_dict, kind="bose2")
         logging.info("Internal Hamiltonian representation for model has been successfully created")
 
-    def inside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.hamiltonian.inside(configs_i)
+    def apply_within(self, configs_i: torch.Tensor, psi_i: torch.Tensor, configs_j: torch.Tensor) -> torch.Tensor:
+        return self.hamiltonian.apply_within(configs_i, psi_i, configs_j)
 
-    def outside(self, configs_i: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.hamiltonian.outside(configs_i)
-
-    def apply_outside(self, psi_i: torch.Tensor, configs_i: torch.Tensor, squared: bool, count_selected: int) -> torch.Tensor:
-        return self.hamiltonian.apply_outside(psi_i, configs_i, squared, count_selected)
+    def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int) -> torch.Tensor:
+        return self.hamiltonian.find_relative(configs_i, psi_i, count_selected)
 
     def show_config(self, config: torch.Tensor) -> str:
         string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy())
