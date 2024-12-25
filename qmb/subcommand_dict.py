@@ -1,6 +1,11 @@
 """
 This module is used to store a dictionary that maps subcommand names to their corresponding dataclass types.
-Other packages can register their subcommands by adding entries to this dictionary.
+
+Other packages or subpackages can register their subcommands by adding entries to this dictionary, such as
+```
+from qmb.subcommand_dict import subcommand_dict
+subcommand_dict["my_subcommand"] = MySubcommand
+```
 """
 
 import typing

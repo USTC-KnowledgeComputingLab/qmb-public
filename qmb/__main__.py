@@ -1,5 +1,7 @@
 """
 This is the main entry point for the command line application.
+
+For the details of the command line application, run `qmb --help` or `python -m qmb --help`.
 """
 
 import tyro
@@ -16,7 +18,7 @@ from .subcommand_dict import subcommand_dict
 
 def main() -> None:
     """
-    Main function for the command line application.
+    The main function for the command line application.
     """
     tyro.extras.subcommand_cli_from_dict(subcommand_dict).main()
 

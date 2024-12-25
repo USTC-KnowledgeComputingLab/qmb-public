@@ -1,5 +1,6 @@
 """
-This file contains various loss functions used in the learning script.
+This file contains various loss functions used in the other script.
+
 These functions help calculate the difference between the target wave function and the current state wave function.
 """
 

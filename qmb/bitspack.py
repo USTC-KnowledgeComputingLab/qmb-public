@@ -1,5 +1,5 @@
 """
-This module provides functions to combine multiple int1, int2 or int4 values into a single byte.
+This module provides functions to combine multiple int1, int2, int4 or int8 values into a single byte.
 """
 
 import torch
@@ -20,9 +20,10 @@ def pack_int(tensor: torch.Tensor, size: int) -> torch.Tensor:
     Returns
     -------
     torch.Tensor
-        The packed tensor with shape ... * ( (last_dimension + elements_per_byte - 1) // elements_per_byte).
+        The packed tensor with shape ... * ((last_dimension + elements_per_byte - 1) // elements_per_byte).
     """
     assert tensor.dtype == torch.uint8
+    assert size in [1, 2, 4, 8]
 
     # Get the shape of the input tensor
     shape = list(tensor.shape)
@@ -40,7 +41,7 @@ def pack_int(tensor: torch.Tensor, size: int) -> torch.Tensor:
     # Calculate the number of groups
     num_bytes = last_dim // elements_per_byte
 
-    # Reshape the tensor to (..., d, 8)
+    # Reshape the tensor to (..., num_bytes, elements_per_bytes)
     shape.append(num_bytes)
     shape.append(elements_per_byte)
     tensor = tensor.view(shape)
@@ -64,7 +65,7 @@ def unpack_int(tensor: torch.Tensor, size: int, last_dim: int) -> torch.Tensor:
     ----------
     tensor : torch.Tensor
         The packed tensor with bytes.
-    size : 1 | 2 | 4
+    size : 1 | 2 | 4 | 8
         The size of the int values in bits.
     last_dim : int
         The original size of the last dimension before packing.
@@ -75,6 +76,7 @@ def unpack_int(tensor: torch.Tensor, size: int, last_dim: int) -> torch.Tensor:
         The unpacked tensor with shape ... * last_dim.
     """
     assert tensor.dtype == torch.uint8
+    assert size in [1, 2, 4, 8]
 
     # Define the weights tensor and shifts tensor
     weights = torch.tensor([1 << i for i in range(8)], device=tensor.device, dtype=torch.uint8).view([8 // size, size]).sum(dim=-1, dtype=torch.uint8)

@@ -1,6 +1,7 @@
 """
 This module is used to store a dictionary that maps model names to their corresponding models.
-Other packages can register their models by adding entries to this dictionary.
+
+Other packages or subpackages can register their models by adding entries to this dictionary.
 """
 
 import typing
@@ -35,44 +36,98 @@ class NetworkProto(typing.Protocol):
         """torch.nn.Module function"""
 
 
-_Model = typing.TypeVar('_Model')
-
-
-class ModelProto(typing.Protocol[_Model]):
+class ModelProto(typing.Protocol):
     """
     The Model protocol defines the interface that all models must implement.
     """
 
-    network_dict: dict[str, typing.Callable[[_Model, tuple[str, ...]], NetworkProto]]
+    network_dict: dict[str, typing.Callable[[typing.Self, tuple[str, ...]], NetworkProto]]
 
     ref_energy: float
 
     @classmethod
     def preparse(cls, input_args: tuple[str, ...]) -> str:
         """
-        The `preparse` method is used to obtain the job name that will be used for logging purposes.
-        This is essential and should be generated first before any other operations.
+        Preparse the arguments to obtain the group name for logging perposes
+
+        Parameters
+        ----------
+        input_args : tuple[str, ...]
+            The input arguments to the model.
+
+        Returns
+        -------
+        str
+            The group name for logging purposes.
         """
 
     @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> _Model:
+    def parse(cls, input_args: tuple[str, ...]) -> typing.Self:
         """
-        The `parse` method is used to parse the arguments and return an instance of the model.
+        Parse the arguments and return an instance of the model.
+
+        Parameters
+        ----------
+        input_args : tuple[str, ...]
+            The input arguments to the model.
+
+        Returns
+        -------
+        Self
+            An instance of the model.
         """
 
     def apply_within(self, configs_i: torch.Tensor, psi_i: torch.Tensor, configs_j: torch.Tensor) -> torch.Tensor:
         """
         Applies the Hamiltonian to the given vector.
+
+        Parameters
+        ----------
+        configs_i : torch.Tensor
+            The configurations to apply the Hamiltonian to.
+        psi_i : torch.Tensor
+            The amplitudes of the configurations.
+        configs_j : torch.Tensor
+            The configurations subspace for the result of the Hamiltonian application.
+
+        Returns
+        -------
+        torch.Tensor
+            The result of the Hamiltonian application on the selected configurations subspace.
         """
 
     def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int) -> torch.Tensor:
         """
         Find relative configurations to the given configurations.
+
+        Parameters
+        ----------
+        configs_i : torch.Tensor
+            The configurations to find relative configurations for.
+        psi_i : torch.Tensor
+            The amplitudes of the configurations.
+        count_selected : int
+            The number of relative configurations to find.
+
+        Returns
+        -------
+        torch.Tensor
+            The relative configurations.
         """
 
     def show_config(self, config: torch.Tensor) -> str:
         """
         Converts a configuration tensor to a string representation.
+
+        Parameters
+        ----------
+        config : torch.Tensor
+            The configuration tensor to convert.
+
+        Returns
+        -------
+        str
+            The string representation of the configuration tensor.
         """
 
 

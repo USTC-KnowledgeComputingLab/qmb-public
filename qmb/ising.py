@@ -2,10 +2,10 @@
 This file offers a interface for defining Ising-like models on a two-dimensional lattice.
 """
 
-from collections import defaultdict
 import typing
 import logging
 import dataclasses
+import collections
 import torch
 import tyro
 from .naqs import WaveFunctionNormal as NaqsWaveFunction
@@ -59,7 +59,7 @@ class ModelConfig:
     za: typing.Annotated[float, tyro.conf.arg(aliases=["-za"])] = 0
 
 
-class Model(ModelProto["Model"]):
+class Model(ModelProto):
     """
     This class handles the Ising-like model.
     """
@@ -128,7 +128,7 @@ class Model(ModelProto["Model"]):
                 (((_index(i, j), 0), (_index(i, j), 1)), -1),
             )
 
-        hamiltonian: dict[tuple[tuple[int, int], ...], complex] = defaultdict(lambda: 0)
+        hamiltonian: dict[tuple[tuple[int, int], ...], complex] = collections.defaultdict(lambda: 0)
         # Express spin pauli matrix in hard core boson language.
         for i in range(args.m):
             for j in range(args.n):

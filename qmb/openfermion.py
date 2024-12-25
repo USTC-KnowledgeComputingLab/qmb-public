@@ -4,8 +4,8 @@ This file provides an interface to work with openfermion models.
 
 import typing
 import logging
-import pathlib
 import dataclasses
+import pathlib
 import torch
 import tyro
 import openfermion
@@ -27,7 +27,7 @@ class ModelConfig:
     model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path("models")
 
 
-class Model(ModelProto["Model"]):
+class Model(ModelProto):
     """
     This class handles the openfermion model.
     """
