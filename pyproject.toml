@@ -15,7 +15,7 @@ dependencies = [
   "openfermion~=1.6.1",
   "tensorboard~=2.18.0",
 ]
-requires-python = "~=3.12,~=3.13"
+requires-python = ">=3.12"
 authors = [{ name = "Hao Zhang", email = "hzhangxyz@outlook.com" }]
 description = "Quantum Manybody Problem"
 readme = "README.md"
