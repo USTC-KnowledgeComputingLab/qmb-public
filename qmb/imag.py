@@ -17,6 +17,7 @@ from .model_dict import ModelProto
 from .optimizer import initialize_optimizer, scale_learning_rate
 
 
+@dataclasses.dataclass
 class _DynamicLanczos:
     """
     This class implements the dynamic Lanczos algorithm for solving quantum many-body problems.
@@ -24,22 +25,12 @@ class _DynamicLanczos:
 
     # pylint: disable=too-few-public-methods
 
-    def __init__(  # pylint: disable=too-many-arguments
-            self,
-            *,
-            model: ModelProto,
-            configs: torch.Tensor,
-            psi: torch.Tensor,
-            step: int,
-            threshold: float,
-            count_extend: int,
-    ):
-        self.model = model
-        self.configs = configs
-        self.psi = psi
-        self.step = step
-        self.threshold = threshold
-        self.count_extend = count_extend
+    model: ModelProto
+    configs: torch.Tensor
+    psi: torch.Tensor
+    step: int
+    threshold: float
+    count_extend: int
 
     def _extend(self, psi: torch.Tensor) -> None:
         logging.info("Extending basis...")
@@ -54,61 +45,89 @@ class _DynamicLanczos:
 
     def run(self) -> typing.Iterable[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         """
-        Run the dynamic Lanczos algorithm.
-        """
-        if self.count_extend == 0:
-            keep_until = self.step
-        else:
-            keep_until = -1
-        while True:
-            alpha, beta, v, completed = self._run(keep_until=keep_until)
-            if len(beta) != 0:
-                energy, result = self._eigh_tridiagonal(alpha, beta, v, self.configs.device)
-                yield energy, self.configs, result
-                if completed:
-                    break
-            keep_until = keep_until + 1
+        Run the Lanczos algorithm.
 
-    def _run(self, keep_until: int = -1) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], bool]:
+        Yields
+        ------
+        energy : torch.Tensor
+            The ground energy.
+        configs : torch.Tensor
+            The configurations.
+        psi : torch.Tensor
+            The wavefunction amplitude on the configurations.
+        """
+        alpha: list[torch.Tensor]
+        beta: list[torch.Tensor]
+        v: list[torch.Tensor]
+        energy: torch.Tensor
+        psi: torch.Tensor
+        if self.count_extend == 0:
+            # Do not extend the configuration, process the standard lanczos.
+            for _, [alpha, beta, v] in zip(range(self.step), self._run()):
+                if len(beta) != 0:
+                    energy, psi = self._eigh_tridiagonal(alpha, beta, v)
+                    yield energy, self.configs, psi
+        else:
+            # Extend the configuration, during processing the dynamic lanczos.
+            for step in range(self.step):
+                for _, [alpha, beta, v] in zip(range(1 + step), self._run()):
+                    pass
+                if len(beta) != 0:
+                    energy, psi = self._eigh_tridiagonal(alpha, beta, v)
+                    yield energy, self.configs, psi
+                    self._extend(psi)
+
+    def _run(self) -> typing.Iterable[tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]]:
+        """
+        Process the standard lanczos.
+
+        Yields
+        ------
+        alpha : list[torch.Tensor]
+            The alpha values.
+        beta : list[torch.Tensor]
+            The beta values.
+        v : list[torch.Tensor]
+            The v values.
+        """
         v: list[torch.Tensor] = [self.psi / torch.linalg.norm(self.psi)]  # pylint: disable=not-callable
         alpha: list[torch.Tensor] = []
         beta: list[torch.Tensor] = []
-
-        w = self.model.apply_within(self.configs, v[-1], self.configs)
-        alpha.append((v[-1].conj() @ w).real)
-        if keep_until == -1:
-            self._extend(v[-1])
-            return (alpha, beta, v, False)
+        w: torch.Tensor
+        w = self.model.apply_within(self.configs, v[-1], self.configs)  # pylint: disable=assignment-from-no-return
+        alpha.append((w.conj() @ v[-1]).real)
+        yield (alpha, beta, v)
         w = w - alpha[-1] * v[-1]
-        for i in range(self.step):
+        while True:
             norm_w = torch.linalg.norm(w)  # pylint: disable=not-callable
             if norm_w < self.threshold:
                 break
             beta.append(norm_w)
             v.append(w / beta[-1])
-            w = self.model.apply_within(self.configs, v[-1], self.configs)
-            alpha.append((v[-1].conj() @ w).real)
-            if keep_until == i:
-                self._extend(v[-1])
-                return (alpha, beta, v, False)
+            w = self.model.apply_within(self.configs, v[-1], self.configs)  # pylint: disable=assignment-from-no-return
+            alpha.append((w.conj() @ v[-1]).real)
+            yield (alpha, beta, v)
             w = w - alpha[-1] * v[-1] - beta[-1] * v[-2]
-
-        return (alpha, beta, v, True)
 
     def _eigh_tridiagonal(
         self,
         alpha: list[torch.Tensor],
         beta: list[torch.Tensor],
         v: list[torch.Tensor],
-        device: torch.device,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # Currently, PyTorch does not support eigh_tridiagonal natively, so we resort to using SciPy for this operation.
         # We can only use 'stebz' or 'stemr' drivers in the current version of SciPy.
         # However, 'stemr' consumes a lot of memory, so we opt for 'stebz' here.
         # 'stebz' is efficient and only takes a few seconds even for large matrices with dimensions up to 10,000,000.
         vals, vecs = scipy.linalg.eigh_tridiagonal(torch.stack(alpha, dim=0).cpu(), torch.stack(beta, dim=0).cpu(), lapack_driver="stebz", select="i", select_range=(0, 0))
-        energy = torch.as_tensor(vals[0])
-        result = torch.sum(torch.as_tensor(vecs[:, 0]).to(device=device) * torch.stack(v, dim=1), dim=1)
+        energy: torch.Tensor = torch.as_tensor(vals[0])
+        result: torch.Tensor | None = None
+        for weight, vector in zip(vecs, v):
+            if result is None:
+                result = weight[0] * vector
+            else:
+                result = result + weight[0] * vector
+        assert result is not None
         return energy, result
 
 
@@ -277,8 +296,8 @@ class ImaginaryConfig:
                 logging.info("Starting local optimization process")
                 success = True
                 last_loss: float = 0.0
-                scale_learning_rate(optimizer, 1 / (1 << try_index))
                 local_step: int = data["imag"]["local"]
+                scale_learning_rate(optimizer, 1 / (1 << try_index))
                 for i in range(self.local_step):
                     loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
