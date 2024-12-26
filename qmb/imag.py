@@ -303,7 +303,7 @@ class ImaginaryConfig:
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
                     writer.add_scalar(f"imag/loss/{self.loss_name}", loss, local_step)  # type: ignore[no-untyped-call]
                     local_step += 1
-                    if torch.isnan(loss):
+                    if torch.isnan(loss) or torch.isinf(loss):
                         logging.warning("Loss is NaN, restoring the previous state and exiting the optimization loop")
                         success = False
                         break
@@ -316,7 +316,7 @@ class ImaginaryConfig:
                     last_loss = loss.item()
                 scale_learning_rate(optimizer, 1 << try_index)
                 if success:
-                    if any(torch.isnan(param).any() for param in network.parameters()):
+                    if any(torch.isnan(param).any() or torch.isinf(param).any() for param in network.parameters()):
                         logging.warning("NaN detected in parameters, restoring the previous state and exiting the optimization loop")
                         success = False
                 if success:
