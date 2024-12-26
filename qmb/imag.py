@@ -63,19 +63,19 @@ class _DynamicLanczos:
         psi: torch.Tensor
         if self.count_extend == 0:
             # Do not extend the configuration, process the standard lanczos.
-            for _, [alpha, beta, v] in zip(range(self.step), self._run()):
+            for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
                 if len(beta) != 0:
                     energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                     yield energy, self.configs, psi
         else:
             # Extend the configuration, during processing the dynamic lanczos.
-            for step in range(self.step):
+            for step in range(1 + self.step):
                 for _, [alpha, beta, v] in zip(range(1 + step), self._run()):
                     pass
                 if len(beta) != 0:
                     energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                     yield energy, self.configs, psi
-                    self._extend(psi)
+                self._extend(v[-1])
 
     def _run(self) -> typing.Iterable[tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]]:
         """
