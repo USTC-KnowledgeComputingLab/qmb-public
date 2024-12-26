@@ -185,6 +185,7 @@ auto apply_within_interface(
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, device_id);
     std::int64_t max_threads_per_block = prop.maxThreadsPerBlock;
+    std::int64_t max_blocks_per_multi_processor = prop.maxGridSize[0];
 
     auto sorted_result_configs = result_configs.clone(torch::MemoryFormat::Contiguous);
     auto result_sort_index = torch::arange(result_batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device, device_id));
@@ -199,21 +200,25 @@ auto apply_within_interface(
     );
 
     auto threads_per_block = dim3{1, max_threads_per_block >> 1}; // I don't know why, but need to divide by 2 to avoid errors
-    auto num_blocks =
-        dim3{(term_number + threads_per_block.x - 1) / threads_per_block.x, (batch_size + threads_per_block.y - 1) / threads_per_block.y};
+    auto num_blocks_y = (batch_size + threads_per_block.y - 1) / threads_per_block.y;
+    auto max_local_term_number = max_blocks_per_multi_processor / num_blocks_y;
+    for (std::int64_t i = 0; i < term_number; i += max_local_term_number) {
+        auto local_term_number = std::min(max_local_term_number, term_number - i);
+        auto num_blocks = dim3{local_term_number, num_blocks_y};
+        apply_within_kernel_interface<max_op_number, n_qubytes, particle_cut><<<num_blocks, threads_per_block, 0, stream>>>(
+            /*term_number=*/local_term_number,
+            /*batch_size=*/batch_size,
+            /*result_batch_size=*/result_batch_size,
+            /*site=*/reinterpret_cast<const std::array<std::int16_t, max_op_number>*>(site.data_ptr()) + i,
+            /*kind=*/reinterpret_cast<const std::array<std::uint8_t, max_op_number>*>(kind.data_ptr()) + i,
+            /*coef=*/reinterpret_cast<const std::array<double, 2>*>(coef.data_ptr()) + i,
+            /*configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(configs.data_ptr()),
+            /*psi=*/reinterpret_cast<const std::array<double, 2>*>(psi.data_ptr()),
+            /*result_configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()),
+            /*result_psi=*/reinterpret_cast<std::array<double, 2>*>(sorted_result_psi.data_ptr())
+        );
+    }
 
-    apply_within_kernel_interface<max_op_number, n_qubytes, particle_cut><<<num_blocks, threads_per_block, 0, stream>>>(
-        /*term_number=*/term_number,
-        /*batch_size=*/batch_size,
-        /*result_batch_size=*/result_batch_size,
-        /*site=*/reinterpret_cast<const std::array<std::int16_t, max_op_number>*>(site.data_ptr()),
-        /*kind=*/reinterpret_cast<const std::array<std::uint8_t, max_op_number>*>(kind.data_ptr()),
-        /*coef=*/reinterpret_cast<const std::array<double, 2>*>(coef.data_ptr()),
-        /*configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(configs.data_ptr()),
-        /*psi=*/reinterpret_cast<const std::array<double, 2>*>(psi.data_ptr()),
-        /*result_configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()),
-        /*result_psi=*/reinterpret_cast<std::array<double, 2>*>(sorted_result_psi.data_ptr())
-    );
     cudaStreamSynchronize(stream);
 
     auto result_psi = torch::zeros_like(sorted_result_psi);
