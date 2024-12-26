@@ -84,16 +84,16 @@ class Hamiltonian:
         Parameters
         ----------
         configs_i : torch.Tensor
-            A tensor of shape [batch_size, n_qubits] representing the input configurations.
+            A uint8 tensor of shape [batch_size_i, n_qubytes] representing the input configurations.
         psi_i : torch.Tensor
-            A tensor of shape batch_size representing the input amplitudes on the girven configurations.
+            A complex64 tensor of shape [batch_size_i] representing the input amplitudes on the girven configurations.
         configs_j : torch.Tensor
-            A tensor of shape [batch_size, n_qubits] representing the output configurations.
+            A uint8 tensor of shape [batch_size_j, n_qubytes] representing the output configurations.
 
         Returns
         -------
         torch.Tensor
-            A tensor of shape [batch_size] representing the output amplitudes on the given configurations.
+            A tensor of shape [batch_size_j] representing the output amplitudes on the given configurations.
         """
         self._prepare_data(configs_i.device)
         _apply_within: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
@@ -112,9 +112,9 @@ class Hamiltonian:
         Parameters
         ----------
         configs_i : torch.Tensor
-            A tensor of shape [batch_size, n_qubits] representing the input configurations.
+            A uint8 tensor of shape [batch_size, n_qubytes] representing the input configurations.
         psi_i : torch.Tensor
-            A tensor of shape batch_size representing the input amplitudes on the girven configurations.
+            A complex64 tensor of shape [batch_size] representing the input amplitudes on the girven configurations.
         count_selected : int
             The number of selected configurations to be returned.
 
@@ -122,7 +122,7 @@ class Hamiltonian:
         -------
         torch.Tensor
             The resulting configurations after applying the Hamiltonian, only the first `count_selected` configurations are guaranteed to be returned.
-            The order of the configurations is guaranteed to be the same as the input for the first `batch_size` configurations and sorted by psi for the remaining configurations.
+            The order of the configurations is guaranteed to be sorted by estimated psi for the remaining configurations.
         """
         self._prepare_data(configs_i.device)
         _find_relative: typing.Callable[[torch.Tensor, torch.Tensor, int, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
