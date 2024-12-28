@@ -6,6 +6,7 @@ import copy
 import logging
 import typing
 import dataclasses
+import functools
 import scipy
 import torch
 import torch.utils.tensorboard
@@ -120,14 +121,8 @@ class _DynamicLanczos:
         # However, 'stemr' consumes a lot of memory, so we opt for 'stebz' here.
         # 'stebz' is efficient and only takes a few seconds even for large matrices with dimensions up to 10,000,000.
         vals, vecs = scipy.linalg.eigh_tridiagonal(torch.stack(alpha, dim=0).cpu(), torch.stack(beta, dim=0).cpu(), lapack_driver="stebz", select="i", select_range=(0, 0))
-        energy: torch.Tensor = torch.as_tensor(vals[0])
-        result: torch.Tensor | None = None
-        for weight, vector in zip(vecs, v):
-            if result is None:
-                result = weight[0] * vector
-            else:
-                result = result + weight[0] * vector
-        assert result is not None
+        energy = torch.as_tensor(vals[0])
+        result = functools.reduce(torch.add, (weight[0] * vector for weight, vector in zip(vecs, v)))
         return energy, result
 
 
