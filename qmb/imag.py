@@ -91,6 +91,10 @@ class _DynamicLanczos:
         v : list[torch.Tensor]
             The v values.
         """
+        # In this function, we distribute data to the GPU and CPU.
+        # The details are as follows:
+        # All data other than v is always on the GPU.
+        # The last v is always on the GPU and the rest are moved to the CPU immediately after necessary calculations.
         v: list[torch.Tensor] = [self.psi / torch.linalg.norm(self.psi)]  # pylint: disable=not-callable
         alpha: list[torch.Tensor] = []
         beta: list[torch.Tensor] = []
@@ -109,6 +113,7 @@ class _DynamicLanczos:
             alpha.append((w.conj() @ v[-1]).real)
             yield (alpha, beta, v)
             w = w - alpha[-1] * v[-1] - beta[-1] * v[-2]
+            v[-2] = v[-2].cpu()  # v maybe very large, so we need to move it to CPU
 
     def _eigh_tridiagonal(
         self,
@@ -122,7 +127,7 @@ class _DynamicLanczos:
         # 'stebz' is efficient and only takes a few seconds even for large matrices with dimensions up to 10,000,000.
         vals, vecs = scipy.linalg.eigh_tridiagonal(torch.stack(alpha, dim=0).cpu(), torch.stack(beta, dim=0).cpu(), lapack_driver="stebz", select="i", select_range=(0, 0))
         energy = torch.as_tensor(vals[0])
-        result = functools.reduce(torch.add, (weight[0] * vector for weight, vector in zip(vecs, v)))
+        result = functools.reduce(torch.add, (weight[0] * vector.to(device=self.configs.device) for weight, vector in zip(vecs, v)))
         return energy, result
 
 
