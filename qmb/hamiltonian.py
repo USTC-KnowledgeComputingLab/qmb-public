@@ -98,7 +98,8 @@ class Hamiltonian:
         self._prepare_data(configs_i.device)
         _apply_within: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
         _apply_within = getattr(self._load_module(configs_i.size(1), self.particle_cut), "apply_within")
-        return torch.view_as_complex(_apply_within(configs_i, torch.view_as_real(psi_i), configs_j, self.site, self.kind, self.coef))
+        psi_j = torch.view_as_complex(_apply_within(configs_i, torch.view_as_real(psi_i), configs_j, self.site, self.kind, self.coef))
+        return psi_j
 
     def find_relative(
         self,
@@ -127,4 +128,5 @@ class Hamiltonian:
         self._prepare_data(configs_i.device)
         _find_relative: typing.Callable[[torch.Tensor, torch.Tensor, int, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
         _find_relative = getattr(self._load_module(configs_i.size(1), self.particle_cut), "find_relative")
-        return _find_relative(configs_i, torch.view_as_real(psi_i), count_selected, self.site, self.kind, self.coef)
+        configs_j, _ = _find_relative(configs_i, torch.view_as_real(psi_i), count_selected, self.site, self.kind, self.coef)
+        return configs_j

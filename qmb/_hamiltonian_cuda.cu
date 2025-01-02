@@ -463,7 +463,7 @@ auto find_relative_interface(
     const torch::Tensor& site,
     const torch::Tensor& kind,
     const torch::Tensor& coef
-) -> torch::Tensor {
+) -> std::tuple<torch::Tensor, torch::Tensor> {
     std::int64_t device_id = configs.device().index();
     std::int64_t batch_size = configs.size(0);
     std::int64_t term_number = site.size(0);
@@ -572,7 +572,10 @@ auto find_relative_interface(
         array_square_greater<double, 2>()
     );
 
-    return result_configs.index({torch::indexing::Slice(torch::indexing::None, count_selected)});
+    return std::make_tuple(
+        result_configs.index({torch::indexing::Slice(torch::indexing::None, count_selected)}),
+        result_psi.index({torch::indexing::Slice(torch::indexing::None, count_selected)})
+    );
 }
 
 #ifndef N_QUBYTES
