@@ -54,10 +54,11 @@ class CommonConfig:
         Save data to checkpoint.
         """
         if step % self.checkpoint_interval == 0:
-            torch.save(data, self.folder() / f"data.{step}.pth")
             (self.folder() / "data.pth").unlink(missing_ok=True)
+            torch.save(data, self.folder() / f"data.{step}.pth")
             (self.folder() / "data.pth").symlink_to(f"data.{step}.pth")
         else:
+            (self.folder() / "data.pth").unlink(missing_ok=True)
             torch.save(data, self.folder() / "data.pth")
 
     def main(self) -> tuple[ModelProto, NetworkProto, typing.Any]:
