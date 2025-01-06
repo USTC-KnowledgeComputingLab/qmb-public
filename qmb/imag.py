@@ -148,6 +148,8 @@ class ImaginaryConfig:
 
     # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 2048
+    # The local generating count used to avoid memory overflow
+    local_generate_count: typing.Annotated[int, tyro.conf.arg(aliases=["-m"])] = 1
     # The extend count for the Krylov subspace
     krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 64
     # The number of Krylov iterations to perform
@@ -189,6 +191,7 @@ class ImaginaryConfig:
         logging.info(
             "Arguments Summary: "
             "Sampling Count: %d, "
+            "Local Generating Count: %d, "
             "Krylov Extend Count: %d, "
             "krylov Iteration: %d, "
             "krylov Threshold: %.10f, "
@@ -201,6 +204,7 @@ class ImaginaryConfig:
             "Local Loss Threshold: %.10f, "
             "Logging Psi: %d",
             self.sampling_count,
+            self.local_generate_count,
             self.krylov_extend_count,
             self.krylov_iteration,
             self.krylov_threshold,
@@ -230,7 +234,7 @@ class ImaginaryConfig:
             logging.info("Starting a new optimization cycle")
 
             logging.info("Sampling configurations")
-            configs, target_psi, _, _ = network.generate_unique(self.sampling_count)
+            configs, target_psi, _, _ = network.generate_unique(self.sampling_count, self.local_generate_count)
             logging.info("Sampling completed, unique configurations count: %d", len(configs))
 
             logging.info("Computing the target for local optimization")

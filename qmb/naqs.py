@@ -1,5 +1,5 @@
 """
-This file implements NAQS from https://arxiv.org/pdf/2109.12606 and https://arxiv.org/pdf/2408.07625.
+This file implements the NAQS network from https://arxiv.org/pdf/2109.12606 with the sampling method introduced in https://arxiv.org/pdf/2408.07625.
 """
 
 import torch
@@ -60,7 +60,7 @@ class MLP(torch.nn.Module):
 
 class WaveFunctionElectronUpDown(torch.nn.Module):
     """
-    This module implements naqs from https://arxiv.org/pdf/2109.12606 and https://arxiv.org/pdf/2408.07625.
+    The wave function for the NAQS network.
     This module maintains the conservation of particle number of spin-up and spin-down electrons.
     """
 
@@ -173,7 +173,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
         batch_size: int = x.shape[0]
         # x: batch_size * sites * 2
-        x = unpack_int(x, size=1, last_dim=self.double_sites).reshape([batch_size, self.sites, 2])
+        x = unpack_int(x, size=1, last_dim=self.double_sites).view([batch_size, self.sites, 2])
         # Apply ordering
         x = torch.index_select(x, 1, self.ordering_reversed)
 
@@ -183,7 +183,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         for i, amplitude_m in enumerate(self.amplitude):
             # delta_amplitude: batch_size * 2 * 2
             # delta_amplitude represents the amplitude changes for the configurations at the new site.
-            delta_amplitude: torch.Tensor = amplitude_m(x_float[:, :i].reshape([batch_size, 2 * i])).reshape([batch_size, 2, 2])
+            delta_amplitude: torch.Tensor = amplitude_m(x_float[:, :i].view([batch_size, 2 * i])).view([batch_size, 2, 2])
             # Apply a filter mask to the amplitude to ensure the conservation of particle number.
             delta_amplitude = delta_amplitude + torch.where(self._mask(x[:, :i]), 0, -torch.inf)
 
@@ -198,18 +198,19 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
             total_amplitude = total_amplitude + selected_delta_amplitude
 
-        total_phase: torch.Tensor = self.phase(x_float.reshape([batch_size, self.double_sites])).reshape([batch_size])
+        total_phase: torch.Tensor = self.phase(x_float.view([batch_size, self.double_sites])).view([batch_size])
 
         return torch.view_as_complex(torch.stack([total_amplitude, total_phase], dim=-1)).exp()
 
     @torch.jit.export
-    def generate_unique(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, None, None]:
+    def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate configurations uniquely.
         see https://arxiv.org/pdf/2408.07625.
         """
         # pylint: disable=too-many-locals
         # pylint: disable=invalid-name
+        # pylint: disable=too-many-statements
 
         device: torch.device = self.dummy_param.device
         dtype: torch.dtype = self.dummy_param.dtype
@@ -225,7 +226,21 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
             # delta_amplitude: batch * 2 * 2
             # delta_amplitude represents the amplitude changes for the configurations at the new site.
-            delta_amplitude: torch.Tensor = amplitude_m(x_float.reshape([local_batch_size, 2 * i])).reshape([local_batch_size, 2, 2])
+            local_batch_size_block = local_batch_size // block_num
+            remainder = local_batch_size % block_num
+            delta_amplitude_block_list: list[torch.Tensor] = []
+            for j in range(block_num):
+                if j < remainder:
+                    current_local_batch_size_block = local_batch_size_block + 1
+                else:
+                    current_local_batch_size_block = local_batch_size_block
+                start_index = j * local_batch_size_block + min(j, remainder)
+                end_index = start_index + current_local_batch_size_block
+                batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
+                delta_amplitude_block = amplitude_m(x_float.view([local_batch_size, 2 * i])[batch_indices_block]).view([current_local_batch_size_block, 2, 2])
+                delta_amplitude_block_list.append(delta_amplitude_block)
+            delta_amplitude: torch.Tensor = torch.cat(delta_amplitude_block_list)
+
             # Apply a filter mask to the amplitude to ensure the conservation of particle number.
             delta_amplitude = delta_amplitude + torch.where(self._mask(x), 0, -torch.inf)
 
@@ -234,13 +249,13 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             normalized_delta_amplitude: torch.Tensor = self._normalize_amplitude(delta_amplitude)
 
             # The delta unperturbed prob for all batch and 4 adds
-            l: torch.Tensor = (2 * normalized_delta_amplitude).reshape([local_batch_size, 4])
+            l: torch.Tensor = (2 * normalized_delta_amplitude).view([local_batch_size, 4])
             # and add to get the current unperturbed prob
             l = unperturbed_probability.view([local_batch_size, 1]) + l
             # Get perturbed prob by adding GUMBEL(0)
             L: torch.Tensor = l - (-torch.rand_like(l).log()).log()
             # Get max perturbed prob
-            Z: torch.Tensor = L.max(dim=-1).values.reshape([local_batch_size, 1])
+            Z: torch.Tensor = L.max(dim=-1).values.view([local_batch_size, 1])
             # Evaluate the conditioned prob
             tildeL: torch.Tensor = -torch.log(torch.exp(-perturbed_probability.view([local_batch_size, 1])) - torch.exp(-Z) + torch.exp(-L))
 
@@ -272,16 +287,34 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         # Apply ordering
         x = torch.index_select(x, 1, self.ordering)
         # Flatten site part of x
-        x = x.reshape([x.size(0), self.double_sites])
+        x = x.view([x.size(0), self.double_sites])
         # It should return configurations, amplitudes, probabilities and multiplicities.
         # But it is unique generator, so the last two fields are None
         x = pack_int(x, size=1)
-        return x, self(x), None, None
+
+        # Calculate the amplitude for the generated configurations in the batch.
+        real_batch_size = len(x)
+        real_batch_size_block = real_batch_size // block_num
+        remainder = real_batch_size % block_num
+        amplitude_list = []
+        for j in range(block_num):
+            if j < remainder:
+                current_real_batch_size_block = real_batch_size_block + 1
+            else:
+                current_real_batch_size_block = real_batch_size_block
+            start_index = j * real_batch_size_block + min(j, remainder)
+            end_index = start_index + current_real_batch_size_block
+            batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
+            amplitude_block = self(x[batch_indices_block])
+            amplitude_list.append(amplitude_block)
+        amplitude: torch.Tensor = torch.cat(amplitude_list)
+
+        return x, amplitude, None, None
 
 
 class WaveFunctionNormal(torch.nn.Module):
     """
-    This module implements naqs from https://arxiv.org/pdf/2109.12606 and https://arxiv.org/pdf/2408.07625.
+    The wave function for the NAQS network.
     This module does not maintain any conservation.
     """
 
@@ -341,7 +374,7 @@ class WaveFunctionNormal(torch.nn.Module):
 
         batch_size: int = x.shape[0]
         # x: batch_size * sites
-        x = unpack_int(x, size=1, last_dim=self.sites).reshape([batch_size, self.sites])
+        x = unpack_int(x, size=1, last_dim=self.sites).view([batch_size, self.sites])
         # Apply ordering
         x = torch.index_select(x, 1, self.ordering_reversed)
 
@@ -351,7 +384,7 @@ class WaveFunctionNormal(torch.nn.Module):
         for i, amplitude_m in enumerate(self.amplitude):
             # delta_amplitude : batch_size * 2
             # delta_amplitude represents the amplitude changes for the configurations at the new site.
-            delta_amplitude: torch.Tensor = amplitude_m(x_float[:, :i].reshape([batch_size, i])).reshape([batch_size, 2])
+            delta_amplitude: torch.Tensor = amplitude_m(x_float[:, :i].view([batch_size, i])).view([batch_size, 2])
 
             # normalized_delta_amplitude: batch_size * 2
             # Normalize the delta amplitude.
@@ -364,18 +397,19 @@ class WaveFunctionNormal(torch.nn.Module):
 
             total_amplitude = total_amplitude + selected_delta_amplitude
 
-        total_phase: torch.Tensor = self.phase(x_float.reshape([batch_size, self.sites])).reshape([batch_size])
+        total_phase: torch.Tensor = self.phase(x_float.view([batch_size, self.sites])).view([batch_size])
 
         return torch.view_as_complex(torch.stack([total_amplitude, total_phase], dim=-1)).exp()
 
     @torch.jit.export
-    def generate_unique(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, None, None]:
+    def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate configurations uniquely.
         see https://arxiv.org/pdf/2408.07625.
         """
         # pylint: disable=too-many-locals
         # pylint: disable=invalid-name
+        # pylint: disable=too-many-statements
 
         device: torch.device = self.dummy_param.device
         dtype: torch.dtype = self.dummy_param.dtype
@@ -391,20 +425,33 @@ class WaveFunctionNormal(torch.nn.Module):
 
             # delta_amplitude: batch * 2
             # delta_amplitude represents the amplitude changes for the configurations at the new site.
-            delta_amplitude: torch.Tensor = amplitude_m(x_float.reshape([local_batch_size, i])).reshape([local_batch_size, 2])
+            local_batch_size_block = local_batch_size // block_num
+            remainder = local_batch_size % block_num
+            delta_amplitude_block_list: list[torch.Tensor] = []
+            for j in range(block_num):
+                if j < remainder:
+                    current_local_batch_size_block = local_batch_size_block + 1
+                else:
+                    current_local_batch_size_block = local_batch_size_block
+                start_index = j * local_batch_size_block + min(j, remainder)
+                end_index = start_index + current_local_batch_size_block
+                batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
+                delta_amplitude_block = amplitude_m(x_float.view([local_batch_size, i])[batch_indices_block]).view([current_local_batch_size_block, 2])
+                delta_amplitude_block_list.append(delta_amplitude_block)
+            delta_amplitude: torch.Tensor = torch.cat(delta_amplitude_block_list)
 
             # normalized_delta_amplitude: batch_size * 2
             # Normalize the delta amplitude.
             normalized_delta_amplitude: torch.Tensor = self._normalize_amplitude(delta_amplitude)
 
             # The delta unperturbed prob for all batch and 2 adds
-            l: torch.Tensor = (2 * normalized_delta_amplitude).reshape([local_batch_size, 2])
+            l: torch.Tensor = (2 * normalized_delta_amplitude).view([local_batch_size, 2])
             # and add to get the current unperturbed prob
             l = unperturbed_probability.view([local_batch_size, 1]) + l
             # Get perturbed prob by adding GUMBEL(0)
             L: torch.Tensor = l - (-torch.rand_like(l).log()).log()
             # Get max perturbed prob
-            Z: torch.Tensor = L.max(dim=-1).values.reshape([local_batch_size, 1])
+            Z: torch.Tensor = L.max(dim=-1).values.view([local_batch_size, 1])
             # Evaluate the conditioned prob
             tildeL: torch.Tensor = -torch.log(torch.exp(-perturbed_probability.view([local_batch_size, 1])) - torch.exp(-Z) + torch.exp(-L))
 
@@ -434,8 +481,26 @@ class WaveFunctionNormal(torch.nn.Module):
         # Apply ordering
         x = torch.index_select(x, 1, self.ordering)
         # Flatten site part of x
-        x = x.reshape([x.size(0), self.sites])
+        x = x.view([x.size(0), self.sites])
         # It should return configurations, amplitudes, probabilities and multiplicities.
         # But it is unique generator, so the last two fields are None
         x = pack_int(x, size=1)
-        return x, self(x), None, None
+
+        # Calculate the amplitude for the generated configurations in the batch.
+        real_batch_size = len(x)
+        real_batch_size_block = real_batch_size // block_num
+        remainder = real_batch_size % block_num
+        amplitude_list = []
+        for j in range(block_num):
+            if j < remainder:
+                current_real_batch_size_block = real_batch_size_block + 1
+            else:
+                current_real_batch_size_block = real_batch_size_block
+            start_index = j * real_batch_size_block + min(j, remainder)
+            end_index = start_index + current_real_batch_size_block
+            batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
+            amplitude_block = self(x[batch_indices_block])
+            amplitude_list.append(amplitude_block)
+        amplitude: torch.Tensor = torch.cat(amplitude_list)
+
+        return x, amplitude, None, None

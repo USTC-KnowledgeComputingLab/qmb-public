@@ -18,7 +18,7 @@ class NetworkProto(typing.Protocol):
         Calculate the amplitude for the given configurations.
         """
 
-    def generate_unique(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, None, None]:
+    def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate a batch of unique configurations.
         """
