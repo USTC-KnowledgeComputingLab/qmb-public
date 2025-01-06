@@ -68,6 +68,8 @@ class _DynamicLanczos:
                 if len(beta) != 0:
                     energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                     yield energy, self.configs, psi
+                else:
+                    yield alpha[0], self.configs, v[0]
         else:
             # Extend the configuration, during processing the dynamic lanczos.
             for step in range(1 + self.step):
@@ -76,7 +78,10 @@ class _DynamicLanczos:
                 if len(beta) != 0:
                     energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                     yield energy, self.configs, psi
-                self._extend(v[-1])
+                else:
+                    yield alpha[0], self.configs, v[0]
+                if step != self.step:
+                    self._extend(v[-1])
 
     def _run(self) -> typing.Iterable[tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]]:
         """
@@ -226,7 +231,7 @@ class ImaginaryConfig:
 
             logging.info("Sampling configurations")
             configs, target_psi, _, _ = network.generate_unique(self.sampling_count)
-            logging.info("Sampling completed")
+            logging.info("Sampling completed, unique configurations count: %d", len(configs))
 
             logging.info("Computing the target for local optimization")
             target_energy: torch.Tensor
@@ -238,13 +243,13 @@ class ImaginaryConfig:
                     threshold=self.krylov_threshold,
                     count_extend=self.krylov_extend_count,
             ).run():
-                logging.info("The current energy is %.10f", target_energy.item())
+                logging.info("The current energy is %.10f where the sampling count is %d", target_energy.item(), len(configs))
                 writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 writer.add_scalar("imag/lanczos/error", target_energy - model.ref_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 data["imag"]["lanczos"] += 1
             max_index = target_psi.abs().argmax()
             target_psi = target_psi / target_psi[max_index]
-            logging.info("Local optimization target calculated, the target energy is %.10f", target_energy.item())
+            logging.info("Local optimization target calculated, the target energy is %.10f, the sampling count is %d", target_energy.item(), len(configs))
 
             loss_func: typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = getattr(losses, self.loss_name)
 
