@@ -32,6 +32,7 @@ class _DynamicLanczos:
     step: int
     threshold: float
     count_extend: int
+    batch_count_apply_within: int
 
     def _extend(self, psi: torch.Tensor) -> None:
         logging.info("Extending basis...")
@@ -104,7 +105,7 @@ class _DynamicLanczos:
         alpha: list[torch.Tensor] = []
         beta: list[torch.Tensor] = []
         w: torch.Tensor
-        w = self.model.apply_within(self.configs, v[-1], self.configs)  # pylint: disable=assignment-from-no-return
+        w = self._apply_within(self.configs, v[-1], self.configs)
         alpha.append((w.conj() @ v[-1]).real)
         yield (alpha, beta, v)
         w = w - alpha[-1] * v[-1]
@@ -114,11 +115,35 @@ class _DynamicLanczos:
                 break
             beta.append(norm_w)
             v.append(w / beta[-1])
-            w = self.model.apply_within(self.configs, v[-1], self.configs)  # pylint: disable=assignment-from-no-return
+            w = self._apply_within(self.configs, v[-1], self.configs)
             alpha.append((w.conj() @ v[-1]).real)
             yield (alpha, beta, v)
             w = w - alpha[-1] * v[-1] - beta[-1] * v[-2]
             v[-2] = v[-2].cpu()  # v maybe very large, so we need to move it to CPU
+
+    def _apply_within(self, configs_i: torch.Tensor, psi_i: torch.Tensor, configs_j: torch.Tensor) -> torch.Tensor:
+        batch_size = len(configs_i)
+        local_batch_size = batch_size // self.batch_count_apply_within
+        remainder = batch_size % self.batch_count_apply_within
+        result: torch.Tensor | None = None
+        for i in range(self.batch_count_apply_within):
+            if i < remainder:
+                current_local_batch_size = local_batch_size + 1
+            else:
+                current_local_batch_size = local_batch_size
+            start_index = i * local_batch_size + min(i, remainder)
+            end_index = start_index + current_local_batch_size
+            local_result = self.model.apply_within(  # pylint: disable=assignment-from-no-return
+                configs_i[start_index:end_index],
+                psi_i[start_index:end_index],
+                configs_j,
+            )
+            if result is None:
+                result = local_result
+            else:
+                result = result + local_result
+        assert result is not None
+        return result
 
     def _eigh_tridiagonal(
         self,
@@ -148,8 +173,6 @@ class ImaginaryConfig:
 
     # The sampling count
     sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 2048
-    # The local generating count used to avoid memory overflow
-    local_generate_count: typing.Annotated[int, tyro.conf.arg(aliases=["-m"])] = 1
     # The extend count for the Krylov subspace
     krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 64
     # The number of Krylov iterations to perform
@@ -164,14 +187,18 @@ class ImaginaryConfig:
     use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
     # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
-    # The local batch count used to avoid memory overflow
-    local_batch_count: typing.Annotated[int, tyro.conf.arg(aliases=["-b"])] = 1
     # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"], help_behavior_hint="(default: 10000 for Adam, 1000 for LBFGS)")] = -1
     # The early break loss threshold for local optimization
     local_loss: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-8
     # The number of psi values to log after local optimization
     logging_psi: typing.Annotated[int, tyro.conf.arg(aliases=["-p"])] = 30
+    # The local batch count used to avoid memory overflow in generating configurations
+    local_batch_count_generation: typing.Annotated[int, tyro.conf.arg(aliases=["-m"])] = 1
+    # The local batch count used to avoid memory overflow in apply within
+    local_batch_count_apply_within: typing.Annotated[int, tyro.conf.arg(aliases=["-a"])] = 1
+    # The local batch count used to avoid memory overflow in loss function
+    local_batch_count_loss_function: typing.Annotated[int, tyro.conf.arg(aliases=["-b"])] = 1
 
     def __post_init__(self) -> None:
         if self.learning_rate == -1:
@@ -191,7 +218,6 @@ class ImaginaryConfig:
         logging.info(
             "Arguments Summary: "
             "Sampling Count: %d, "
-            "Local Generating Count: %d, "
             "Krylov Extend Count: %d, "
             "krylov Iteration: %d, "
             "krylov Threshold: %.10f, "
@@ -199,12 +225,13 @@ class ImaginaryConfig:
             "Global Optimizer: %s, "
             "Use LBFGS: %s, "
             "Learning Rate: %.10f, "
-            "Local Batch Count: %d, "
             "Local Steps: %d, "
             "Local Loss Threshold: %.10f, "
-            "Logging Psi: %d",
+            "Logging Psi: %d, "
+            "Local Batch Count For Generation: %d, "
+            "Local Batch Count For Apply Within: %d, "
+            "Local Batch Count For Loss Function: %d",
             self.sampling_count,
-            self.local_generate_count,
             self.krylov_extend_count,
             self.krylov_iteration,
             self.krylov_threshold,
@@ -212,10 +239,12 @@ class ImaginaryConfig:
             "Yes" if self.global_opt else "No",
             "Yes" if self.use_lbfgs else "No",
             self.learning_rate,
-            self.local_batch_count,
             self.local_step,
             self.local_loss,
             self.logging_psi,
+            self.local_batch_count_generation,
+            self.local_batch_count_apply_within,
+            self.local_batch_count_loss_function,
         )
 
         optimizer = initialize_optimizer(
@@ -234,7 +263,7 @@ class ImaginaryConfig:
             logging.info("Starting a new optimization cycle")
 
             logging.info("Sampling configurations")
-            configs, target_psi, _, _ = network.generate_unique(self.sampling_count, self.local_generate_count)
+            configs, target_psi, _, _ = network.generate_unique(self.sampling_count, self.local_batch_count_generation)
             logging.info("Sampling completed, unique configurations count: %d", len(configs))
 
             logging.info("Computing the target for local optimization")
@@ -246,6 +275,7 @@ class ImaginaryConfig:
                     step=self.krylov_iteration,
                     threshold=self.krylov_threshold,
                     count_extend=self.krylov_extend_count,
+                    batch_count_apply_within=self.local_batch_count_apply_within,
             ).run():
                 logging.info("The current energy is %.10f where the sampling count is %d", target_energy.item(), len(configs))
                 writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
@@ -268,11 +298,11 @@ class ImaginaryConfig:
             def closure() -> torch.Tensor:
                 optimizer.zero_grad()
                 total_size = len(configs)
-                batch_size = total_size // self.local_batch_count
-                remainder = total_size % self.local_batch_count
+                batch_size = total_size // self.local_batch_count_loss_function
+                remainder = total_size % self.local_batch_count_loss_function
                 total_loss = 0.0
                 total_psi = []
-                for i in range(self.local_batch_count):
+                for i in range(self.local_batch_count_loss_function):
                     if i < remainder:
                         current_batch_size = batch_size + 1
                     else:
