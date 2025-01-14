@@ -1,6 +1,8 @@
-name: Build
+name: Build wheels
 
-on: [push, pull_request]
+on:
+  - push
+  - pull_request
 
 jobs:
   build_sdist:
@@ -54,4 +56,5 @@ jobs:
           pattern: build-*
           path: dist
           merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@release/v1
+
+      # - uses: pypa/gh-action-pypi-publish@release/v1
