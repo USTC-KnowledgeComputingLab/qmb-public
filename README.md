@@ -16,7 +16,7 @@ Both approaches require GPU(s) with [CUDA][cuda-url] support and a properly inst
 
 ### Run with Docker
 
-After installing [Docker](docker-url) with [CUDA support][docker-cuda-url], pull [our prebuilt Docker image][our-docker-url] using:
+After installing [Docker][docker-url] with [CUDA support][docker-cuda-url], pull [our prebuilt Docker image][our-docker-url] using:
 ```
 docker pull hzhangxyz/qmb
 ```
@@ -68,7 +68,7 @@ For example, use `qmb imag --help` to view the help information for the `imag` s
 Typically, `qmb` requires a specific descriptor for a particular physical or chemical model to execute.
 We have collected a set of such models [here][models-url].
 Users can clone or download this dataset into a folder named `models` within their current working directory.
-This folder `models` is the default location which `qmb` will search for the necessary model files by default.
+This folder `models` is the default location which `qmb` will search for the necessary model files.
 
 After cloning or downloading the dataset, users can calculate the ground state of the $N_2$ system by running the command:
 ```
@@ -81,11 +81,11 @@ For more detailed information, please refer to the help command and the document
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## License
 
-This project is distributed under the GPLv3 License. See [LICENSE.md](./LICENSE.md) for more information.
+This project is distributed under the GPLv3 License. See [LICENSE.md](LICENSE.md) for more information.
 
 [python-url]: https://www.python.org/
 [openfermion-url]: https://quantumai.google/openfermion
