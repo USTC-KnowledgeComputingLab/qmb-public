@@ -141,6 +141,12 @@ class AttentionConfig:
     heads_num: typing.Annotated[int, tyro.conf.arg(aliases=["-m"])] = 8
     # Feedforward dimension
     feed_forward_dim: typing.Annotated[int, tyro.conf.arg(aliases=["-f"])] = 2048
+    # Shared expert number
+    shared_expert_num: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 1
+    # Routed expert number
+    routed_expert_num: typing.Annotated[int, tyro.conf.arg(aliases=["-r"])] = 0
+    # Selected expert number
+    selected_expert_num: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 0
     # Network depth
     depth: typing.Annotated[int, tyro.conf.arg(aliases=["-d"])] = 6
 
@@ -156,10 +162,16 @@ class AttentionConfig:
             "embedding dimension: %d, "
             "number of heads: %d, "
             "feed-forward dimension: %d, "
+            "shared expert number: %d, "
+            "routed expert number: %d, "
+            "selected expert number: %d, "
             "depth: %d",
             args.embedding_dim,
             args.heads_num,
             args.feed_forward_dim,
+            args.shared_expert_num,
+            args.routed_expert_num,
+            args.selected_expert_num,
             args.depth,
         )
 
@@ -172,6 +184,9 @@ class AttentionConfig:
             embedding_dim=args.embedding_dim,
             heads_num=args.heads_num,
             feed_forward_dim=args.feed_forward_dim,
+            shared_num=args.shared_expert_num,
+            routed_num=args.routed_expert_num,
+            selected_num=args.selected_expert_num,
             depth=args.depth,
             ordering=+1,
         ).double()

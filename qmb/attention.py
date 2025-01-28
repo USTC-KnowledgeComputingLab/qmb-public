@@ -1,5 +1,6 @@
 """
 This file implements an auto-regressive transformers network with the sampling method introduced in https://arxiv.org/pdf/2408.07625.
+This network makes use of DeepSeekMoE architecture introduced in https://arxiv.org/pdf/2401.06066.
 """
 
 import math
@@ -88,12 +89,36 @@ class DecoderUnit(torch.nn.Module):
     A decoder unit within the transformer architecture, integrating both self-attention and feed-forward layers.
     """
 
-    def __init__(self, embedding_dim: int, heads_num: int, feed_forward_dim: int) -> None:
+    # pylint: disable=too-many-instance-attributes
+
+    def __init__(  # pylint: disable=too-many-arguments
+            self,
+            *,
+            embedding_dim: int,
+            heads_num: int,
+            feed_forward_dim: int,
+            shared_num: int,
+            routed_num: int,
+            selected_num: int,
+    ) -> None:
         super().__init__()
+        self.shared_num = shared_num
+        self.routed_num = routed_num
+        self.selected_num = selected_num
+
         self.attention: torch.nn.Module = SelfAttention(embedding_dim, heads_num)
         self.norm1: torch.nn.Module = torch.nn.LayerNorm(embedding_dim)
-        self.feed_forward: torch.nn.Module = FeedForward(embedding_dim, feed_forward_dim)
+        self.feed_forward_shared: torch.nn.ModuleList = torch.nn.ModuleList([FeedForward(embedding_dim, feed_forward_dim) for _ in range(shared_num)])
+        self.feed_forward_routed: torch.nn.ModuleList = torch.nn.ModuleList([FeedForward(embedding_dim, feed_forward_dim) for _ in range(routed_num)])
+        self.centroid: torch.nn.Parameter = torch.nn.Parameter(torch.randn(routed_num, embedding_dim))
         self.norm2: torch.nn.Module = torch.nn.LayerNorm(embedding_dim)
+
+        self.bias: torch.Tensor
+        self.register_buffer('bias', torch.zeros([self.routed_num]))
+        self.accumulater: torch.Tensor
+        self.register_buffer('accumulater', torch.zeros([self.routed_num]))
+        self.count: torch.Tensor
+        self.register_buffer('count', torch.zeros([]))
 
     def forward(
         self,
@@ -107,8 +132,26 @@ class DecoderUnit(torch.nn.Module):
         # x, y: batch * site * embedding
         y, result_cache = self.attention(x, kv_cache, mask)
         x = self.norm1(x + y)
-        y = self.feed_forward(x)
-        x = self.norm2(x + y)
+
+        # The following segmental code implements the DeepSeekMoE architecture.
+        y = x
+        for i, expert in enumerate(self.feed_forward_shared):
+            y = y + expert(x)
+        # similarity: batch * site * routed
+        similarity = torch.nn.functional.softmax(x @ self.centroid.t(), dim=-1)
+        # top_k_indices: batch * site * selected
+        _, top_k_indices = torch.topk(similarity + self.bias, self.selected_num, dim=-1)
+        # gate_prime, gate: batch * site * routed
+        gate_prime = torch.zeros_like(similarity).scatter_(-1, top_k_indices, similarity.gather(-1, top_k_indices))
+        gate = gate_prime / gate_prime.sum(dim=-1).unsqueeze(-1)
+        for i, expert in enumerate(self.feed_forward_routed):
+            y = y + expert(x) * gate[:, :, i].unsqueeze(-1)
+        x = self.norm2(y)
+
+        if self.training:
+            self.accumulater = self.accumulater + similarity.sum([0, 1])
+            self.count = self.count + similarity.size(0) * similarity.size(1)
+
         return x, result_cache
 
 
@@ -117,9 +160,27 @@ class Transformers(torch.nn.Module):
     A transformer model consisting of multiple decoder units.
     """
 
-    def __init__(self, embedding_dim: int, heads_num: int, feed_forward_dim: int, depth: int) -> None:
+    def __init__(  # pylint: disable=too-many-arguments
+            self,
+            *,
+            embedding_dim: int,
+            heads_num: int,
+            feed_forward_dim: int,
+            shared_num: int,
+            routed_num: int,
+            selected_num: int,
+            depth: int,
+    ) -> None:
         super().__init__()
-        self.layers: torch.nn.ModuleList = torch.nn.ModuleList(DecoderUnit(embedding_dim, heads_num, feed_forward_dim) for _ in range(depth))
+        self.layers: torch.nn.ModuleList = torch.nn.ModuleList(
+            DecoderUnit(
+                embedding_dim=embedding_dim,
+                heads_num=heads_num,
+                feed_forward_dim=feed_forward_dim,
+                shared_num=shared_num,
+                routed_num=routed_num,
+                selected_num=selected_num,
+            ) for _ in range(depth))
 
     def forward(
         self,
@@ -239,6 +300,9 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             embedding_dim: int,  # Dimension of the embedding space used in the transformer layers
             heads_num: int,  # Number of attention heads in the transformer's self-attention mechanism
             feed_forward_dim: int,  # Dimension of the feed-forward network within the transformer layers
+            shared_num: int,  # Number of the shared expert in the DeepSeekMoE architecture
+            routed_num: int,  # Number of the routed expert in the DeepSeekMoE architecture
+            selected_num: int,  # Number of the selected expert in the DeepSeekMoE architecture
             depth: int,  # Number of decoder layers in the transformer model
             ordering: int | list[int],  # Ordering of sites: +1 for normal order, -1 for reversed order, or a custom order list
     ) -> None:
@@ -253,12 +317,23 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         self.embedding_dim: int = embedding_dim
         self.heads_num: int = heads_num
         self.feed_forward_dim: int = feed_forward_dim
+        self.shared_num: int = shared_num
+        self.routed_num: int = routed_num
+        self.selected_num: int = selected_num
         self.depth: int = depth
 
         # Embed configurations for each site, considering the four possible states of two qubits.
         self.embedding: torch.nn.Module = Embedding(self.embedding_dim)
         # Main body of the wave function computation.
-        self.transformers: torch.nn.Module = Transformers(self.embedding_dim, self.heads_num, self.feed_forward_dim, self.depth)
+        self.transformers: torch.nn.Module = Transformers(
+            embedding_dim=self.embedding_dim,
+            heads_num=self.heads_num,
+            feed_forward_dim=self.feed_forward_dim,
+            shared_num=self.shared_num,
+            routed_num=self.routed_num,
+            selected_num=self.selected_num,
+            depth=self.depth,
+        )
         # Tail layer mapping from embedding space to amplitude and phase space.
         # (amplitude and phase) * (4 possible states)
         self.tail: torch.nn.Module = Tail(self.embedding_dim, self.feed_forward_dim, 8)
@@ -516,6 +591,9 @@ class WaveFunctionNormal(torch.nn.Module):
             embedding_dim: int,  # Dimension of the embedding space used in the transformer layers
             heads_num: int,  # Number of attention heads in the transformer's self-attention mechanism
             feed_forward_dim: int,  # Dimension of the feed-forward network within the transformer layers
+            shared_num: int,  # Number of the shared expert in the DeepSeekMoE architecture
+            routed_num: int,  # Number of the routed expert in the DeepSeekMoE architecture
+            selected_num: int,  # Number of the selected expert in the DeepSeekMoE architecture
             depth: int,  # Number of decoder layers in the transformer model
             ordering: int | list[int],  # Ordering of sites: +1 for normal order, -1 for reversed order, or a custom order list
     ) -> None:
@@ -526,12 +604,23 @@ class WaveFunctionNormal(torch.nn.Module):
         self.embedding_dim: int = embedding_dim
         self.heads_num: int = heads_num
         self.feed_forward_dim: int = feed_forward_dim
+        self.shared_num: int = shared_num
+        self.routed_num: int = routed_num
+        self.selected_num: int = selected_num
         self.depth: int = depth
 
         # Embed configurations for each site, considering the physical_dim possible states of each qubit.
         self.embedding: torch.nn.Module = Embedding(self.embedding_dim)
         # Main body of the wave function computation.
-        self.transformers: torch.nn.Module = Transformers(self.embedding_dim, self.heads_num, self.feed_forward_dim, self.depth)
+        self.transformers: torch.nn.Module = Transformers(
+            embedding_dim=self.embedding_dim,
+            heads_num=self.heads_num,
+            feed_forward_dim=self.feed_forward_dim,
+            shared_num=self.shared_num,
+            routed_num=self.routed_num,
+            selected_num=self.selected_num,
+            depth=self.depth,
+        )
         # Tail layer mapping from embedding space to amplitude and phase space.
         # (amplitude and phase) * (all possible states)
         self.tail: torch.nn.Module = Tail(self.embedding_dim, self.feed_forward_dim, 2 * self.physical_dim)
