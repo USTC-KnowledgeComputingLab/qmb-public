@@ -161,6 +161,69 @@ class _DynamicLanczos:
         return energy, result
 
 
+def _sampling_from_last_iteration(pool: tuple[torch.Tensor, torch.Tensor] | None, number: int) -> tuple[torch.Tensor, torch.Tensor] | tuple[None, None]:
+    """
+    Sample configurations and wavefunction amplitudes from the last iteration.
+
+    Parameters
+    ----------
+    pool : tuple[torch.Tensor, torch.Tensor] | None
+        The pool of configurations and wavefunction amplitudes from the last iteration.
+    number : int
+        The number of samples to draw.
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor] | tuple[None, None]
+        A tuple containing the sampled configurations and wavefunction amplitudes, or (None, None) if the pool is empty.
+    """
+    if pool is None:
+        return None, None
+    configs, psi = pool
+    probabilities = (psi.conj() * psi).real
+    phi = probabilities.log()
+    g = phi - (-torch.rand_like(phi).log()).log()
+    _, indices = torch.topk(g, min(number, len(g)))
+    return configs[indices], psi[indices]
+
+
+def _merge_pool_from_neural_network_and_pool_from_last_iteration(
+    configs_a: torch.Tensor,
+    psi_a: torch.Tensor,
+    configs_b: torch.Tensor | None,
+    psi_b: torch.Tensor | None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Merge the pool of configurations and psi values from the neural network and the last iteration.
+
+    Parameters
+    ----------
+    configs_a : torch.Tensor
+        Configurations from the neural network.
+    psi_a : torch.Tensor
+        Psi values from the neural network.
+    configs_b : torch.Tensor | None
+        Configurations from the last iteration.
+    psi_b : torch.Tensor | None
+        Psi values from the last iteration.
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        Merged configurations and psi values.
+    """
+    if configs_b is None and psi_b is None:
+        return configs_a, psi_a
+    assert configs_b is not None
+    assert psi_b is not None
+    configs_both = torch.cat([configs_a, configs_b])
+    psi_both = torch.cat([psi_a, psi_b])
+    configs_result, indices = torch.unique(configs_both, return_inverse=True, dim=0)
+    # If the configurations are not unique, we prefer the psi from the last iteration.
+    psi_result = torch.zeros(len(configs_result), device=psi_both.device, dtype=psi_both.dtype).scatter_(0, indices, psi_both)
+    return configs_result, psi_result
+
+
 @dataclasses.dataclass
 class ImaginaryConfig:
     """
@@ -171,8 +234,10 @@ class ImaginaryConfig:
 
     common: typing.Annotated[CommonConfig, tyro.conf.OmitArgPrefixes]
 
-    # The sampling count
-    sampling_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 2048
+    # The sampling count from neural network
+    sampling_count_from_neural_network: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1024
+    # The sampling count from last iteration
+    sampling_count_from_last_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-f"])] = 1024
     # The extend count for the Krylov subspace
     krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 64
     # The number of Krylov iterations to perform
@@ -217,7 +282,8 @@ class ImaginaryConfig:
 
         logging.info(
             "Arguments Summary: "
-            "Sampling Count: %d, "
+            "Sampling Count From neural network: %d, "
+            "Sampling Count From Last iteration: %d, "
             "Krylov Extend Count: %d, "
             "krylov Iteration: %d, "
             "krylov Threshold: %.10f, "
@@ -231,7 +297,8 @@ class ImaginaryConfig:
             "Local Batch Count For Generation: %d, "
             "Local Batch Count For Apply Within: %d, "
             "Local Batch Count For Loss Function: %d",
-            self.sampling_count,
+            self.sampling_count_from_neural_network,
+            self.sampling_count_from_last_iteration,
             self.krylov_extend_count,
             self.krylov_iteration,
             self.krylov_threshold,
@@ -255,15 +322,24 @@ class ImaginaryConfig:
         )
 
         if "imag" not in data:
-            data["imag"] = {"global": 0, "local": 0, "lanczos": 0}
+            data["imag"] = {"global": 0, "local": 0, "lanczos": 0, "pool": None}
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
         while True:
             logging.info("Starting a new optimization cycle")
 
-            logging.info("Sampling configurations")
-            configs, target_psi, _, _ = network.generate_unique(self.sampling_count, self.local_batch_count_generation)
+            logging.info("Sampling configurations from neural network")
+            configs_from_neural_network, psi_from_neural_network, _, _ = network.generate_unique(self.sampling_count_from_neural_network, self.local_batch_count_generation)
+            logging.info("Sampling configurations from last iteration")
+            configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["pool"], self.sampling_count_from_last_iteration)
+            logging.info("Merging configurations from neural network and last iteration")
+            configs, target_psi = _merge_pool_from_neural_network_and_pool_from_last_iteration(
+                configs_from_neural_network,
+                psi_from_neural_network,
+                configs_from_last_iteration,
+                psi_from_last_iteration,
+            )
             logging.info("Sampling completed, unique configurations count: %d", len(configs))
 
             logging.info("Computing the target for local optimization")
@@ -394,6 +470,7 @@ class ImaginaryConfig:
             writer.flush()  # type: ignore[no-untyped-call]
 
             logging.info("Saving model checkpoint")
+            data["imag"]["pool"] = (configs, psi)
             data["imag"]["global"] += 1
             data["network"] = network.state_dict()
             data["optimizer"] = optimizer.state_dict()
