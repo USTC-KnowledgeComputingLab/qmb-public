@@ -176,7 +176,7 @@ class ImaginaryConfig:
     # The extend count for the Krylov subspace
     krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 64
     # The number of Krylov iterations to perform
-    krylov_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-k"])] = 31
+    krylov_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-k"])] = 32
     # The threshold for the Krylov iteration
     krylov_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-d"])] = 1e-8
     # The name of the loss function to use
