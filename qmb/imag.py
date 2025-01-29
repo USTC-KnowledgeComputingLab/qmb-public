@@ -332,7 +332,7 @@ class ImaginaryConfig:
             logging.info("Sampling configurations from neural network")
             configs_from_neural_network, psi_from_neural_network, _, _ = network.generate_unique(self.sampling_count_from_neural_network, self.local_batch_count_generation)
             logging.info("Sampling configurations from last iteration")
-            configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["pool"], self.sampling_count_from_last_iteration)
+            configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["imag"]["pool"], self.sampling_count_from_last_iteration)
             logging.info("Merging configurations from neural network and last iteration")
             configs, target_psi = _merge_pool_from_neural_network_and_pool_from_last_iteration(
                 configs_from_neural_network,
