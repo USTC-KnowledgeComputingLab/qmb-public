@@ -270,92 +270,133 @@ auto apply_within_interface(
     return result_psi;
 }
 
-constexpr std::int64_t max_uint8_t = 256;
-using largest_atomic_int = unsigned int; // The largest int type that can be atomicAdd/atomicSub
-using smallest_atomic_int = unsigned short int; // The smallest int type that can be atomicCAS
+__device__ void mutex_lock(int* mutex) {
+    // I don’t know why we need to wait for these periods of time, but the examples in the CUDA documentation are written this way.
+    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/#nanosleep-example
+    unsigned int ns = 8;
+    while (atomicCAS(mutex, 0, 1) == 1) {
+        __nanosleep(ns);
+        if (ns < 256) {
+            ns *= 2;
+        }
+    }
+    __threadfence();
+}
 
-template<std::int64_t n_qubytes>
-struct dictionary_tree {
-    using child_t = dictionary_tree<n_qubytes - 1>;
-    child_t* children[max_uint8_t];
-    smallest_atomic_int exist[max_uint8_t];
-    largest_atomic_int nonzero_count;
+__device__ void mutex_unlock(int* mutex) {
+    __threadfence();
+    atomicExch(mutex, 0);
+}
 
-    __device__ bool add(std::uint8_t* begin, double real, double imag) {
-        std::uint8_t index = *begin;
-        if (children[index] == nullptr) {
-            if (atomicCAS(&exist[index], smallest_atomic_int(0), smallest_atomic_int(1))) {
-                while (atomicCAS((largest_atomic_int*)&children[index], largest_atomic_int(0), largest_atomic_int(0)) == 0) {
+template<typename T>
+__device__ void swap_value(T& a, T& b) {
+    T tmp = a;
+    a = b;
+    b = tmp;
+}
+
+template<typename T, typename Compare = thrust::less<T>>
+__device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const T& value) {
+    auto compare = Compare();
+    // Lock the mutex of the root node and check
+    mutex_lock(&mutex[0]);
+    // If the value is greater than the smallest value in the heap, replace the root node with the value
+    // and adjust the heap, otherwise unlock the mutex of the root node
+    if (compare(heap[0], value)) {
+        heap[0] = value;
+        // Adjust the heap
+        std::int64_t index = 0;
+        while (true) {
+            // Calculate the indices of the left and right children
+            std::int64_t left = (index << 1) + 1;
+            std::int64_t right = (index << 1) + 2;
+            std::int64_t left_present = left < heap_size;
+            std::int64_t right_present = right < heap_size;
+            if (left_present) {
+                if (right_present) {
+                    // Lock the mutex of the left child and the right child if they exist,
+                    // and compare the values of the left child and the right child with the value,
+                    // to ensure that the value is smaller than the smaller of the two children.
+                    mutex_lock(&mutex[left]);
+                    mutex_lock(&mutex[right]);
+                    if (compare(heap[left], heap[right])) {
+                        if (compare(heap[left], heap[index])) {
+                            swap_value(heap[left], heap[index]);
+                            mutex_unlock(&mutex[index]);
+                            mutex_unlock(&mutex[right]);
+                            index = left;
+                        } else {
+                            mutex_unlock(&mutex[index]);
+                            mutex_unlock(&mutex[left]);
+                            mutex_unlock(&mutex[right]);
+                            break;
+                        }
+                    } else {
+                        if (compare(heap[right], heap[index])) {
+                            swap_value(heap[right], heap[index]);
+                            mutex_unlock(&mutex[index]);
+                            mutex_unlock(&mutex[left]);
+                            index = right;
+                        } else {
+                            mutex_unlock(&mutex[index]);
+                            mutex_unlock(&mutex[left]);
+                            mutex_unlock(&mutex[right]);
+                            break;
+                        }
+                    }
+                } else {
+                    // Lock the mutex of the left child if it exists, and compare the value of the left child with the value,
+                    // to ensure that the value is smaller than the left child.
+                    mutex_lock(&mutex[left]);
+                    if (compare(heap[left], heap[index])) {
+                        swap_value(heap[left], heap[index]);
+                        mutex_unlock(&mutex[index]);
+                        index = left;
+                    } else {
+                        mutex_unlock(&mutex[index]);
+                        mutex_unlock(&mutex[left]);
+                        break;
+                    }
                 }
             } else {
-                auto new_child = (child_t*)malloc(sizeof(child_t));
-                assert(new_child != nullptr);
-                memset(new_child, 0, sizeof(child_t));
-                children[index] = new_child;
-                __threadfence();
-            }
-        }
-        if (children[index]->add(begin + 1, real, imag)) {
-            atomicAdd(&nonzero_count, 1);
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    template<std::int64_t n_total_qubytes>
-    __device__ void collect(std::uint64_t index, std::array<std::uint8_t, n_total_qubytes>* configs, std::array<double, 2>* psi) {
-        std::uint64_t size_counter = 0;
-        for (std::int64_t i = 0; i < max_uint8_t; ++i) {
-            if (exist[i]) {
-                std::uint64_t new_size_counter = size_counter + children[i]->nonzero_count;
-                if (new_size_counter > index) {
-                    std::uint64_t new_index = index - size_counter;
-                    configs[index][n_total_qubytes - n_qubytes] = i;
-                    children[i]->collect<n_total_qubytes>(new_index, &configs[size_counter], &psi[size_counter]);
-                    if (atomicSub(&children[i]->nonzero_count, 1) == 1) {
-                        free(children[i]);
-                    };
-                    return;
+                if (right_present) {
+                    // Lock the mutex of the right child if it exists, and compare the value of the right child with the value,
+                    // to ensure that the value is smaller than the right child.
+                    mutex_lock(&mutex[right]);
+                    if (compare(heap[right], heap[index])) {
+                        swap_value(heap[right], heap[index]);
+                        mutex_unlock(&mutex[index]);
+                        index = right;
+                    } else {
+                        mutex_unlock(&mutex[index]);
+                        mutex_unlock(&mutex[right]);
+                        break;
+                    }
+                } else {
+                    // If there are no children, unlock the mutex of the current node and exit the loop
+                    mutex_unlock(&mutex[index]);
+                    break;
                 }
-                size_counter = new_size_counter;
             }
         }
+    } else {
+        mutex_unlock(&mutex[0]);
     }
-};
+}
 
-template<>
-struct dictionary_tree<1> {
-    double values[max_uint8_t][2];
-    smallest_atomic_int exist[max_uint8_t];
-    largest_atomic_int nonzero_count;
-
-    __device__ bool add(std::uint8_t* begin, double real, double imag) {
-        std::uint8_t index = *begin;
-        atomicAdd(&values[index][0], real);
-        atomicAdd(&values[index][1], imag);
-        if (atomicCAS(&exist[index], smallest_atomic_int(0), smallest_atomic_int(1))) {
-            return false;
-        } else {
-            atomicAdd(&nonzero_count, 1);
-            return true;
+template<typename T, std::int64_t size>
+struct array_first_double_less {
+    __device__ double first_double(const std::array<T, size + sizeof(double) / sizeof(T)>& value) const {
+        double result;
+        for (std::int64_t i = 0; i < sizeof(double); ++i) {
+            reinterpret_cast<std::uint8_t*>(&result)[i] = reinterpret_cast<const std::uint8_t*>(&value[0])[i];
         }
+        return result;
     }
 
-    template<std::int64_t n_total_qubytes>
-    __device__ void collect(std::uint64_t index, std::array<std::uint8_t, n_total_qubytes>* configs, std::array<double, 2>* psi) {
-        std::uint64_t size_counter = 0;
-        for (std::int64_t i = 0; i < max_uint8_t; ++i) {
-            if (exist[i]) {
-                if (size_counter == index) {
-                    configs[index][n_total_qubytes - 1] = i;
-                    psi[index][0] = values[i][0];
-                    psi[index][1] = values[i][1];
-                    return;
-                }
-                ++size_counter;
-            }
-        }
+    __device__ bool
+    operator()(const std::array<T, size + sizeof(double) / sizeof(T)>& lhs, const std::array<T, size + sizeof(double) / sizeof(T)>& rhs) const {
+        return first_double(lhs) < first_double(rhs);
     }
 };
 
@@ -370,7 +411,9 @@ __device__ void find_relative_kernel(
     const std::array<double, 2>* coef, // term_number
     const std::array<std::uint8_t, n_qubytes>* configs, // batch_size
     const std::array<double, 2>* psi, // batch_size
-    dictionary_tree<n_qubytes>* result_tree
+    std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>* heap,
+    int* mutex,
+    std::int64_t heap_size
 ) {
     std::array<std::uint8_t, n_qubytes> current_configs = configs[batch_index];
     auto [success, parity] = hamiltonian_apply_kernel<max_op_number, n_qubytes, particle_cut>(
@@ -404,10 +447,22 @@ __device__ void find_relative_kernel(
         return;
     }
     std::int8_t sign = parity ? -1 : +1;
-    result_tree->add(
-        current_configs.data(),
-        sign * (coef[term_index][0] * psi[batch_index][0] - coef[term_index][1] * psi[batch_index][1]),
-        sign * (coef[term_index][0] * psi[batch_index][1] + coef[term_index][1] * psi[batch_index][0])
+    double real = sign * (coef[term_index][0] * psi[batch_index][0] - coef[term_index][1] * psi[batch_index][1]);
+    double imag = sign * (coef[term_index][0] * psi[batch_index][1] + coef[term_index][1] * psi[batch_index][0]);
+    // Currently, the weight is calculated as the probability of the state, but it can be changed to other values in the future.
+    double weight = real * real + imag * imag;
+    std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)> value;
+    for (std::int64_t i = 0; i < sizeof(double) / sizeof(uint8_t); ++i) {
+        value[i] = reinterpret_cast<const std::uint8_t*>(&weight)[i];
+    }
+    for (std::int64_t i = 0; i < n_qubytes; ++i) {
+        value[i + sizeof(double) / sizeof(uint8_t)] = current_configs[i];
+    }
+    add_into_heap<std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>, array_first_double_less<std::uint8_t, n_qubytes>>(
+        heap,
+        mutex,
+        heap_size,
+        value
     );
 }
 
@@ -420,7 +475,9 @@ __global__ void find_relative_kernel_interface(
     const std::array<double, 2>* coef, // term_number
     const std::array<std::uint8_t, n_qubytes>* configs, // batch_size
     const std::array<double, 2>* psi, // batch_size
-    dictionary_tree<n_qubytes>* result_tree
+    std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>* heap,
+    int* mutex,
+    std::int64_t heap_size
 ) {
     std::int64_t term_index = blockIdx.x * blockDim.x + threadIdx.x;
     std::int64_t batch_index = blockIdx.y * blockDim.y + threadIdx.y;
@@ -436,22 +493,10 @@ __global__ void find_relative_kernel_interface(
             /*coef=*/coef,
             /*configs=*/configs,
             /*psi=*/psi,
-            /*result_tree=*/result_tree
+            /*heap=*/heap,
+            /*mutex=*/mutex,
+            /*heap_size=*/heap_size
         );
-    }
-}
-
-template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
-__global__ void collect_kernel_interface(
-    std::uint64_t result_size,
-    dictionary_tree<n_qubytes>* result_tree,
-    std::array<std::uint8_t, n_qubytes>* configs,
-    std::array<double, 2>* psi
-) {
-    std::int64_t index = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (index < result_size) {
-        result_tree->collect<n_qubytes>(index, configs, psi);
     }
 }
 
@@ -463,7 +508,7 @@ auto find_relative_interface(
     const torch::Tensor& site,
     const torch::Tensor& kind,
     const torch::Tensor& coef
-) -> std::tuple<torch::Tensor, torch::Tensor> {
+) -> torch::Tensor {
     std::int64_t device_id = configs.device().index();
     std::int64_t batch_size = configs.size(0);
     std::int64_t term_number = site.size(0);
@@ -526,9 +571,15 @@ auto find_relative_interface(
         array_less<std::uint8_t, n_qubytes>()
     );
 
-    dictionary_tree<n_qubytes>* result_tree;
-    AT_CUDA_CHECK(cudaMalloc(&result_tree, sizeof(dictionary_tree<n_qubytes>)));
-    AT_CUDA_CHECK(cudaMemset(result_tree, 0, sizeof(dictionary_tree<n_qubytes>)));
+    auto result_pool = torch::zeros(
+        {count_selected, n_qubytes + sizeof(double) / sizeof(std::uint8_t)},
+        torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id)
+    );
+    std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>* heap =
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>*>(result_pool.data_ptr());
+    int* mutex;
+    AT_CUDA_CHECK(cudaMalloc(&mutex, sizeof(int) * count_selected));
+    AT_CUDA_CHECK(cudaMemset(mutex, 0, sizeof(int) * count_selected));
 
     auto threads_per_block = dim3{1, max_threads_per_block >> 1}; // I don't know why, but need to divide by 2 to avoid errors
     auto num_blocks =
@@ -542,40 +593,26 @@ auto find_relative_interface(
         /*coef=*/reinterpret_cast<const std::array<double, 2>*>(coef.data_ptr()),
         /*configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_configs.data_ptr()),
         /*psi=*/reinterpret_cast<const std::array<double, 2>*>(sorted_psi.data_ptr()),
-        /*result_tree=*/result_tree
+        /*heap=*/heap,
+        /*mutex=*/mutex,
+        /*heap_size=*/count_selected
     );
     AT_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    largest_atomic_int result_size;
-    AT_CUDA_CHECK(cudaMemcpy(&result_size, &result_tree->nonzero_count, sizeof(largest_atomic_int), cudaMemcpyDeviceToHost));
+    AT_CUDA_CHECK(cudaFree(mutex));
 
-    auto result_configs = torch::zeros({result_size, n_qubytes}, torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id));
-    auto result_psi = torch::zeros({result_size, 2}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
+    // Here, the bytes before sizeof(double) / sizeof(std::uint8_t) in result_pool are weights, and the bytes after are configs
+    // We need to remove items with weight 0, then sort and deduplicate the configs
 
-    auto threads_per_block_collect = max_threads_per_block >> 1; // I don't know why, but need to divide by 2 to avoid errors
-    auto num_blocks_collect = (result_size + threads_per_block_collect - 1) / threads_per_block_collect;
-    collect_kernel_interface<max_op_number, n_qubytes, particle_cut><<<num_blocks_collect, threads_per_block_collect, 0, stream>>>(
-        /*result_size=*/result_size,
-        /*result_tree=*/result_tree,
-        /*configs=*/reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(result_configs.data_ptr()),
-        /*psi=*/reinterpret_cast<std::array<double, 2>*>(result_psi.data_ptr())
-    );
-    AT_CUDA_CHECK(cudaStreamSynchronize(stream));
-
-    AT_CUDA_CHECK(cudaFree(result_tree));
-
-    thrust::sort_by_key(
-        policy,
-        reinterpret_cast<std::array<double, 2>*>(result_psi.data_ptr()),
-        reinterpret_cast<std::array<double, 2>*>(result_psi.data_ptr()) + result_size,
-        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(result_configs.data_ptr()),
-        array_square_greater<double, 2>()
-    );
-
-    return std::make_tuple(
-        result_configs.index({torch::indexing::Slice(torch::indexing::None, count_selected)}),
-        result_psi.index({torch::indexing::Slice(torch::indexing::None, count_selected)})
-    );
+    auto result_config =
+        result_pool.index({torch::indexing::Slice(), torch::indexing::Slice(sizeof(double) / sizeof(std::uint8_t), torch::indexing::None)});
+    auto result_weight =
+        result_pool.index({torch::indexing::Slice(), torch::indexing::Slice(torch::indexing::None, sizeof(double) / sizeof(std::uint8_t))});
+    auto nonzero = torch::any(result_weight != 0, /*dim=*/1);
+    auto nonzero_result_config = result_config.index({nonzero});
+    auto unique_nonzero_result_config =
+        std::get<0>(torch::unique_dim(/*self=*/nonzero_result_config, /*dim=*/0, /*sorted=*/true, /*return_inverse=*/false, /*return_counts=*/false));
+    return unique_nonzero_result_config;
 }
 
 #ifndef N_QUBYTES

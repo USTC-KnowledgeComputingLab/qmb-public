@@ -82,7 +82,7 @@ PYBIND11_MODULE(qmb_hamiltonian, m) {
 #define QMB_LIBRARY(x, y) QMB_LIBRARY_HELPER(x, y)
 TORCH_LIBRARY_FRAGMENT(QMB_LIBRARY(N_QUBYTES, PARTICLE_CUT), m) {
     m.def("apply_within(Tensor configs_i, Tensor psi_i, Tensor configs_j, Tensor site, Tensor kind, Tensor coef) -> Tensor");
-    m.def("find_relative(Tensor configs_i, Tensor psi_i, int count_selected, Tensor site, Tensor kind, Tensor coef) -> (Tensor, Tensor)");
+    m.def("find_relative(Tensor configs_i, Tensor psi_i, int count_selected, Tensor site, Tensor kind, Tensor coef) -> Tensor");
 }
 #undef QMB_LIBRARY
 #undef QMB_LIBRARY_HELPER
