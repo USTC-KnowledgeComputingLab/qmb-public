@@ -245,7 +245,7 @@ class ImaginaryConfig:
     # The threshold for the Krylov iteration
     krylov_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-d"])] = 1e-8
     # The name of the loss function to use
-    loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "sum_filtered_angle_log"
+    loss_name: typing.Annotated[str, tyro.conf.arg(aliases=["-l"])] = "sum_filtered_angle_scaled_log"
     # Whether to use the global optimizer
     global_opt: typing.Annotated[bool, tyro.conf.arg(aliases=["-g"])] = False
     # Whether to use LBFGS instead of Adam
