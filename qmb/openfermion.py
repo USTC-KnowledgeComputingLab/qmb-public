@@ -2,6 +2,7 @@
 This file provides an interface to work with openfermion models.
 """
 
+import os
 import typing
 import logging
 import dataclasses
@@ -14,6 +15,8 @@ from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto
 
+OPENFERMION_PATH = "OPENFERMION_PATH"
+
 
 @dataclasses.dataclass
 class ModelConfig:
@@ -24,7 +27,7 @@ class ModelConfig:
     # The openfermion model name
     model_name: typing.Annotated[str, tyro.conf.Positional, tyro.conf.arg(metavar="MODEL")]
     # The path of models folder
-    model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path("models")
+    model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path(os.environ[OPENFERMION_PATH] if OPENFERMION_PATH in os.environ else "models")
 
 
 class Model(ModelProto):
