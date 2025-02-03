@@ -456,7 +456,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x_int32[:, :, 0], x_int32[:, :, 1]]
         selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x_int32[:, :, 0], x_int32[:, :, 1]]
 
-        return torch.view_as_complex(torch.stack([selected_amplitude.sum(dim=1), selected_phase.sum(dim=1)], dim=-1)).exp()
+        return torch.view_as_complex(torch.stack([selected_amplitude.double().sum(dim=1), selected_phase.double().sum(dim=1)], dim=-1)).exp()
 
     @torch.jit.export
     def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
@@ -696,7 +696,7 @@ class WaveFunctionNormal(torch.nn.Module):
         selected_amplitude: torch.Tensor = amplitude[batch_indices, sites_indices, x_int32]
         selected_phase: torch.Tensor = phase[batch_indices, sites_indices, x_int32]
 
-        return torch.view_as_complex(torch.stack([selected_amplitude.sum(dim=1), selected_phase.sum(dim=1)], dim=-1)).exp()
+        return torch.view_as_complex(torch.stack([selected_amplitude.double().sum(dim=1), selected_phase.double().sum(dim=1)], dim=-1)).exp()
 
     @torch.jit.export
     def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:

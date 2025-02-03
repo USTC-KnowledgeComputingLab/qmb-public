@@ -35,6 +35,18 @@ class NetworkProto(typing.Protocol):
     def parameters(self) -> typing.Iterable[torch.Tensor]:
         """torch.nn.Module function"""
 
+    def bfloat16(self) -> typing.Self:
+        """torch.nn.Module function"""
+
+    def half(self) -> typing.Self:
+        """torch.nn.Module function"""
+
+    def float(self) -> typing.Self:
+        """torch.nn.Module function"""
+
+    def double(self) -> typing.Self:
+        """torch.nn.Module function"""
+
 
 class ModelProto(typing.Protocol):
     """

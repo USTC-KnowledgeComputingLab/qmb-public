@@ -179,7 +179,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
         x_float: torch.Tensor = x.to(dtype=dtype)
         arange: torch.Tensor = torch.arange(batch_size, device=device)
-        total_amplitude: torch.Tensor = torch.zeros([batch_size], device=device, dtype=dtype)
+        total_amplitude: torch.Tensor = torch.zeros([batch_size], device=device, dtype=dtype).double()
         for i, amplitude_m in enumerate(self.amplitude):
             # delta_amplitude: batch_size * 2 * 2
             # delta_amplitude represents the amplitude changes for the configurations at the new site.
@@ -196,11 +196,11 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             xi_int32: torch.Tensor = x[:, i, :].to(dtype=torch.int32)
             selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, xi_int32[:, 0], xi_int32[:, 1]]
 
-            total_amplitude = total_amplitude + selected_delta_amplitude
+            total_amplitude = total_amplitude + selected_delta_amplitude.double()
 
         total_phase: torch.Tensor = self.phase(x_float.view([batch_size, self.double_sites])).view([batch_size])
 
-        return torch.view_as_complex(torch.stack([total_amplitude, total_phase], dim=-1)).exp()
+        return torch.view_as_complex(torch.stack([total_amplitude, total_phase.double()], dim=-1)).exp()
 
     @torch.jit.export
     def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
@@ -380,7 +380,7 @@ class WaveFunctionNormal(torch.nn.Module):
 
         x_float: torch.Tensor = x.to(dtype=dtype)
         arange: torch.Tensor = torch.arange(batch_size, device=device)
-        total_amplitude: torch.Tensor = torch.zeros([batch_size], device=device, dtype=dtype)
+        total_amplitude: torch.Tensor = torch.zeros([batch_size], device=device, dtype=dtype).double()
         for i, amplitude_m in enumerate(self.amplitude):
             # delta_amplitude : batch_size * 2
             # delta_amplitude represents the amplitude changes for the configurations at the new site.
@@ -395,11 +395,11 @@ class WaveFunctionNormal(torch.nn.Module):
             xi_int32: torch.Tensor = x[:, i].to(dtype=torch.int32)
             selected_delta_amplitude: torch.Tensor = normalized_delta_amplitude[arange, xi_int32]
 
-            total_amplitude = total_amplitude + selected_delta_amplitude
+            total_amplitude = total_amplitude + selected_delta_amplitude.double()
 
         total_phase: torch.Tensor = self.phase(x_float.view([batch_size, self.sites])).view([batch_size])
 
-        return torch.view_as_complex(torch.stack([total_amplitude, total_phase], dim=-1)).exp()
+        return torch.view_as_complex(torch.stack([total_amplitude, total_phase.double()], dim=-1)).exp()
 
     @torch.jit.export
     def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:

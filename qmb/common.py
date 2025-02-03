@@ -41,6 +41,8 @@ class CommonConfig:
     checkpoint_interval: typing.Annotated[int, tyro.conf.arg(aliases=["-I"])] = 5
     # The device to run on
     device: typing.Annotated[torch.device, tyro.conf.arg(aliases=["-D"])] = torch.device(type="cuda", index=0)
+    # The dtype of the network, leave empty to skip modifying the dtype
+    dtype: typing.Annotated[str | None, tyro.conf.arg(aliases=["-T"])] = None
 
     def folder(self) -> pathlib.Path:
         """
@@ -65,6 +67,8 @@ class CommonConfig:
         """
         The main function to create the model and network.
         """
+
+        # pylint: disable=too-many-statements
 
         if "-h" in self.network_args or "--help" in self.network_args:
             model_dict[self.model_name].network_dict[self.network_name](object(), self.network_args)  # type: ignore[arg-type]
@@ -119,6 +123,21 @@ class CommonConfig:
             logging.info("Skipping loading state dict of the network")
         logging.info("Moving model to the device: %a", self.device)
         network.to(device=self.device)
+        if self.dtype is not None:
+            logging.info("Changing network dtype to: %s", self.dtype)
+            match self.dtype:
+                case "bfloat16":
+                    network.bfloat16()
+                case "float16":
+                    network.half()
+                case "float32":
+                    network.float()
+                case "float64":
+                    network.double()
+                case _:
+                    raise ValueError(f"Unknown dtype: {self.dtype}")
+        logging.info("Compiling the network")
+        network = torch.jit.script(network)  # type: ignore[assignment]
 
         logging.info("The checkpoints will be saved every %d steps", self.checkpoint_interval)
 

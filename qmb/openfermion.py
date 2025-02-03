@@ -121,9 +121,9 @@ class NaqsConfig:
             spin_down=model.n_electrons // 2,
             hidden_size=args.hidden,
             ordering=+1,
-        ).double()
+        )
 
-        return torch.jit.script(network)
+        return network
 
 
 Model.network_dict["naqs"] = NaqsConfig.create
@@ -189,9 +189,9 @@ class AttentionConfig:
             selected_num=args.selected_expert_num,
             depth=args.depth,
             ordering=+1,
-        ).double()
+        )
 
-        return torch.jit.script(network)
+        return network
 
 
 Model.network_dict["attention"] = AttentionConfig.create
