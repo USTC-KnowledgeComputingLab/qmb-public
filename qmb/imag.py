@@ -24,7 +24,7 @@ class _DynamicLanczos:
     This class implements the dynamic Lanczos algorithm for solving quantum many-body problems.
     """
 
-    # pylint: disable=too-few-public-methods
+    # pylint: disable=too-many-instance-attributes
 
     model: ModelProto
     configs: torch.Tensor
@@ -33,6 +33,7 @@ class _DynamicLanczos:
     threshold: float
     count_extend: int
     batch_count_apply_within: int
+    single_extend: bool
 
     def _extend(self, psi: torch.Tensor) -> None:
         logging.info("Extending basis...")
@@ -65,6 +66,12 @@ class _DynamicLanczos:
         psi: torch.Tensor
         if self.count_extend == 0:
             # Do not extend the configuration, process the standard lanczos.
+            for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
+                energy, psi = self._eigh_tridiagonal(alpha, beta, v)
+                yield energy, self.configs, psi
+        elif self.single_extend:
+            # Extend the configuration only once.
+            self._extend(self.psi)
             for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
                 energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                 yield energy, self.configs, psi
@@ -235,7 +242,9 @@ class ImaginaryConfig:
     # The sampling count from last iteration
     sampling_count_from_last_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-f"])] = 1024
     # The extend count for the Krylov subspace
-    krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"])] = 64
+    krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"], help_behavior_hint="default: 2048 if krylov_single_extend else 64")] = -1
+    # Whether to extend only once for Krylov subspace
+    krylov_single_extend: typing.Annotated[bool, tyro.conf.arg(aliases=["-1"])] = False
     # The number of Krylov iterations to perform
     krylov_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-k"])] = 32
     # The threshold for the Krylov iteration
@@ -266,6 +275,8 @@ class ImaginaryConfig:
             self.learning_rate = 1 if self.use_lbfgs else 1e-3
         if self.local_step == -1:
             self.local_step = 1000 if self.use_lbfgs else 10000
+        if self.krylov_extend_count == -1:
+            self.krylov_extend_count = 2048 if self.krylov_single_extend else 64
 
     def main(self) -> None:
         """
@@ -282,6 +293,7 @@ class ImaginaryConfig:
             "Sampling Count From neural network: %d, "
             "Sampling Count From Last iteration: %d, "
             "Krylov Extend Count: %d, "
+            "Krylov Single Extend: %s, "
             "krylov Iteration: %d, "
             "krylov Threshold: %.10f, "
             "Loss Function: %s, "
@@ -297,6 +309,7 @@ class ImaginaryConfig:
             self.sampling_count_from_neural_network,
             self.sampling_count_from_last_iteration,
             self.krylov_extend_count,
+            "Yes" if self.krylov_single_extend else "No",
             self.krylov_iteration,
             self.krylov_threshold,
             self.loss_name,
@@ -352,6 +365,7 @@ class ImaginaryConfig:
                     threshold=self.krylov_threshold,
                     count_extend=self.krylov_extend_count,
                     batch_count_apply_within=self.local_batch_count_apply_within,
+                    single_extend=self.krylov_single_extend,
             ).run():
                 logging.info("The current energy is %.10f where the sampling count is %d", target_energy.item(), len(configs))
                 writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
