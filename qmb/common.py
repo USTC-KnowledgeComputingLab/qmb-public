@@ -34,7 +34,9 @@ class CommonConfig:
     # The group name, leave empty to use the preset one given by the model
     group_name: typing.Annotated[str | None, tyro.conf.arg(aliases=["-G"])] = None
     # The job name, where it is recommended to use distinct job names for runs with varying parameters
-    job_name: typing.Annotated[str, tyro.conf.arg(aliases=["-J"])] = "main"
+    current_job_name: typing.Annotated[str, tyro.conf.arg(aliases=["-J"])] = "main"
+    # The parent job name, it is only used for loading the checkpoint from the parent job, leave empty to use the current job name
+    parent_job_name: typing.Annotated[str | None, tyro.conf.arg(aliases=["-F"])] = None
     # The manual random seed, leave empty for set seed automatically
     random_seed: typing.Annotated[int | None, tyro.conf.arg(aliases=["-S"])] = None
     # The interval to save the checkpoint
@@ -49,7 +51,14 @@ class CommonConfig:
         Get the folder name for the current job.
         """
         assert self.group_name is not None
-        return self.log_path / self.group_name / self.job_name
+        return self.log_path / self.group_name / self.current_job_name
+
+    def parent_folder(self) -> pathlib.Path:
+        """
+        Get the folder name for the current job.
+        """
+        assert self.group_name is not None
+        return self.log_path / self.group_name / (self.parent_job_name if self.parent_job_name is not None else self.current_job_name)
 
     def save(self, data: typing.Any, step: int) -> None:
         """
@@ -86,7 +95,7 @@ class CommonConfig:
 
         logging.info("Starting script with arguments: %a", sys.argv)
         logging.info("Model: %s, Network: %s", self.model_name, self.network_name)
-        logging.info("Log directory: %s, Group name: %s, Job name: %s", self.log_path, self.group_name, self.job_name)
+        logging.info("Log directory: %s, Group name: %s, Job name: %s", self.log_path, self.group_name, self.current_job_name)
         logging.info("Physics arguments: %a", self.physics_args)
         logging.info("Network arguments: %a", self.network_args)
 
@@ -109,7 +118,7 @@ class CommonConfig:
 
         logging.info("Attempting to load checkpoint")
         data: typing.Any = {}
-        checkpoint_path = self.folder() / "data.pth"
+        checkpoint_path = self.parent_folder() / "data.pth"
         if checkpoint_path.exists():
             logging.info("Checkpoint found at: %s, loading...", checkpoint_path)
             data = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
