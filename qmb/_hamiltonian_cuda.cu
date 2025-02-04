@@ -270,7 +270,7 @@ auto apply_within_interface(
     return result_psi;
 }
 
-__device__ void mutex_lock(int* mutex) {
+__device__ void _mutex_lock(int* mutex) {
     // I don’t know why we need to wait for these periods of time, but the examples in the CUDA documentation are written this way.
     // https://docs.nvidia.com/cuda/cuda-c-programming-guide/#nanosleep-example
     unsigned int ns = 8;
@@ -280,107 +280,146 @@ __device__ void mutex_lock(int* mutex) {
             ns *= 2;
         }
     }
+}
+
+__device__ void mutex_lock(int* mutex) {
+    _mutex_lock(mutex);
     __threadfence();
+}
+
+__device__ void mutex_lock(int* mutex1, int* mutex2) {
+    _mutex_lock(mutex1);
+    _mutex_lock(mutex2);
+    __threadfence();
+}
+
+__device__ void _mutex_unlock(int* mutex) {
+    atomicExch(mutex, 0);
 }
 
 __device__ void mutex_unlock(int* mutex) {
     __threadfence();
-    atomicExch(mutex, 0);
+    _mutex_unlock(mutex);
 }
 
-template<typename T>
-__device__ void swap_value(T& a, T& b) {
-    T tmp = a;
-    a = b;
-    b = tmp;
+__device__ void mutex_unlock(int* mutex1, int* mutex2) {
+    __threadfence();
+    _mutex_unlock(mutex1);
+    _mutex_unlock(mutex2);
 }
 
 template<typename T, typename Compare = thrust::less<T>>
 __device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const T& value) {
     auto compare = Compare();
-    // Lock the mutex of the root node and check
-    mutex_lock(&mutex[0]);
-    // If the value is greater than the smallest value in the heap, replace the root node with the value
-    // and adjust the heap, otherwise unlock the mutex of the root node
-    if (compare(heap[0], value)) {
-        heap[0] = value;
-        // Adjust the heap
-        std::int64_t index = 0;
-        while (true) {
-            // Calculate the indices of the left and right children
-            std::int64_t left = (index << 1) + 1;
-            std::int64_t right = (index << 1) + 2;
-            std::int64_t left_present = left < heap_size;
-            std::int64_t right_present = right < heap_size;
-            if (left_present) {
-                if (right_present) {
-                    // Lock the mutex of the left child and the right child if they exist,
-                    // and compare the values of the left child and the right child with the value,
-                    // to ensure that the value is smaller than the smaller of the two children.
-                    mutex_lock(&mutex[left]);
-                    mutex_lock(&mutex[right]);
-                    if (compare(heap[left], heap[right])) {
-                        if (compare(heap[left], heap[index])) {
-                            swap_value(heap[left], heap[index]);
-                            mutex_unlock(&mutex[index]);
-                            mutex_unlock(&mutex[right]);
-                            index = left;
+    std::int64_t index = 0;
+    if (compare(value, heap[index])) {
+    } else {
+        mutex_lock(&mutex[index]);
+        if (compare(value, heap[index])) {
+            mutex_unlock(&mutex[index]);
+        } else {
+            while (true) {
+                // Current lock status: only mutex[index] is locked
+                // Calculate the indices of the left and right children
+                std::int64_t left = (index << 1) + 1;
+                std::int64_t right = (index << 1) + 2;
+                std::int64_t left_present = left < heap_size;
+                std::int64_t right_present = right < heap_size;
+                if (left_present) {
+                    if (right_present) {
+                        // Both left and right children are present
+                        if (compare(value, heap[left])) {
+                            if (compare(value, heap[right])) {
+                                // Both children are greater than the value, break
+                                break;
+                            } else {
+                                // The left child is greater than the value, treat it as if only the right child is present
+                                mutex_lock(&mutex[right]);
+                                if (compare(value, heap[right])) {
+                                    mutex_unlock(&mutex[right]);
+                                    break;
+                                } else {
+                                    heap[index] = heap[right];
+                                    mutex_unlock(&mutex[index]);
+                                    index = right;
+                                }
+                            }
                         } else {
-                            mutex_unlock(&mutex[index]);
-                            mutex_unlock(&mutex[left]);
-                            mutex_unlock(&mutex[right]);
-                            break;
+                            if (compare(value, heap[right])) {
+                                // The right child is greater than the value, treat it as if only the left child is present
+                                mutex_lock(&mutex[left]);
+                                if (compare(value, heap[left])) {
+                                    mutex_unlock(&mutex[left]);
+                                    break;
+                                } else {
+                                    heap[index] = heap[left];
+                                    mutex_unlock(&mutex[index]);
+                                    index = left;
+                                }
+                            } else {
+                                mutex_lock(&mutex[left], &mutex[right]);
+                                if (compare(heap[left], heap[right])) {
+                                    if (compare(value, heap[left])) {
+                                        mutex_unlock(&mutex[left], &mutex[right]);
+                                        break;
+                                    } else {
+                                        heap[index] = heap[left];
+                                        mutex_unlock(&mutex[index], &mutex[right]);
+                                        index = left;
+                                    }
+                                } else {
+                                    if (compare(value, heap[right])) {
+                                        mutex_unlock(&mutex[left], &mutex[right]);
+                                        break;
+                                    } else {
+                                        heap[index] = heap[right];
+                                        mutex_unlock(&mutex[index], &mutex[left]);
+                                        index = right;
+                                    }
+                                }
+                            }
                         }
                     } else {
-                        if (compare(heap[right], heap[index])) {
-                            swap_value(heap[right], heap[index]);
-                            mutex_unlock(&mutex[index]);
-                            mutex_unlock(&mutex[left]);
-                            index = right;
-                        } else {
-                            mutex_unlock(&mutex[index]);
-                            mutex_unlock(&mutex[left]);
-                            mutex_unlock(&mutex[right]);
+                        // Only the left child is present
+                        if (compare(value, heap[left])) {
                             break;
+                        } else {
+                            mutex_lock(&mutex[left]);
+                            if (compare(value, heap[left])) {
+                                mutex_unlock(&mutex[left]);
+                                break;
+                            } else {
+                                heap[index] = heap[left];
+                                mutex_unlock(&mutex[index]);
+                                index = left;
+                            }
                         }
                     }
                 } else {
-                    // Lock the mutex of the left child if it exists, and compare the value of the left child with the value,
-                    // to ensure that the value is smaller than the left child.
-                    mutex_lock(&mutex[left]);
-                    if (compare(heap[left], heap[index])) {
-                        swap_value(heap[left], heap[index]);
-                        mutex_unlock(&mutex[index]);
-                        index = left;
+                    if (right_present) {
+                        // Only the right child is present
+                        if (compare(value, heap[right])) {
+                            break;
+                        } else {
+                            mutex_lock(&mutex[right]);
+                            if (compare(value, heap[right])) {
+                                mutex_unlock(&mutex[right]);
+                                break;
+                            } else {
+                                heap[index] = heap[right];
+                                mutex_unlock(&mutex[index]);
+                                index = right;
+                            }
+                        }
                     } else {
-                        mutex_unlock(&mutex[index]);
-                        mutex_unlock(&mutex[left]);
+                        // No children are present
                         break;
                     }
-                }
-            } else {
-                if (right_present) {
-                    // Lock the mutex of the right child if it exists, and compare the value of the right child with the value,
-                    // to ensure that the value is smaller than the right child.
-                    mutex_lock(&mutex[right]);
-                    if (compare(heap[right], heap[index])) {
-                        swap_value(heap[right], heap[index]);
-                        mutex_unlock(&mutex[index]);
-                        index = right;
-                    } else {
-                        mutex_unlock(&mutex[index]);
-                        mutex_unlock(&mutex[right]);
-                        break;
-                    }
-                } else {
-                    // If there are no children, unlock the mutex of the current node and exit the loop
-                    mutex_unlock(&mutex[index]);
-                    break;
                 }
             }
+            heap[index] = value;
+            mutex_unlock(&mutex[index]);
         }
-    } else {
-        mutex_unlock(&mutex[0]);
     }
 }
 
