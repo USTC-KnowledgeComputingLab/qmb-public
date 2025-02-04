@@ -66,21 +66,15 @@ class _DynamicLanczos:
         if self.count_extend == 0:
             # Do not extend the configuration, process the standard lanczos.
             for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
-                if len(beta) != 0:
-                    energy, psi = self._eigh_tridiagonal(alpha, beta, v)
-                    yield energy, self.configs, psi
-                else:
-                    yield alpha[0], self.configs, v[0]
+                energy, psi = self._eigh_tridiagonal(alpha, beta, v)
+                yield energy, self.configs, psi
         else:
             # Extend the configuration, during processing the dynamic lanczos.
             for step in range(1 + self.step):
                 for _, [alpha, beta, v] in zip(range(1 + step), self._run()):
                     pass
-                if len(beta) != 0:
-                    energy, psi = self._eigh_tridiagonal(alpha, beta, v)
-                    yield energy, self.configs, psi
-                else:
-                    yield alpha[0], self.configs, v[0]
+                energy, psi = self._eigh_tridiagonal(alpha, beta, v)
+                yield energy, self.configs, psi
                 if step != self.step:
                     self._extend(v[-1])
 
@@ -151,6 +145,8 @@ class _DynamicLanczos:
         beta: list[torch.Tensor],
         v: list[torch.Tensor],
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        if len(beta) == 0:
+            return alpha[0], v[0]
         # Currently, PyTorch does not support eigh_tridiagonal natively, so we resort to using SciPy for this operation.
         # We can only use 'stebz' or 'stemr' drivers in the current version of SciPy.
         # However, 'stemr' consumes a lot of memory, so we opt for 'stebz' here.
