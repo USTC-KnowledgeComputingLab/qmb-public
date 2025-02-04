@@ -277,6 +277,7 @@ class ImaginaryConfig:
         """
         # pylint: disable=too-many-locals
         # pylint: disable=too-many-statements
+        # pylint: disable=too-many-branches
 
         model, network, data = self.common.main()
 
@@ -323,6 +324,9 @@ class ImaginaryConfig:
 
         if "imag" not in data:
             data["imag"] = {"global": 0, "local": 0, "lanczos": 0, "pool": None}
+        else:
+            pool_configs, pool_psi = data["imag"]["pool"]
+            data["imag"]["pool"] = (pool_configs.to(device=self.common.device), pool_psi.to(device=self.common.device))
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
