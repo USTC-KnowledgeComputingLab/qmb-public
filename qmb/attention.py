@@ -540,7 +540,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
 
             # If prob = 0, filter it forcely
-            selected = perturbed_probability != -torch.inf
+            selected = perturbed_probability.isfinite()
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
@@ -773,7 +773,7 @@ class WaveFunctionNormal(torch.nn.Module):
             cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
 
             # If prob = 0, filter it forcely
-            selected = perturbed_probability != -torch.inf
+            selected = perturbed_probability.isfinite()
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
