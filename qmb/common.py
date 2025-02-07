@@ -90,7 +90,7 @@ class CommonConfig:
         logging.basicConfig(
             handlers=[logging.StreamHandler(), logging.FileHandler(self.folder() / "run.log")],
             level=logging.INFO,
-            format=f"[%(process)d] %(asctime)s {self.group_name}({self.network_name}) %(levelname)s: %(message)s",
+            format=f"[%(process)d] %(asctime)s {self.group_name}({self.current_job_name}) %(levelname)s: %(message)s",
         )
 
         logging.info("Starting script with arguments: %a", sys.argv)
