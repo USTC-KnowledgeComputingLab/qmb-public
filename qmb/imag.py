@@ -347,7 +347,7 @@ class ImaginaryConfig:
             logging.info("Sampling configurations from last iteration")
             configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["imag"]["pool"], self.sampling_count_from_last_iteration)
             logging.info("Merging configurations from neural network and last iteration")
-            configs, target_psi = _merge_pool_from_neural_network_and_pool_from_last_iteration(
+            configs, original_psi = _merge_pool_from_neural_network_and_pool_from_last_iteration(
                 configs_from_neural_network,
                 psi_from_neural_network,
                 configs_from_last_iteration,
@@ -357,10 +357,10 @@ class ImaginaryConfig:
 
             logging.info("Computing the target for local optimization")
             target_energy: torch.Tensor
-            for target_energy, configs, target_psi in _DynamicLanczos(
+            for target_energy, configs, original_psi in _DynamicLanczos(
                     model=model,
                     configs=configs,
-                    psi=target_psi,
+                    psi=original_psi,
                     step=self.krylov_iteration,
                     threshold=self.krylov_threshold,
                     count_extend=self.krylov_extend_count,
@@ -371,8 +371,8 @@ class ImaginaryConfig:
                 writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 writer.add_scalar("imag/lanczos/error", target_energy - model.ref_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 data["imag"]["lanczos"] += 1
-            max_index = target_psi.abs().argmax()
-            target_psi = target_psi / target_psi[max_index]
+            max_index = original_psi.abs().argmax()
+            target_psi = original_psi / original_psi[max_index]
             logging.info("Local optimization target calculated, the target energy is %.10f, the sampling count is %d", target_energy.item(), len(configs))
 
             loss_func: typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = getattr(losses, self.loss_name)
@@ -484,7 +484,7 @@ class ImaginaryConfig:
             writer.flush()  # type: ignore[no-untyped-call]
 
             logging.info("Saving model checkpoint")
-            data["imag"]["pool"] = (configs, psi)
+            data["imag"]["pool"] = (configs, original_psi)
             data["imag"]["global"] += 1
             data["network"] = network.state_dict()
             data["optimizer"] = optimizer.state_dict()
