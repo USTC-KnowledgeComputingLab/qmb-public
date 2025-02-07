@@ -471,7 +471,6 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         device: torch.device = self.dummy_param.device
         dtype: torch.dtype = self.dummy_param.dtype
 
-        assert block_num == 1
         cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
 
         # x: local_batch_size * current_site * 2
@@ -482,16 +481,42 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         for i in range(self.sites):
             local_batch_size: int = x.size(0)
 
-            # xi: batch * (sites=1) * 2
-            xi: torch.Tensor = x[:, -1:, :]
-            # xi4: batch * (sites=1)
-            xi4: torch.Tensor = xi[:, :, 0] * 2 + xi[:, :, 1]
-            # emb: batch * (sites=1) * embedding
-            emb: torch.Tensor = self.embedding(xi4, i)
-            # post_transformers: batch * (sites=1) * embedding
-            post_transformers, cache = self.transformers(emb, cache, None)
-            # tail: batch * (sites=1) * 8
-            tail: torch.Tensor = self.tail(post_transformers)
+            # # xi: batch * (sites=1) * 2
+            # xi: torch.Tensor = x[:, -1:, :]
+            # # xi4: batch * (sites=1)
+            # xi4: torch.Tensor = xi[:, :, 0] * 2 + xi[:, :, 1]
+            # # emb: batch * (sites=1) * embedding
+            # emb: torch.Tensor = self.embedding(xi4, i)
+            # # post_transformers: batch * (sites=1) * embedding
+            # post_transformers, cache = self.transformers(emb, cache, None)
+            # # tail: batch * (sites=1) * 8
+            # tail: torch.Tensor = self.tail(post_transformers)
+            local_batch_size_block = local_batch_size // block_num
+            remainder = local_batch_size % block_num
+            tail_list: list[torch.Tensor] = []
+            cache_list: list[list[tuple[torch.Tensor, torch.Tensor]]] = []
+            for j in range(block_num):
+                if j < remainder:
+                    current_local_batch_size_block = local_batch_size_block + 1
+                else:
+                    current_local_batch_size_block = local_batch_size_block
+                start_index = j * local_batch_size_block + min(j, remainder)
+                end_index = start_index + current_local_batch_size_block
+                batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
+                x_block: torch.Tensor = x[batch_indices_block]
+                xi_block: torch.Tensor = x_block[:, -1:, :]
+                xi4_block: torch.Tensor = xi_block[:, :, 0] * 2 + xi_block[:, :, 1]
+                emb_block: torch.Tensor = self.embedding(xi4_block, i)
+                if cache is None:
+                    post_transformers_block, cache_block = self.transformers(emb_block, None, None)
+                else:
+                    cache_block_input = [(cache_layer[0][batch_indices_block], cache_layer[1][batch_indices_block]) for cache_layer in cache]
+                    post_transformers_block, cache_block = self.transformers(emb_block, cache_block_input, None)
+                tail_block: torch.Tensor = self.tail(post_transformers_block)
+                tail_list.append(tail_block)
+                cache_list.append(cache_block)
+            tail: torch.Tensor = torch.cat(tail_list)
+            cache = [(torch.cat([cache_block[depth][0] for cache_block in cache_list]), torch.cat([cache_block[depth][1] for cache_block in cache_list])) for depth in range(self.depth)]
 
             # The first 4 item are amplitude
             # delta_amplitude: batch * 2 * 2
@@ -711,7 +736,6 @@ class WaveFunctionNormal(torch.nn.Module):
         device: torch.device = self.dummy_param.device
         dtype: torch.dtype = self.dummy_param.dtype
 
-        assert block_num == 1
         cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
 
         # x: local_batch_size * current_site
@@ -722,14 +746,39 @@ class WaveFunctionNormal(torch.nn.Module):
         for i in range(self.sites):
             local_batch_size: int = x.size(0)
 
-            # xi: batch * (sites=1)
-            xi: torch.Tensor = x[:, -1:]
-            # emb: batch * (sites=1) * embedding
-            emb: torch.Tensor = self.embedding(xi, i)
-            # post_transformers: batch * (sites=1) * embedding
-            post_transformers, cache = self.transformers(emb, cache, None)
-            # tail: batch * (sites=1) * (2*physical_dim)
-            tail: torch.Tensor = self.tail(post_transformers)
+            # # xi: batch * (sites=1)
+            # xi: torch.Tensor = x[:, -1:]
+            # # emb: batch * (sites=1) * embedding
+            # emb: torch.Tensor = self.embedding(xi, i)
+            # # post_transformers: batch * (sites=1) * embedding
+            # post_transformers, cache = self.transformers(emb, cache, None)
+            # # tail: batch * (sites=1) * (2*physical_dim)
+            # tail: torch.Tensor = self.tail(post_transformers)
+            local_batch_size_block = local_batch_size // block_num
+            remainder = local_batch_size % block_num
+            tail_list: list[torch.Tensor] = []
+            cache_list: list[list[tuple[torch.Tensor, torch.Tensor]]] = []
+            for j in range(block_num):
+                if j < remainder:
+                    current_local_batch_size_block = local_batch_size_block + 1
+                else:
+                    current_local_batch_size_block = local_batch_size_block
+                start_index = j * local_batch_size_block + min(j, remainder)
+                end_index = start_index + current_local_batch_size_block
+                batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
+                x_block: torch.Tensor = x[batch_indices_block]
+                xi_block: torch.Tensor = x_block[:, -1:]
+                emb_block: torch.Tensor = self.embedding(xi_block, i)
+                if cache is None:
+                    post_transformers_block, cache_block = self.transformers(emb_block, None, None)
+                else:
+                    cache_block_input = [(cache_layer[0][batch_indices_block], cache_layer[1][batch_indices_block]) for cache_layer in cache]
+                    post_transformers_block, cache_block = self.transformers(emb_block, cache_block_input, None)
+                tail_block: torch.Tensor = self.tail(post_transformers_block)
+                tail_list.append(tail_block)
+                cache_list.append(cache_block)
+            tail: torch.Tensor = torch.cat(tail_list)
+            cache = [(torch.cat([cache_block[depth][0] for cache_block in cache_list]), torch.cat([cache_block[depth][1] for cache_block in cache_list])) for depth in range(self.depth)]
 
             # The first physical_dim item are amplitude
             # delta_amplitude: batch * physical_dim
