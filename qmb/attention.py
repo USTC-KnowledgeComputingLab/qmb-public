@@ -459,6 +459,48 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         return torch.view_as_complex(torch.stack([selected_amplitude.double().sum(dim=1), selected_phase.double().sum(dim=1)], dim=-1)).exp()
 
     @torch.jit.export
+    def _blocked_forward_for_generate_unique(  # pylint: disable=too-many-arguments
+        self,
+        *,
+        x: torch.Tensor,
+        cache_input: list[tuple[torch.Tensor, torch.Tensor]] | None,
+        block_num: int,
+        device: torch.device,
+        i: int,
+    ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]:
+        # pylint: disable=too-many-locals
+        local_batch_size: int = x.size(0)
+        local_batch_size_block = local_batch_size // block_num
+        remainder = local_batch_size % block_num
+        tail_list: list[torch.Tensor] = []
+        cache_list: list[list[tuple[torch.Tensor, torch.Tensor]]] = []
+        for j in range(block_num):
+            if j < remainder:
+                current_local_batch_size_block = local_batch_size_block + 1
+            else:
+                current_local_batch_size_block = local_batch_size_block
+            start_index = j * local_batch_size_block + min(j, remainder)
+            end_index = start_index + current_local_batch_size_block
+            batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
+            x_block: torch.Tensor = x[batch_indices_block]
+            xi_block: torch.Tensor = x_block[:, -1:, :]
+            xi4_block: torch.Tensor = xi_block[:, :, 0] * 2 + xi_block[:, :, 1]
+            emb_block: torch.Tensor = self.embedding(xi4_block, i)
+            if cache_input is None:
+                post_transformers_block, cache_block = self.transformers(emb_block, None, None)
+            else:
+                cache_block_input = [(cache_layer[0][batch_indices_block], cache_layer[1][batch_indices_block]) for cache_layer in cache_input]
+                post_transformers_block, cache_block = self.transformers(emb_block, cache_block_input, None)
+            tail_block: torch.Tensor = self.tail(post_transformers_block)
+            tail_list.append(tail_block)
+            cache_list.append(cache_block)
+        tail: torch.Tensor = torch.cat(tail_list)
+        cache: list[tuple[torch.Tensor, torch.Tensor]] = [
+            (torch.cat([cache_block[depth][0] for cache_block in cache_list]), torch.cat([cache_block[depth][1] for cache_block in cache_list])) for depth in range(self.depth)
+        ]
+        return tail, cache
+
+    @torch.jit.export
     def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate configurations uniquely.
@@ -491,32 +533,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             # post_transformers, cache = self.transformers(emb, cache, None)
             # # tail: batch * (sites=1) * 8
             # tail: torch.Tensor = self.tail(post_transformers)
-            local_batch_size_block = local_batch_size // block_num
-            remainder = local_batch_size % block_num
-            tail_list: list[torch.Tensor] = []
-            cache_list: list[list[tuple[torch.Tensor, torch.Tensor]]] = []
-            for j in range(block_num):
-                if j < remainder:
-                    current_local_batch_size_block = local_batch_size_block + 1
-                else:
-                    current_local_batch_size_block = local_batch_size_block
-                start_index = j * local_batch_size_block + min(j, remainder)
-                end_index = start_index + current_local_batch_size_block
-                batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
-                x_block: torch.Tensor = x[batch_indices_block]
-                xi_block: torch.Tensor = x_block[:, -1:, :]
-                xi4_block: torch.Tensor = xi_block[:, :, 0] * 2 + xi_block[:, :, 1]
-                emb_block: torch.Tensor = self.embedding(xi4_block, i)
-                if cache is None:
-                    post_transformers_block, cache_block = self.transformers(emb_block, None, None)
-                else:
-                    cache_block_input = [(cache_layer[0][batch_indices_block], cache_layer[1][batch_indices_block]) for cache_layer in cache]
-                    post_transformers_block, cache_block = self.transformers(emb_block, cache_block_input, None)
-                tail_block: torch.Tensor = self.tail(post_transformers_block)
-                tail_list.append(tail_block)
-                cache_list.append(cache_block)
-            tail: torch.Tensor = torch.cat(tail_list)
-            cache = [(torch.cat([cache_block[depth][0] for cache_block in cache_list]), torch.cat([cache_block[depth][1] for cache_block in cache_list])) for depth in range(self.depth)]
+            tail, cache = self._blocked_forward_for_generate_unique(x=x, cache_input=cache, block_num=block_num, device=device, i=i)
 
             # The first 4 item are amplitude
             # delta_amplitude: batch * 2 * 2
@@ -724,6 +741,47 @@ class WaveFunctionNormal(torch.nn.Module):
         return torch.view_as_complex(torch.stack([selected_amplitude.double().sum(dim=1), selected_phase.double().sum(dim=1)], dim=-1)).exp()
 
     @torch.jit.export
+    def _blocked_forward_for_generate_unique(  # pylint: disable=too-many-arguments
+        self,
+        *,
+        x: torch.Tensor,
+        cache_input: list[tuple[torch.Tensor, torch.Tensor]] | None,
+        block_num: int,
+        device: torch.device,
+        i: int,
+    ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]:
+        # pylint: disable=too-many-locals
+        local_batch_size: int = x.size(0)
+        local_batch_size_block = local_batch_size // block_num
+        remainder = local_batch_size % block_num
+        tail_list: list[torch.Tensor] = []
+        cache_list: list[list[tuple[torch.Tensor, torch.Tensor]]] = []
+        for j in range(block_num):
+            if j < remainder:
+                current_local_batch_size_block = local_batch_size_block + 1
+            else:
+                current_local_batch_size_block = local_batch_size_block
+            start_index = j * local_batch_size_block + min(j, remainder)
+            end_index = start_index + current_local_batch_size_block
+            batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
+            x_block: torch.Tensor = x[batch_indices_block]
+            xi_block: torch.Tensor = x_block[:, -1:]
+            emb_block: torch.Tensor = self.embedding(xi_block, i)
+            if cache_input is None:
+                post_transformers_block, cache_block = self.transformers(emb_block, None, None)
+            else:
+                cache_block_input = [(cache_layer[0][batch_indices_block], cache_layer[1][batch_indices_block]) for cache_layer in cache_input]
+                post_transformers_block, cache_block = self.transformers(emb_block, cache_block_input, None)
+            tail_block: torch.Tensor = self.tail(post_transformers_block)
+            tail_list.append(tail_block)
+            cache_list.append(cache_block)
+        tail: torch.Tensor = torch.cat(tail_list)
+        cache: list[tuple[torch.Tensor, torch.Tensor]] = [
+            (torch.cat([cache_block[depth][0] for cache_block in cache_list]), torch.cat([cache_block[depth][1] for cache_block in cache_list])) for depth in range(self.depth)
+        ]
+        return tail, cache
+
+    @torch.jit.export
     def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate configurations uniquely.
@@ -754,31 +812,7 @@ class WaveFunctionNormal(torch.nn.Module):
             # post_transformers, cache = self.transformers(emb, cache, None)
             # # tail: batch * (sites=1) * (2*physical_dim)
             # tail: torch.Tensor = self.tail(post_transformers)
-            local_batch_size_block = local_batch_size // block_num
-            remainder = local_batch_size % block_num
-            tail_list: list[torch.Tensor] = []
-            cache_list: list[list[tuple[torch.Tensor, torch.Tensor]]] = []
-            for j in range(block_num):
-                if j < remainder:
-                    current_local_batch_size_block = local_batch_size_block + 1
-                else:
-                    current_local_batch_size_block = local_batch_size_block
-                start_index = j * local_batch_size_block + min(j, remainder)
-                end_index = start_index + current_local_batch_size_block
-                batch_indices_block = torch.arange(start_index, end_index, device=device, dtype=torch.int64)
-                x_block: torch.Tensor = x[batch_indices_block]
-                xi_block: torch.Tensor = x_block[:, -1:]
-                emb_block: torch.Tensor = self.embedding(xi_block, i)
-                if cache is None:
-                    post_transformers_block, cache_block = self.transformers(emb_block, None, None)
-                else:
-                    cache_block_input = [(cache_layer[0][batch_indices_block], cache_layer[1][batch_indices_block]) for cache_layer in cache]
-                    post_transformers_block, cache_block = self.transformers(emb_block, cache_block_input, None)
-                tail_block: torch.Tensor = self.tail(post_transformers_block)
-                tail_list.append(tail_block)
-                cache_list.append(cache_block)
-            tail: torch.Tensor = torch.cat(tail_list)
-            cache = [(torch.cat([cache_block[depth][0] for cache_block in cache_list]), torch.cat([cache_block[depth][1] for cache_block in cache_list])) for depth in range(self.depth)]
+            tail, cache = self._blocked_forward_for_generate_unique(x=x, cache_input=cache, block_num=block_num, device=device, i=i)
 
             # The first physical_dim item are amplitude
             # delta_amplitude: batch * physical_dim
