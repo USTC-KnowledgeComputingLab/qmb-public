@@ -571,7 +571,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             x = torch.cat([x0, x1, x2, x3])
             unperturbed_probability = l.permute(1, 0).reshape([4 * local_batch_size])
             perturbed_probability = tildeL.permute(1, 0).reshape([4 * local_batch_size])
-            cache = [(kv[0].repeat(4, 1, 1, 1), kv[1].repeat(4, 1, 1, 1)) for kv in cache]
+            cache_indices = torch.arange(local_batch_size, device=device, dtype=torch.int64).unsqueeze(0).expand(4, -1).reshape([4 * local_batch_size])
             # kv cache: batch * heads_num * site * heads_dim, so just repeat first dimension
 
             # Filter results, only use largest batch_size ones
@@ -579,14 +579,16 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
-            cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
+            cache_indices = cache_indices[selected]
 
             # If prob = 0, filter it forcely
             selected = perturbed_probability.isfinite()
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
-            cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
+            cache_indices = cache_indices[selected]
+
+            cache = [(cache_layer[0][cache_indices], cache_layer[1][cache_indices]) for cache_layer in cache]
 
         # Apply ordering
         x = torch.index_select(x[:, 1:], 1, self.ordering)
@@ -845,7 +847,7 @@ class WaveFunctionNormal(torch.nn.Module):
             x = torch.cat(xs)
             unperturbed_probability = l.permute(1, 0).reshape([self.physical_dim * local_batch_size])
             perturbed_probability = tildeL.permute(1, 0).reshape([self.physical_dim * local_batch_size])
-            cache = [(kv[0].repeat(self.physical_dim, 1, 1, 1), kv[1].repeat(self.physical_dim, 1, 1, 1)) for kv in cache]
+            cache_indices = torch.arange(local_batch_size, device=device, dtype=torch.int64).unsqueeze(0).expand(4, -1).reshape([4 * local_batch_size])
             # kv cache: batch * heads_num * site * heads_dim, so just repeat first dimension
 
             # Filter results, only use largest batch_size ones
@@ -853,14 +855,16 @@ class WaveFunctionNormal(torch.nn.Module):
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
-            cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
+            cache_indices = cache_indices[selected]
 
             # If prob = 0, filter it forcely
             selected = perturbed_probability.isfinite()
             x = x[selected]
             unperturbed_probability = unperturbed_probability[selected]
             perturbed_probability = perturbed_probability[selected]
-            cache = [(kv[0][selected], kv[1][selected]) for kv in cache]
+            cache_indices = cache_indices[selected]
+
+            cache = [(cache_layer[0][cache_indices], cache_layer[1][cache_indices]) for cache_layer in cache]
 
         # Apply ordering
         x = torch.index_select(x[:, 1:], 1, self.ordering)
