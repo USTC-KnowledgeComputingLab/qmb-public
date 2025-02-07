@@ -37,9 +37,15 @@ def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], 
             match sites:
                 case (-1, -1, -1, -1):
                     energy_0 = coefficient
+                case (_, -1, -1, -1):
+                    # Psi4 writes additional non-standard one-electron integrals in this format, which we omit.
+                    pass
                 case (i, j, -1, -1):
                     energy_1[i, j] = coefficient
                     energy_1[j, i] = coefficient
+                case (_, _, _, -1):
+                    # In the standard FCIDUMP format, there is no such term.
+                    raise ValueError(f"Invalid FCIDUMP format: {sites}")
                 case (i, j, k, l):
                     energy_2[i, j, k, l] = coefficient
                     energy_2[i, j, l, k] = coefficient
