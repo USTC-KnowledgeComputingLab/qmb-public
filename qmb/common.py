@@ -124,6 +124,8 @@ class CommonConfig:
             data = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
             logging.info("Checkpoint loaded successfully")
         else:
+            if self.parent_job_name is not None:
+                raise FileNotFoundError(f"Checkpoint not found at: {checkpoint_path}")
             logging.info("Checkpoint not found at: %s", checkpoint_path)
         if "network" in data:
             logging.info("Loading state dict of the network")
