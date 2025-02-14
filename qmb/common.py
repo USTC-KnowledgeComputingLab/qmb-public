@@ -10,6 +10,7 @@ import dataclasses
 import torch
 import tyro
 from .model_dict import model_dict, ModelProto, NetworkProto
+from .random_engine import load_random_engine_state
 
 
 @dataclasses.dataclass
@@ -99,22 +100,8 @@ class CommonConfig:
         logging.info("Physics arguments: %a", self.physics_args)
         logging.info("Network arguments: %a", self.network_args)
 
-        if self.random_seed is not None:
-            logging.info("Setting random seed to: %d", self.random_seed)
-            torch.manual_seed(self.random_seed)
-        else:
-            logging.info("Random seed not specified, using current seed: %d", torch.seed())
-
         logging.info("Disabling PyTorch's default gradient computation")
         torch.set_grad_enabled(False)
-
-        logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
-        model: ModelProto = model_dict[self.model_name].parse(self.physics_args)
-        logging.info("Physical model loaded successfully")
-
-        logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
-        network: NetworkProto = model_dict[self.model_name].network_dict[self.network_name](model, self.network_args)
-        logging.info("Network initialized successfully")
 
         logging.info("Attempting to load checkpoint")
         data: typing.Any = {}
@@ -127,11 +114,31 @@ class CommonConfig:
             if self.parent_job_name is not None:
                 raise FileNotFoundError(f"Checkpoint not found at: {checkpoint_path}")
             logging.info("Checkpoint not found at: %s", checkpoint_path)
+
+        if self.random_seed is not None:
+            logging.info("Setting random seed to: %d", self.random_seed)
+            torch.manual_seed(self.random_seed)
+        elif "random" in data:
+            logging.info("Loading random seed from the checkpoint")
+            torch.set_rng_state(data["random"]["host"])
+            load_random_engine_state(data["random"]["device"], self.device)
+        else:
+            logging.info("Random seed not specified, using current seed: %d", torch.seed())
+
+        logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
+        model: ModelProto = model_dict[self.model_name].parse(self.physics_args)
+        logging.info("Physical model loaded successfully")
+
+        logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
+        network: NetworkProto = model_dict[self.model_name].network_dict[self.network_name](model, self.network_args)
+        logging.info("Network initialized successfully")
+
         if "network" in data:
             logging.info("Loading state dict of the network")
             network.load_state_dict(data["network"])
         else:
             logging.info("Skipping loading state dict of the network")
+
         logging.info("Moving model to the device: %a", self.device)
         network.to(device=self.device)
         if self.dtype is not None:
@@ -147,6 +154,7 @@ class CommonConfig:
                     network.double()
                 case _:
                     raise ValueError(f"Unknown dtype: {self.dtype}")
+
         logging.info("Compiling the network")
         network = torch.jit.script(network)  # type: ignore[assignment]
 

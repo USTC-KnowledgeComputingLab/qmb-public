@@ -16,6 +16,7 @@ from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
 from .model_dict import ModelProto
 from .optimizer import initialize_optimizer, scale_learning_rate
+from .random_engine import dump_random_engine_state
 
 
 @dataclasses.dataclass
@@ -488,6 +489,7 @@ class ImaginaryConfig:
             data["imag"]["global"] += 1
             data["network"] = network.state_dict()
             data["optimizer"] = optimizer.state_dict()
+            data["random"] = {"host": torch.get_rng_state(), "device": dump_random_engine_state(self.common.device)}
             self.common.save(data, data["imag"]["global"])
             logging.info("Checkpoint successfully saved")
 
