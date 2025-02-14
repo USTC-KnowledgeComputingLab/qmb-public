@@ -4,6 +4,7 @@ This network makes use of DeepSeekMoE architecture introduced in https://arxiv.o
 """
 
 import math
+import typing
 import torch
 from .bitspack import pack_int, unpack_int
 
@@ -49,8 +50,8 @@ class SelfAttention(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        kv_cache: tuple[torch.Tensor, torch.Tensor] | None,
-        mask: torch.Tensor | None,
+        kv_cache: typing.Optional[tuple[torch.Tensor, torch.Tensor]],
+        mask: typing.Optional[torch.Tensor],
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         """
         Forward pass of the self-attention layer.
@@ -123,8 +124,8 @@ class DecoderUnit(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        kv_cache: tuple[torch.Tensor, torch.Tensor] | None,
-        mask: torch.Tensor | None,
+        kv_cache: typing.Optional[tuple[torch.Tensor, torch.Tensor]],
+        mask: typing.Optional[torch.Tensor],
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         """
         Forward pass of the decoder unit.
@@ -185,8 +186,8 @@ class Transformers(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        kv_cache: list[tuple[torch.Tensor, torch.Tensor]] | None,
-        mask: torch.Tensor | None,
+        kv_cache: typing.Optional[list[tuple[torch.Tensor, torch.Tensor]]],
+        mask: typing.Optional[torch.Tensor],
     ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]:
         """
         Forward pass of the transformer model.
@@ -463,7 +464,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         self,
         *,
         x: torch.Tensor,
-        cache_input: list[tuple[torch.Tensor, torch.Tensor]] | None,
+        cache_input: typing.Optional[list[tuple[torch.Tensor, torch.Tensor]]],
         block_num: int,
         device: torch.device,
         i: int,
@@ -513,7 +514,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         device: torch.device = self.dummy_param.device
         dtype: torch.dtype = self.dummy_param.dtype
 
-        cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
+        cache: typing.Optional[list[tuple[torch.Tensor, torch.Tensor]]] = None
 
         # x: local_batch_size * current_site * 2
         x: torch.Tensor = torch.zeros([1, 1, 2], device=device, dtype=torch.uint8)  # site=1, since the first is bos
@@ -747,7 +748,7 @@ class WaveFunctionNormal(torch.nn.Module):
         self,
         *,
         x: torch.Tensor,
-        cache_input: list[tuple[torch.Tensor, torch.Tensor]] | None,
+        cache_input: typing.Optional[list[tuple[torch.Tensor, torch.Tensor]]],
         block_num: int,
         device: torch.device,
         i: int,
@@ -796,7 +797,7 @@ class WaveFunctionNormal(torch.nn.Module):
         device: torch.device = self.dummy_param.device
         dtype: torch.dtype = self.dummy_param.dtype
 
-        cache: list[tuple[torch.Tensor, torch.Tensor]] | None = None
+        cache: typing.Optional[list[tuple[torch.Tensor, torch.Tensor]]] = None
 
         # x: local_batch_size * current_site
         x: torch.Tensor = torch.zeros([1, 1], device=device, dtype=torch.uint8)  # site=1, since the first is bos
