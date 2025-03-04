@@ -76,7 +76,7 @@ class _DynamicLanczos:
                 energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                 yield energy, self.configs, psi
             # Extend based on all vector in v.
-            v_sum = functools.reduce(torch.add, (vi.cpu()**2 for vi in v)).sqrt()
+            v_sum = functools.reduce(torch.add, (vi.cpu()**2 for vi in v)).sqrt().to(device=self.configs.device)
             self._extend(v_sum)
             for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
                 energy, psi = self._eigh_tridiagonal(alpha, beta, v)
