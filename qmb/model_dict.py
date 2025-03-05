@@ -108,7 +108,7 @@ class ModelProto(typing.Protocol):
             The result of the Hamiltonian application on the selected configurations subspace.
         """
 
-    def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int) -> torch.Tensor:
+    def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int, configs_exclude: torch.Tensor | None = None) -> torch.Tensor:
         """
         Find relative configurations to the given configurations.
 
@@ -120,6 +120,8 @@ class ModelProto(typing.Protocol):
             The amplitudes of the configurations.
         count_selected : int
             The number of relative configurations to find.
+        configs_exclude : torch.Tensor, optional
+            The configurations to exclude from the result.
 
         Returns
         -------

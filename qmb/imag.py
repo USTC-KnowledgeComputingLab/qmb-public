@@ -35,14 +35,17 @@ class _DynamicLanczos:
     count_extend: int
     batch_count_apply_within: int
     single_extend: bool
+    first_extend: bool
 
-    def _extend(self, psi: torch.Tensor) -> None:
+    def _extend(self, psi: torch.Tensor, basic_configs: torch.Tensor | None = None) -> None:
+        if basic_configs is None:
+            basic_configs = self.configs
         logging.info("Extending basis...")
 
         count_core = len(self.configs)
         logging.info("Number of core configurations: %d", count_core)
 
-        self.configs = torch.cat([self.configs, self.model.find_relative(self.configs, psi, self.count_extend)])
+        self.configs = torch.cat([self.configs, self.model.find_relative(basic_configs, psi, self.count_extend, self.configs)])
         count_selected = len(self.configs)
         self.psi = torch.nn.functional.pad(self.psi, (0, count_selected - count_core))
         logging.info("Basis extended from %d to %d", count_core, count_selected)
@@ -70,13 +73,24 @@ class _DynamicLanczos:
             for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
                 energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                 yield energy, self.configs, psi
+        elif self.first_extend:
+            # Extend the configuration before all iterations.
+            psi = self.psi
+            for _ in range(self.step):
+                selected = (psi.conj() * psi).real.argsort(descending=True)[:self.count_extend]
+                configs = self.configs
+                self._extend(psi[selected], self.configs[selected])
+                psi = self.model.apply_within(configs, psi, self.configs)  # pylint: disable=assignment-from-no-return
+            for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
+                energy, psi = self._eigh_tridiagonal(alpha, beta, v)
+                yield energy, self.configs, psi
         elif self.single_extend:
             # Extend the configuration only once after the whole iteration.
             for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
                 energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                 yield energy, self.configs, psi
             # Extend based on all vector in v.
-            v_sum = functools.reduce(torch.add, (vi.cpu()**2 for vi in v)).sqrt().to(device=self.configs.device)
+            v_sum = functools.reduce(torch.add, ((vi.conj() * vi).real.cpu() for vi in v)).sqrt().to(device=self.configs.device)
             self._extend(v_sum)
             for _, [alpha, beta, v] in zip(range(1 + self.step), self._run()):
                 energy, psi = self._eigh_tridiagonal(alpha, beta, v)
@@ -249,6 +263,8 @@ class ImaginaryConfig:
     sampling_count_from_last_iteration: typing.Annotated[int, tyro.conf.arg(aliases=["-f"])] = 1024
     # The extend count for the Krylov subspace
     krylov_extend_count: typing.Annotated[int, tyro.conf.arg(aliases=["-c"], help_behavior_hint="default: 2048 if krylov_single_extend else 64")] = -1
+    # Whether to extend Krylov subspace before all iterations
+    krylov_extend_first: typing.Annotated[bool, tyro.conf.arg(aliases=["-z"])] = False
     # Whether to extend only once for Krylov subspace
     krylov_single_extend: typing.Annotated[bool, tyro.conf.arg(aliases=["-1"])] = False
     # The number of Krylov iterations to perform
@@ -299,6 +315,7 @@ class ImaginaryConfig:
             "Sampling Count From neural network: %d, "
             "Sampling Count From Last iteration: %d, "
             "Krylov Extend Count: %d, "
+            "Krylov Extend First: %s, "
             "Krylov Single Extend: %s, "
             "krylov Iteration: %d, "
             "krylov Threshold: %.10f, "
@@ -315,6 +332,7 @@ class ImaginaryConfig:
             self.sampling_count_from_neural_network,
             self.sampling_count_from_last_iteration,
             self.krylov_extend_count,
+            "Yes" if self.krylov_extend_first else "No",
             "Yes" if self.krylov_single_extend else "No",
             self.krylov_iteration,
             self.krylov_threshold,
@@ -372,6 +390,7 @@ class ImaginaryConfig:
                     count_extend=self.krylov_extend_count,
                     batch_count_apply_within=self.local_batch_count_apply_within,
                     single_extend=self.krylov_single_extend,
+                    first_extend=self.krylov_extend_first,
             ).run():
                 logging.info("The current energy is %.10f where the sampling count is %d", target_energy.item(), len(configs))
                 writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]

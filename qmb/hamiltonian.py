@@ -106,6 +106,7 @@ class Hamiltonian:
         configs_i: torch.Tensor,
         psi_i: torch.Tensor,
         count_selected: int,
+        configs_exclude: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Find relative configurations to the given configurations.
@@ -118,6 +119,8 @@ class Hamiltonian:
             A complex64 tensor of shape [batch_size] representing the input amplitudes on the girven configurations.
         count_selected : int
             The number of selected configurations to be returned.
+        configs_exclude : torch.Tensor, optional
+            A uint8 tensor of shape [batch_size_exclude, n_qubytes] representing the configurations to be excluded from the result, by default None
 
         Returns
         -------
@@ -125,8 +128,10 @@ class Hamiltonian:
             The resulting configurations after applying the Hamiltonian, only the first `count_selected` configurations are guaranteed to be returned.
             The order of the configurations is guaranteed to be sorted by estimated psi for the remaining configurations.
         """
+        if configs_exclude is None:
+            configs_exclude = configs_i
         self._prepare_data(configs_i.device)
-        _find_relative: typing.Callable[[torch.Tensor, torch.Tensor, int, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+        _find_relative: typing.Callable[[torch.Tensor, torch.Tensor, int, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
         _find_relative = getattr(self._load_module(configs_i.size(1), self.particle_cut), "find_relative")
-        configs_j = _find_relative(configs_i, torch.view_as_real(psi_i), count_selected, self.site, self.kind, self.coef)
+        configs_j = _find_relative(configs_i, torch.view_as_real(psi_i), count_selected, self.site, self.kind, self.coef, configs_exclude)
         return configs_j
