@@ -106,16 +106,16 @@ class Model(OpenFermionModel):
             torch.save((self.hamiltonian.site, self.hamiltonian.kind, self.hamiltonian.coef), cache_file)
             logging.info("OpenFermion Hamiltonian for model '%s' successfully cached", model_name)
 
-        match = re.match(r"\w*_(\d*)_(\d*)", model_name)
+        match = re.match(r"\w*_(\d*)_(\d*)(?:/.*)?", model_name)
         assert match is not None
         n_electrons, n_qubits = match.groups()
         self.n_qubits: int = int(n_qubits)
         self.n_electrons: int = int(n_electrons)
         logging.info("Identified %d qubits and %d electrons for model '%s'", self.n_qubits, self.n_electrons, model_name)
 
-        with open(f"{model_path}/FCIDUMP.json", "rt", encoding="utf-8") as file:
+        with open(model_file_name.parent / "FCIDUMP.json", "rt", encoding="utf-8") as file:
             fcidump_ref_energy = json.load(file)
-        self.ref_energy: float = fcidump_ref_energy.get(model_name, torch.nan)
+        self.ref_energy: float = fcidump_ref_energy.get(model_name.split("/")[-1], torch.nan)
         logging.info("Reference energy for model '%s' is %.10f", model_name, self.ref_energy)
 
 
