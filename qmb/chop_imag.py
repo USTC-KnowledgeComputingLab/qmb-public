@@ -29,6 +29,8 @@ class ChopImagConfig:
         The main function for the subspace chopping.
         """
 
+        # pylint: disable=too-many-locals
+
         model, _, data = self.common.main()
 
         logging.info(
@@ -45,10 +47,16 @@ class ChopImagConfig:
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
+        original_configs = configs
+        original_psi = psi
+        ordered_configs: list[torch.Tensor] = []
+        mapping: dict[int, tuple[float, float]] = {}
+
         i = 0
         while True:
-            logging.info("The number of configurations: %d", len(configs))
-            writer.add_scalar("chop_imag/num_configs", len(configs), i)  # type: ignore[no-untyped-call]
+            num_configs = len(configs)
+            logging.info("The number of configurations: %d", num_configs)
+            writer.add_scalar("chop_imag/num_configs", num_configs, i)  # type: ignore[no-untyped-call]
             psi = psi / psi.norm()
             hamiltonian_psi = model.apply_within(configs, psi, configs)
             psi_hamiltonian_psi = (psi.conj() @ hamiltonian_psi).real
@@ -56,17 +64,28 @@ class ChopImagConfig:
             logging.info("The energy: %.10s, The energy error is %.10f", energy.item(), energy.item() - model.ref_energy)
             writer.add_scalar("chop_imag/energy", energy.item(), i)  # type: ignore[no-untyped-call]
             writer.add_scalar("chop_imag/error", energy.item() - model.ref_energy, i)  # type: ignore[no-untyped-call]
+            mapping[num_configs] = (energy.item(), energy.item() - model.ref_energy)
             grad = hamiltonian_psi - psi_hamiltonian_psi * psi
             delta = -psi.conj() * grad
             real_delta = 2 * delta.real
             second_order = (psi.conj() * psi).real * self.second_order_magnitude
-            selected = (real_delta + second_order).argsort()[self.chop_size:]
+            rate = (real_delta + second_order).argsort()
+            ordered_configs.append(configs[rate[:self.chop_size]])
+            selected = rate[self.chop_size:]
             if len(selected) == 0:
                 break
             configs = configs[selected]
             psi = psi[selected]
             writer.flush()  # type: ignore[no-untyped-call]
             i += 1
+
+        data["chop_imag"] = {
+            "ordered_configs": torch.cat(ordered_configs, dim=0),
+            "original_configs": original_configs,
+            "original_psi": original_psi,
+            "mapping": mapping,
+        }
+        self.common.save(data, 0)
 
 
 subcommand_dict["chop_imag"] = ChopImagConfig
