@@ -1,4 +1,4 @@
-# Quantum-Many-Body
+# An efficient Neural-Network Quantum States Architecture for Strongly Correlated Systems
 
 The Quantum-Many-Body (`qmb`) is a powerful tool designed to solve quantum-many-body problems.
 
