@@ -65,11 +65,15 @@ class ChopImagConfig:
             writer.add_scalar("chop_imag/energy", energy.item(), i)  # type: ignore[no-untyped-call]
             writer.add_scalar("chop_imag/error", energy.item() - model.ref_energy, i)  # type: ignore[no-untyped-call]
             mapping[num_configs] = (energy.item(), energy.item() - model.ref_energy)
-            grad = hamiltonian_psi - psi_hamiltonian_psi * psi
-            delta = -psi.conj() * grad
-            real_delta = 2 * delta.real
-            second_order = (psi.conj() * psi).real * self.second_order_magnitude
-            rate = (real_delta + second_order).argsort()
+            if self.second_order_magnitude >= 0:
+                grad = hamiltonian_psi - psi_hamiltonian_psi * psi
+                delta = -psi.conj() * grad
+                real_delta = 2 * delta.real
+                second_order = (psi.conj() * psi).real * self.second_order_magnitude
+                rate = (real_delta + second_order).argsort()
+            else:
+                second_order = (psi.conj() * psi).real
+                rate = second_order.argsort()
             ordered_configs.append(configs[rate[:self.chop_size]])
             selected = rate[self.chop_size:]
             if len(selected) == 0:
