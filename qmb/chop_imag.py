@@ -35,7 +35,7 @@ class ChopImagConfig:
 
         logging.info(
             "Arguments Summary: "
-            "Chop Size: %d"
+            "Chop Size: %d, "
             "Second Order Magnitude: %.10f",
             self.chop_size,
             self.second_order_magnitude,
