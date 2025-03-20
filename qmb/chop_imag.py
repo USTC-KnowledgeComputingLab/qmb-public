@@ -50,6 +50,7 @@ class ChopImagConfig:
         original_configs = configs
         original_psi = psi
         ordered_configs: list[torch.Tensor] = []
+        ordered_psi: list[torch.Tensor] = []
         mapping: dict[int, tuple[float, float]] = {}
 
         i = 0
@@ -61,7 +62,7 @@ class ChopImagConfig:
             hamiltonian_psi = model.apply_within(configs, psi, configs)
             psi_hamiltonian_psi = (psi.conj() @ hamiltonian_psi).real
             energy = psi_hamiltonian_psi
-            logging.info("The energy: %.10s, The energy error is %.10f", energy.item(), energy.item() - model.ref_energy)
+            logging.info("The energy: %.10f, The energy error is %.10f", energy.item(), energy.item() - model.ref_energy)
             writer.add_scalar("chop_imag/energy", energy.item(), i)  # type: ignore[no-untyped-call]
             writer.add_scalar("chop_imag/error", energy.item() - model.ref_energy, i)  # type: ignore[no-untyped-call]
             mapping[num_configs] = (energy.item(), energy.item() - model.ref_energy)
@@ -74,7 +75,9 @@ class ChopImagConfig:
             else:
                 second_order = (psi.conj() * psi).real
                 rate = second_order.argsort()
-            ordered_configs.append(configs[rate[:self.chop_size]])
+            unselected = rate[:self.chop_size]
+            ordered_configs.append(configs[unselected])
+            ordered_psi.append(psi[unselected])
             selected = rate[self.chop_size:]
             if len(selected) == 0:
                 break
@@ -85,6 +88,7 @@ class ChopImagConfig:
 
         data["chop_imag"] = {
             "ordered_configs": torch.cat(ordered_configs, dim=0),
+            "ordered_psi": torch.cat(ordered_psi, dim=0),
             "original_configs": original_configs,
             "original_psi": original_psi,
             "mapping": mapping,
