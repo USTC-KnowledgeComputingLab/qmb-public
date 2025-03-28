@@ -161,3 +161,39 @@ class CommonConfig:
         logging.info("The checkpoints will be saved every %d steps", self.checkpoint_interval)
 
         return model, network, data
+
+    @staticmethod
+    def _args_to_vars(args: tuple[str, ...]) -> typing.Any:
+        full = {arg.split("=")[0][2:]: arg.split("=")[1] for arg in args if arg.startswith("--")}
+        short = {arg[1]: arg[2:] for arg in args if arg.startswith("-") and not arg.startswith("--")}
+        position = {"main": [arg for arg in args if not arg.startswith("-")]}
+        return position | short | full
+
+    @staticmethod
+    def _vars_to_args(data: typing.Any) -> tuple[str, ...]:
+        position = data["main"]
+        short = [f"-{key}{value}" for key, value in data.items() if len(key) == 1]
+        full = [f"--{key}={value}" for key, value in data.items() if len(key) != 1 and key != "main"]
+        return tuple(position + short + full)
+
+    def dump(self) -> typing.Any:
+        """
+        Dump the common config to readable dictionary.
+        """
+        result = vars(self).copy()
+        result["log_path"] = str(result["log_path"])
+        result["device"] = str(result["device"])
+        result["physics_args"] = self._args_to_vars(result["physics_args"])
+        result["network_args"] = self._args_to_vars(result["network_args"])
+        return result
+
+    @classmethod
+    def load(cls, data: typing.Any) -> typing.Self:
+        """
+        Load the common config from readable dictionary.
+        """
+        data["log_path"] = pathlib.Path(data["log_path"])
+        data["device"] = torch.device(data["device"])
+        data["physics_args"] = cls._vars_to_args(data["physics_args"])
+        data["network_args"] = cls._vars_to_args(data["network_args"])
+        return CommonConfig(**data)
