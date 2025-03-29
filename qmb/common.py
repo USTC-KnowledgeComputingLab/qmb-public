@@ -82,9 +82,8 @@ class CommonConfig:
 
         if "-h" in self.network_args or "--help" in self.network_args:
             model_dict[self.model_name].network_dict[self.network_name](object(), self.network_args)  # type: ignore[arg-type]
-        default_group_name: str = model_dict[self.model_name].preparse(self.physics_args)
         if self.group_name is None:
-            self.group_name = default_group_name
+            self.group_name = model_dict[self.model_name].preparse(self.physics_args)
 
         self.folder().mkdir(parents=True, exist_ok=True)
 
