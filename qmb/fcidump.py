@@ -37,17 +37,26 @@ class ModelConfig:
     ref_energy: typing.Annotated[float | None, tyro.conf.arg(aliases=["-r"])] = None
 
 
-def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
+def _read_fcidump(file_name: pathlib.Path, *, cached: bool = False) -> tuple[tuple[int, int, int], dict[tuple[tuple[int, int], ...], complex]]:
     # pylint: disable=too-many-locals
     with gzip.open(file_name, "rt", encoding="utf-8") if file_name.name.endswith(".gz") else open(file_name, "rt", encoding="utf-8") as file:
         n_orbit: int = -1
+        n_electron: int = -1
+        n_spin: int = -1
         for line in file:
             data: str = line.lower()
-            match = re.search(r"norb\s*=\s*(\d+)", data)
-            if match is not None:
+            if (match := re.search(r"norb\s*=\s*(\d+)", data)) is not None:
                 n_orbit = int(match.group(1))
+            if (match := re.search(r"nelec\s*=\s*(\d+)", data)) is not None:
+                n_electron = int(match.group(1))
+            if (match := re.search(r"ms2\s*=\s*(\d+)", data)) is not None:
+                n_spin = int(match.group(1))
             if "&end" in data:
                 break
+        if n_orbit == -1 or n_electron == -1 or n_spin == -1:
+            raise ValueError(f"Invalid FCIDUMP format: {file_name}")
+        if cached:
+            return (n_orbit, n_electron, n_spin), {}
         energy_0: float = 0.0
         energy_1: torch.Tensor = torch.zeros([n_orbit, n_orbit], dtype=torch.float64)
         energy_2: torch.Tensor = torch.zeros([n_orbit, n_orbit, n_orbit, n_orbit], dtype=torch.float64)
@@ -91,7 +100,7 @@ def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], 
 
     interaction_operator: openfermion.InteractionOperator = openfermion.InteractionOperator(energy_0, energy_1_b.numpy(), energy_2_b.numpy())  # type: ignore[no-untyped-call]
     fermion_operator: openfermion.FermionOperator = openfermion.get_fermion_operator(interaction_operator)  # type: ignore[no-untyped-call]
-    return {k: complex(v) for k, v in openfermion.normal_ordered(fermion_operator).terms.items()}  # type: ignore[no-untyped-call]
+    return (n_orbit, n_electron, n_spin), {k: complex(v) for k, v in openfermion.normal_ordered(fermion_operator).terms.items()}  # type: ignore[no-untyped-call]
 
 
 class Model(ModelProto):
@@ -127,6 +136,10 @@ class Model(ModelProto):
         checksum = hashlib.sha256(model_file_name.read_bytes()).hexdigest() + "v5"
         cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
         if cache_file.exists():
+            logging.info("Loading FCIDUMP metadata '%s' from file: %s", model_name, model_file_name)
+            (n_orbit, n_electron, n_spin), _ = _read_fcidump(model_file_name, cached=True)
+            logging.info("FCIDUMP metadata '%s' successfully loaded", model_name)
+
             logging.info("Loading FCIDUMP Hamiltonian '%s' from cache", model_name)
             openfermion_hamiltonian_data = torch.load(cache_file, map_location="cpu", weights_only=True)
             logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
@@ -136,7 +149,7 @@ class Model(ModelProto):
             logging.info("Internal Hamiltonian representation for model '%s' successfully recovered", model_name)
         else:
             logging.info("Loading FCIDUMP Hamiltonian '%s' from file: %s", model_name, model_file_name)
-            openfermion_hamiltonian_dict = _read_fcidump(model_file_name)
+            (n_orbit, n_electron, n_spin), openfermion_hamiltonian_dict = _read_fcidump(model_file_name)
             logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
 
             logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
@@ -148,12 +161,10 @@ class Model(ModelProto):
             torch.save((self.hamiltonian.site, self.hamiltonian.kind, self.hamiltonian.coef), cache_file)
             logging.info("OpenFermion Hamiltonian for model '%s' successfully cached", model_name)
 
-        match = re.match(r"\w*_(\d*)_(\d*)(?:/.*)?", model_name)
-        assert match is not None
-        n_electrons, n_qubits = match.groups()
-        self.n_qubits: int = int(n_qubits)
-        self.n_electrons: int = int(n_electrons)
-        logging.info("Identified %d qubits and %d electrons for model '%s'", self.n_qubits, self.n_electrons, model_name)
+        self.n_qubit: int = int(n_orbit) * 2
+        self.n_electron: int = int(n_electron)
+        self.n_spin: int = int(n_spin)
+        logging.info("Identified %d qubits, %d electrons and %d spin for model '%s'", self.n_qubit, self.n_electron, self.n_spin, model_name)
 
         self.ref_energy: float
         if ref_energy is not None:
@@ -176,7 +187,7 @@ class Model(ModelProto):
 
     def show_config(self, config: torch.Tensor) -> str:
         string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy())
-        return "[" + "".join(self._show_config_site(string[index * 2:index * 2 + 2]) for index in range(self.n_qubits // 2)) + "]"
+        return "[" + "".join(self._show_config_site(string[index * 2:index * 2 + 2]) for index in range(self.n_qubit // 2)) + "]"
 
     def _show_config_site(self, string: str) -> str:
         match string:
@@ -214,11 +225,11 @@ class MlpConfig:
         logging.info("Hidden layer widths: %a", args.hidden)
 
         network = MlpWaveFunction(
-            double_sites=model.n_qubits,
+            double_sites=model.n_qubit,
             physical_dim=2,
             is_complex=True,
-            spin_up=model.n_electrons // 2,
-            spin_down=model.n_electrons // 2,
+            spin_up=(model.n_electron + model.n_spin) // 2,
+            spin_down=(model.n_electron - model.n_spin) // 2,
             hidden_size=args.hidden,
             ordering=+1,
         )
@@ -276,11 +287,11 @@ class AttentionConfig:
         )
 
         network = AttentionWaveFunction(
-            double_sites=model.n_qubits,
+            double_sites=model.n_qubit,
             physical_dim=2,
             is_complex=True,
-            spin_up=model.n_electrons // 2,
-            spin_down=model.n_electrons // 2,
+            spin_up=(model.n_electron + model.n_spin) // 2,
+            spin_down=(model.n_electron - model.n_spin) // 2,
             embedding_dim=args.embedding_dim,
             heads_num=args.heads_num,
             feed_forward_dim=args.feed_forward_dim,
