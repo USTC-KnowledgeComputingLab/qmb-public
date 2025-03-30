@@ -49,9 +49,12 @@ class Model(ModelProto):
         logging.info("Input arguments successfully parsed")
         logging.info("Model name: %s, Model path: %s", args.model_name, args.model_path)
 
-        return cls(args.model_name, args.model_path)
+        return cls(args)
 
-    def __init__(self, model_name: str, model_path: pathlib.Path) -> None:
+    def __init__(self, args: ModelConfig) -> None:
+        model_name = args.model_name
+        model_path = args.model_path
+
         model_file_name: str = f"{model_path}/{model_name}.hdf5"
         logging.info("Loading OpenFermion model '%s' from file: %s", model_name, model_file_name)
         openfermion_model: openfermion.MolecularData = openfermion.MolecularData(filename=model_file_name)  # type: ignore[no-untyped-call]
