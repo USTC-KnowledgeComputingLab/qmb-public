@@ -8,7 +8,7 @@ import dataclasses
 import collections
 import torch
 import tyro
-from .naqs import WaveFunctionNormal as NaqsWaveFunction
+from .mlp import WaveFunctionNormal as MlpWaveFunction
 from .attention import WaveFunctionNormal as AttentionWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto
@@ -237,9 +237,9 @@ model_dict["ising"] = Model
 
 
 @dataclasses.dataclass
-class NaqsConfig:
+class MlpConfig:
     """
-    The configuration of the NAQS network.
+    The configuration of the MLP network.
     """
 
     # The hidden widths of the network
@@ -248,13 +248,13 @@ class NaqsConfig:
     @classmethod
     def create(cls, model: Model, input_args: tuple[str, ...]) -> NetworkProto:
         """
-        Create a NAQS network for the model.
+        Create a MLP network for the model.
         """
-        logging.info("Parsing arguments for NAQS network: %a", input_args)
+        logging.info("Parsing arguments for MLP network: %a", input_args)
         args = tyro.cli(cls, args=input_args)
         logging.info("Hidden layer widths: %a", args.hidden)
 
-        network = NaqsWaveFunction(
+        network = MlpWaveFunction(
             sites=model.m * model.n,
             physical_dim=2,
             is_complex=True,
@@ -265,7 +265,7 @@ class NaqsConfig:
         return network
 
 
-Model.network_dict["naqs"] = NaqsConfig.create
+Model.network_dict["mlp"] = MlpConfig.create
 
 
 @dataclasses.dataclass

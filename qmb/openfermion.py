@@ -10,7 +10,7 @@ import pathlib
 import torch
 import tyro
 import openfermion
-from .naqs import WaveFunctionElectronUpDown as NaqsWaveFunction
+from .mlp import WaveFunctionElectronUpDown as MlpWaveFunction
 from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto
@@ -99,9 +99,9 @@ model_dict["openfermion"] = Model
 
 
 @dataclasses.dataclass
-class NaqsConfig:
+class MlpConfig:
     """
-    The configuration of the NAQS network.
+    The configuration of the MLP network.
     """
 
     # The hidden widths of the network
@@ -110,13 +110,13 @@ class NaqsConfig:
     @classmethod
     def create(cls, model: Model, input_args: tuple[str, ...]) -> NetworkProto:
         """
-        Create a NAQS network for the model.
+        Create a MLP network for the model.
         """
-        logging.info("Parsing arguments for NAQS network: %a", input_args)
+        logging.info("Parsing arguments for MLP network: %a", input_args)
         args = tyro.cli(cls, args=input_args)
         logging.info("Hidden layer widths: %a", args.hidden)
 
-        network = NaqsWaveFunction(
+        network = MlpWaveFunction(
             double_sites=model.n_qubits,
             physical_dim=2,
             is_complex=True,
@@ -129,7 +129,7 @@ class NaqsConfig:
         return network
 
 
-Model.network_dict["naqs"] = NaqsConfig.create
+Model.network_dict["mlp"] = MlpConfig.create
 
 
 @dataclasses.dataclass

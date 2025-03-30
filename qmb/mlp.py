@@ -1,5 +1,5 @@
 """
-This file implements the NAQS network from https://arxiv.org/pdf/2109.12606 with the sampling method introduced in https://arxiv.org/pdf/2408.07625.
+This file implements the MLP network from https://arxiv.org/pdf/2109.12606 with the sampling method introduced in https://arxiv.org/pdf/2408.07625.
 """
 
 import torch
@@ -60,7 +60,7 @@ class MLP(torch.nn.Module):
 
 class WaveFunctionElectronUpDown(torch.nn.Module):
     """
-    The wave function for the NAQS network.
+    The wave function for the MLP network.
     This module maintains the conservation of particle number of spin-up and spin-down electrons.
     """
 
@@ -69,9 +69,9 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
     def __init__(  # pylint: disable=too-many-arguments
             self,
             *,
-            double_sites: int,  # Number of qubits, where each pair of qubits represents a site in the NAQS model
-            physical_dim: int,  # Dimension of the physical space, which is always 2 for NAQS
-            is_complex: bool,  # Indicates whether the wave function is complex-valued, which is always true for NAQS
+            double_sites: int,  # Number of qubits, where each pair of qubits represents a site in the MLP model
+            physical_dim: int,  # Dimension of the physical space, which is always 2 for MLP
+            is_complex: bool,  # Indicates whether the wave function is complex-valued, which is always true for MLP
             spin_up: int,  # Number of spin-up electrons
             spin_down: int,  # Number of spin-down electrons
             hidden_size: tuple[int, ...],  # Hidden layer sizes for the MLPs used in the amplitude and phase networks
@@ -314,7 +314,7 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
 
 class WaveFunctionNormal(torch.nn.Module):
     """
-    The wave function for the NAQS network.
+    The wave function for the MLP network.
     This module does not maintain any conservation.
     """
 
@@ -322,8 +322,8 @@ class WaveFunctionNormal(torch.nn.Module):
             self,
             *,
             sites: int,  # Number of qubits
-            physical_dim: int,  # Dimension of the physical space, which is always 2 for NAQS
-            is_complex: bool,  # Indicates whether the wave function is complex-valued, which is always true for NAQS
+            physical_dim: int,  # Dimension of the physical space, which is always 2 for MLP
+            is_complex: bool,  # Indicates whether the wave function is complex-valued, which is always true for MLP
             hidden_size: tuple[int, ...],  # Hidden layer sizes for the MLPs used in the amplitude and phase networks
             ordering: int | list[int],  # Ordering of sites: +1 for normal order, -1 for reversed order, or a custom order list
     ) -> None:

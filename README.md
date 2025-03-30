@@ -72,9 +72,9 @@ This folder `models` is the default location which `qmb` will search for the nec
 
 After cloning or downloading the dataset, users can calculate the ground state of the $N_2$ system by running the command:
 ```
-qmb imag openfermion naqs -PN2
+qmb imag openfermion mlp -PN2
 ```
-This command utilizes the `imag` subcommand with the descriptor in OpenFermion format and the [naqs network][naqs-url],
+This command utilizes the `imag` subcommand with the descriptor in OpenFermion format and the [mlp network][naqs-url],
 It specifies the $N_2$ model via the `-PN2` flag since the $N_2$ model is loaded from the file `N2.hdf5` in the folder `models`.
 
 For more detailed information, please refer to the help command and the documentation.

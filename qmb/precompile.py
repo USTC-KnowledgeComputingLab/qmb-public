@@ -29,7 +29,7 @@ class PrecompileConfig:
         """
 
         model: ModelProto = model_dict[self.model_name].parse(self.physics_args)
-        network: NetworkProto = model_dict[self.model_name].network_dict["naqs"](model, ()).to(device=self.device)
+        network: NetworkProto = model_dict[self.model_name].network_dict["mlp"](model, ()).to(device=self.device)
         configs_i, psi_i, _, _ = network.generate_unique(1)
         model.apply_within(configs_i, psi_i, configs_i)
         model.find_relative(configs_i, psi_i, 1)
