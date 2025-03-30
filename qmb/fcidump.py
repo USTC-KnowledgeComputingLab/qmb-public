@@ -37,7 +37,7 @@ class ModelConfig:
 
 def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
     # pylint: disable=too-many-locals
-    with gzip.open(file_name, "rt", encoding="utf-8") as file:
+    with gzip.open(file_name, "rt", encoding="utf-8") if file_name.name.endswith(".gz") else open(file_name, "rt", encoding="utf-8") as file:
         n_orbit: int = -1
         for line in file:
             data: str = line.lower()
@@ -115,6 +115,7 @@ class Model(ModelProto):
 
     def __init__(self, model_name: str, model_path: pathlib.Path) -> None:
         model_file_name = model_path / f"{model_name}.FCIDUMP.gz"
+        model_file_name = model_file_name if model_file_name.exists() else model_path / model_name
 
         checksum = hashlib.sha256(model_file_name.read_bytes()).hexdigest() + "v5"
         cache_file = platformdirs.user_cache_path("qmb", "kclab") / checksum
