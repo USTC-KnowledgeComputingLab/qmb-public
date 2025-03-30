@@ -33,6 +33,8 @@ class ModelConfig:
     model_name: typing.Annotated[str, tyro.conf.Positional, tyro.conf.arg(metavar="MODEL")]
     # The path of models folder
     model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path(os.environ[QMB_MODEL_PATH] if QMB_MODEL_PATH in os.environ else "models")
+    # The ref energy of the model, leave empty to read from FCIDUMP.json
+    ref_energy: typing.Annotated[float | None, tyro.conf.arg(aliases=["-r"])] = None
 
 
 def _read_fcidump(file_name: pathlib.Path) -> dict[tuple[tuple[int, int], ...], complex]:
@@ -111,9 +113,14 @@ class Model(ModelProto):
         logging.info("Input arguments successfully parsed")
         logging.info("Model name: %s, Model path: %s", args.model_name, args.model_path)
 
-        return cls(args.model_name, args.model_path)
+        return cls(args)
 
-    def __init__(self, model_name: str, model_path: pathlib.Path) -> None:
+    def __init__(self, args: ModelConfig) -> None:
+        # pylint: disable=too-many-locals
+        model_name = args.model_name
+        model_path = args.model_path
+        ref_energy = args.ref_energy
+
         model_file_name = model_path / f"{model_name}.FCIDUMP.gz"
         model_file_name = model_file_name if model_file_name.exists() else model_path / model_name
 
@@ -148,9 +155,17 @@ class Model(ModelProto):
         self.n_electrons: int = int(n_electrons)
         logging.info("Identified %d qubits and %d electrons for model '%s'", self.n_qubits, self.n_electrons, model_name)
 
-        with open(model_file_name.parent / "FCIDUMP.json", "rt", encoding="utf-8") as file:
-            fcidump_ref_energy = json.load(file)
-        self.ref_energy: float = fcidump_ref_energy.get(model_name.split("/")[-1], torch.nan)
+        self.ref_energy: float
+        if ref_energy is not None:
+            self.ref_energy = ref_energy
+        else:
+            fcidump_ref_energy_file = model_file_name.parent / "FCIDUMP.json"
+            if fcidump_ref_energy_file.exists():
+                with open(model_file_name.parent / "FCIDUMP.json", "rt", encoding="utf-8") as file:
+                    fcidump_ref_energy_data = json.load(file)
+                self.ref_energy = fcidump_ref_energy_data.get(model_name.split("/")[-1], 0)
+            else:
+                self.ref_energy = 0
         logging.info("Reference energy for model '%s' is %.10f", model_name, self.ref_energy)
 
     def apply_within(self, configs_i: torch.Tensor, psi_i: torch.Tensor, configs_j: torch.Tensor) -> torch.Tensor:
