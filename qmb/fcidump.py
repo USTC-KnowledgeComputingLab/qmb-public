@@ -2,6 +2,7 @@
 This file provides an interface to work with FCIDUMP files.
 """
 
+from __future__ import annotations
 import os
 import typing
 import logging
@@ -18,7 +19,7 @@ import platformdirs
 from .mlp import WaveFunctionElectronUpDown as MlpWaveFunction
 from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
 from .hamiltonian import Hamiltonian
-from .model_dict import model_dict, ModelProto, NetworkProto
+from .model_dict import model_dict, ModelProto, NetworkProto, NetworkConfig
 
 QMB_MODEL_PATH = "QMB_MODEL_PATH"
 
@@ -103,12 +104,12 @@ def _read_fcidump(file_name: pathlib.Path, *, cached: bool = False) -> tuple[tup
     return (n_orbit, n_electron, n_spin), {k: complex(v) for k, v in openfermion.normal_ordered(fermion_operator).terms.items()}  # type: ignore[no-untyped-call]
 
 
-class Model(ModelProto[ModelConfig]):
+class Model(ModelProto):
     """
     This class handles the models from FCIDUMP files.
     """
 
-    network_dict: dict[str, typing.Callable[["Model", tuple[str, ...]], NetworkProto]] = {}
+    network_dict: dict[str, NetworkConfig[Model]] = {}
 
     @classmethod
     def preparse(cls, input_args: tuple[str, ...]) -> str:
@@ -216,28 +217,26 @@ class MlpConfig:
     hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (512,)
 
     @classmethod
-    def create(cls, model: Model, input_args: tuple[str, ...]) -> NetworkProto:
-        """
-        Create a MLP network for the model.
-        """
+    def parse(cls, input_args: tuple[str, ...]) -> "MlpConfig":
         logging.info("Parsing arguments for MLP network: %a", input_args)
         args = tyro.cli(cls, args=input_args)
         logging.info("Hidden layer widths: %a", args.hidden)
+        return args
 
+    def create(self, model: Model) -> NetworkProto:
         network = MlpWaveFunction(
             double_sites=model.n_qubit,
             physical_dim=2,
             is_complex=True,
             spin_up=(model.n_electron + model.n_spin) // 2,
             spin_down=(model.n_electron - model.n_spin) // 2,
-            hidden_size=args.hidden,
+            hidden_size=self.hidden,
             ordering=+1,
         )
-
         return network
 
 
-Model.network_dict["mlp"] = MlpConfig.create
+Model.network_dict["mlp"] = MlpConfig
 
 
 @dataclasses.dataclass
@@ -262,10 +261,7 @@ class AttentionConfig:
     depth: typing.Annotated[int, tyro.conf.arg(aliases=["-d"])] = 6
 
     @classmethod
-    def create(cls, model: Model, input_args: tuple[str, ...]) -> NetworkProto:
-        """
-        Create an attention network for the model.
-        """
+    def parse(cls, input_args: tuple[str, ...]) -> "AttentionConfig":
         logging.info("Parsing arguments for attention network: %a", input_args)
         args = tyro.cli(cls, args=input_args)
         logging.info(
@@ -285,24 +281,25 @@ class AttentionConfig:
             args.selected_expert_num,
             args.depth,
         )
+        return args
 
+    def create(self, model: Model) -> NetworkProto:
         network = AttentionWaveFunction(
             double_sites=model.n_qubit,
             physical_dim=2,
             is_complex=True,
             spin_up=(model.n_electron + model.n_spin) // 2,
             spin_down=(model.n_electron - model.n_spin) // 2,
-            embedding_dim=args.embedding_dim,
-            heads_num=args.heads_num,
-            feed_forward_dim=args.feed_forward_dim,
-            shared_num=args.shared_expert_num,
-            routed_num=args.routed_expert_num,
-            selected_num=args.selected_expert_num,
-            depth=args.depth,
+            embedding_dim=self.embedding_dim,
+            heads_num=self.heads_num,
+            feed_forward_dim=self.feed_forward_dim,
+            shared_num=self.shared_expert_num,
+            routed_num=self.routed_expert_num,
+            selected_num=self.selected_expert_num,
+            depth=self.depth,
             ordering=+1,
         )
-
         return network
 
 
-Model.network_dict["attention"] = AttentionConfig.create
+Model.network_dict["attention"] = AttentionConfig

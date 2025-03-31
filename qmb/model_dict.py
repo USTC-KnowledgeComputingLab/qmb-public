@@ -4,6 +4,7 @@ This module is used to store a dictionary that maps model names to their corresp
 Other packages or subpackages can register their models by adding entries to this dictionary.
 """
 
+from __future__ import annotations
 import typing
 import torch
 
@@ -48,15 +49,52 @@ class NetworkProto(typing.Protocol):
         """torch.nn.Module function"""
 
 
-ModelConfig_co = typing.TypeVar("ModelConfig_co", covariant=True)
+Model_contra = typing.TypeVar("Model_contra", contravariant=True)
 
 
-class ModelProto(typing.Protocol[ModelConfig_co]):
+class NetworkConfig(typing.Protocol[Model_contra]):
+    """
+    The network config protocol defines the interface that a network configs must implement.
+    """
+
+    def create(self, model: Model_contra) -> NetworkProto:
+        """
+        Create a network from the given model with the current config.
+
+        Parameters
+        ----------
+        model : Model
+            The model to create the network for.
+
+        Returns
+        -------
+        NetworkProto
+            The created network.
+        """
+
+    @classmethod
+    def parse(cls, input_args: tuple[str, ...]) -> typing.Self:
+        """
+        Parse the arguments and return a config of the network.
+
+        Parameters
+        ----------
+        input_args : tuple[str, ...]
+            The input arguments to the network.
+
+        Returns
+        -------
+        Self
+            A config of the network.
+        """
+
+
+class ModelProto(typing.Protocol):
     """
     The Model protocol defines the interface that all models must implement.
     """
 
-    network_dict: dict[str, typing.Callable[[typing.Self, tuple[str, ...]], NetworkProto]]
+    network_dict: dict[str, NetworkConfig[typing.Self]]
 
     ref_energy: float
 
@@ -77,7 +115,7 @@ class ModelProto(typing.Protocol[ModelConfig_co]):
         """
 
     @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> ModelConfig_co:
+    def parse(cls, input_args: tuple[str, ...]) -> typing.Any:
         """
         Parse the arguments and return a config of the model.
 
@@ -88,17 +126,17 @@ class ModelProto(typing.Protocol[ModelConfig_co]):
 
         Returns
         -------
-        ModelConfig_co
+        Any
             A config of the model.
         """
 
-    def __init__(self, config: ModelConfig_co) -> None:
+    def __init__(self, config: typing.Any) -> None:
         """
         Create a model from the given config.
 
         Parameters
         ----------
-        config : ModelConfig_co
+        config : Any
             The config of model.
         """
 
