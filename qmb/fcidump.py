@@ -40,9 +40,9 @@ class ModelConfig:
 def _read_fcidump(file_name: pathlib.Path, *, cached: bool = False) -> tuple[tuple[int, int, int], dict[tuple[tuple[int, int], ...], complex]]:
     # pylint: disable=too-many-locals
     with gzip.open(file_name, "rt", encoding="utf-8") if file_name.name.endswith(".gz") else open(file_name, "rt", encoding="utf-8") as file:
-        n_orbit: int = -1
-        n_electron: int = -1
-        n_spin: int = -1
+        n_orbit: int | None = None
+        n_electron: int | None = None
+        n_spin: int | None = None
         for line in file:
             data: str = line.lower()
             if (match := re.search(r"norb\s*=\s*(\d+)", data)) is not None:
@@ -53,8 +53,9 @@ def _read_fcidump(file_name: pathlib.Path, *, cached: bool = False) -> tuple[tup
                 n_spin = int(match.group(1))
             if "&end" in data:
                 break
-        if n_orbit == -1 or n_electron == -1 or n_spin == -1:
-            raise ValueError(f"Invalid FCIDUMP format: {file_name}")
+        assert n_orbit is not None
+        assert n_electron is not None
+        assert n_spin is not None
         if cached:
             return (n_orbit, n_electron, n_spin), {}
         energy_0: float = 0.0
