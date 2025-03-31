@@ -300,7 +300,7 @@ class ImaginaryConfig:
         if self.krylov_extend_count == -1:
             self.krylov_extend_count = 2048 if self.krylov_single_extend else 64
 
-    def main(self) -> None:
+    def main(self, model_param=None, network_param=None) -> None:
         """
         The main function of two-step optimization process based on imaginary time.
         """
@@ -308,7 +308,7 @@ class ImaginaryConfig:
         # pylint: disable=too-many-statements
         # pylint: disable=too-many-branches
 
-        model, network, data = self.common.main()
+        model, network, data = self.common.main(model_param=model_param, network_param=network_param)
 
         logging.info(
             "Arguments Summary: "

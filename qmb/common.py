@@ -73,7 +73,7 @@ class CommonConfig:
             (self.folder() / "data.pth").unlink(missing_ok=True)
             torch.save(data, self.folder() / "data.pth")
 
-    def main(self) -> tuple[ModelProto, NetworkProto, typing.Any]:
+    def main(self, *, model_param=None, network_param=None) -> tuple[ModelProto, NetworkProto, typing.Any]:
         """
         The main function to create the model and network.
         """
@@ -127,11 +127,15 @@ class CommonConfig:
             logging.info("Random seed not specified, using current seed: %d", torch.seed())
 
         logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
-        model: ModelProto = model_t(model_t.parse(self.physics_args))
+        if model_param is None:
+            model_param = model_t.parse(self.physics_args)
+        model: ModelProto = model_t(model_param)
         logging.info("Physical model loaded successfully")
 
         logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
-        network: NetworkProto = network_t.parse(self.network_args).create(model)
+        if network_param is None:
+            network_param = network_t.parse(self.network_args)
+        network: NetworkProto = network_param.create(model)
         logging.info("Network initialized successfully")
 
         if "network" in data:
