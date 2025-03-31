@@ -162,9 +162,9 @@ class Model(ModelProto[ModelConfig]):
             torch.save((self.hamiltonian.site, self.hamiltonian.kind, self.hamiltonian.coef), cache_file)
             logging.info("OpenFermion Hamiltonian for model '%s' successfully cached", model_name)
 
-        self.n_qubit: int = int(n_orbit) * 2
-        self.n_electron: int = int(n_electron)
-        self.n_spin: int = int(n_spin)
+        self.n_qubit: int = n_orbit * 2
+        self.n_electron: int = n_electron
+        self.n_spin: int = n_spin
         logging.info("Identified %d qubits, %d electrons and %d spin for model '%s'", self.n_qubit, self.n_electron, self.n_spin, model_name)
 
         self.ref_energy: float
