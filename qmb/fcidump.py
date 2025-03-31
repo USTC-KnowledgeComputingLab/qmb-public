@@ -103,7 +103,7 @@ def _read_fcidump(file_name: pathlib.Path, *, cached: bool = False) -> tuple[tup
     return (n_orbit, n_electron, n_spin), {k: complex(v) for k, v in openfermion.normal_ordered(fermion_operator).terms.items()}  # type: ignore[no-untyped-call]
 
 
-class Model(ModelProto):
+class Model(ModelProto[ModelConfig]):
     """
     This class handles the models from FCIDUMP files.
     """
@@ -116,13 +116,13 @@ class Model(ModelProto):
         return args.model_name
 
     @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> "Model":
+    def parse(cls, input_args: tuple[str, ...]) -> ModelConfig:
         logging.info("Parsing input arguments for the model: %a", input_args)
         args = tyro.cli(ModelConfig, args=input_args)
         logging.info("Input arguments successfully parsed")
         logging.info("Model name: %s, Model path: %s", args.model_name, args.model_path)
 
-        return cls(args)
+        return args
 
     def __init__(self, args: ModelConfig) -> None:
         # pylint: disable=too-many-locals

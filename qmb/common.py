@@ -80,10 +80,11 @@ class CommonConfig:
 
         # pylint: disable=too-many-statements
 
+        model_t = model_dict[self.model_name]
         if "-h" in self.network_args or "--help" in self.network_args:
-            model_dict[self.model_name].network_dict[self.network_name](object(), self.network_args)  # type: ignore[arg-type]
+            model_t.network_dict[self.network_name](object(), self.network_args)  # type: ignore[arg-type]
         if self.group_name is None:
-            self.group_name = model_dict[self.model_name].preparse(self.physics_args)
+            self.group_name = model_t.preparse(self.physics_args)
 
         self.folder().mkdir(parents=True, exist_ok=True)
 
@@ -125,11 +126,11 @@ class CommonConfig:
             logging.info("Random seed not specified, using current seed: %d", torch.seed())
 
         logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
-        model: ModelProto = model_dict[self.model_name].parse(self.physics_args)
+        model: ModelProto = model_t(model_t.parse(self.physics_args))
         logging.info("Physical model loaded successfully")
 
         logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
-        network: NetworkProto = model_dict[self.model_name].network_dict[self.network_name](model, self.network_args)
+        network: NetworkProto = model_t.network_dict[self.network_name](model, self.network_args)
         logging.info("Network initialized successfully")
 
         if "network" in data:

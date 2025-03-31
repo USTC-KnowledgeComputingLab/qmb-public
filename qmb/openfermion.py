@@ -30,7 +30,7 @@ class ModelConfig:
     model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path(os.environ[QMB_MODEL_PATH] if QMB_MODEL_PATH in os.environ else "models")
 
 
-class Model(ModelProto):
+class Model(ModelProto[ModelConfig]):
     """
     This class handles the openfermion model.
     """
@@ -43,13 +43,13 @@ class Model(ModelProto):
         return args.model_name
 
     @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> "Model":
+    def parse(cls, input_args: tuple[str, ...]) -> ModelConfig:
         logging.info("Parsing input arguments for the model: %a", input_args)
         args = tyro.cli(ModelConfig, args=input_args)
         logging.info("Input arguments successfully parsed")
         logging.info("Model name: %s, Model path: %s", args.model_name, args.model_path)
 
-        return cls(args)
+        return args
 
     def __init__(self, args: ModelConfig) -> None:
         model_name = args.model_name

@@ -59,7 +59,7 @@ class ModelConfig:
     za: typing.Annotated[float, tyro.conf.arg(aliases=["-za"])] = 0
 
 
-class Model(ModelProto):
+class Model(ModelProto[ModelConfig]):
     """
     This class handles the Ising-like model.
     """
@@ -89,7 +89,7 @@ class Model(ModelProto):
         return f"Ising_{args.m}_{args.n}" + desc
 
     @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> "Model":
+    def parse(cls, input_args: tuple[str, ...]) -> ModelConfig:
         logging.info("Parsing arguments for the model: %a", input_args)
         args = tyro.cli(ModelConfig, args=input_args)
         logging.info("Input arguments successfully parsed")
@@ -100,7 +100,7 @@ class Model(ModelProto):
         logging.info("Diagonal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xd, args.yd, args.zd)
         logging.info("Anti-diagonal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xa, args.ya, args.za)
 
-        return cls(args)
+        return args
 
     @classmethod
     def _prepare_hamiltonian(cls, args: ModelConfig) -> dict[tuple[tuple[int, int], ...], complex]:

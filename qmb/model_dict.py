@@ -48,7 +48,10 @@ class NetworkProto(typing.Protocol):
         """torch.nn.Module function"""
 
 
-class ModelProto(typing.Protocol):
+ModelConfig_co = typing.TypeVar("ModelConfig_co", covariant=True)
+
+
+class ModelProto(typing.Protocol[ModelConfig_co]):
     """
     The Model protocol defines the interface that all models must implement.
     """
@@ -74,9 +77,9 @@ class ModelProto(typing.Protocol):
         """
 
     @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> typing.Self:
+    def parse(cls, input_args: tuple[str, ...]) -> ModelConfig_co:
         """
-        Parse the arguments and return an instance of the model.
+        Parse the arguments and return a config of the model.
 
         Parameters
         ----------
@@ -85,8 +88,18 @@ class ModelProto(typing.Protocol):
 
         Returns
         -------
-        Self
-            An instance of the model.
+        ModelConfig_co
+            A config of the model.
+        """
+
+    def __init__(self, config: ModelConfig_co) -> None:
+        """
+        Create a model from the given config.
+
+        Parameters
+        ----------
+        config : ModelConfig_co
+            The config of model.
         """
 
     def apply_within(self, configs_i: torch.Tensor, psi_i: torch.Tensor, configs_j: torch.Tensor) -> torch.Tensor:
