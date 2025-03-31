@@ -65,6 +65,7 @@ class ChopImagConfig:
             logging.info("The energy: %.10f, The energy error is %.10f", energy.item(), energy.item() - model.ref_energy)
             writer.add_scalar("chop_imag/energy", energy.item(), i)  # type: ignore[no-untyped-call]
             writer.add_scalar("chop_imag/error", energy.item() - model.ref_energy, i)  # type: ignore[no-untyped-call]
+            writer.flush()  # type: ignore[no-untyped-call]
             mapping[num_configs] = (energy.item(), energy.item() - model.ref_energy)
             if self.second_order_magnitude >= 0:
                 grad = hamiltonian_psi - psi_hamiltonian_psi * psi
@@ -83,7 +84,6 @@ class ChopImagConfig:
                 break
             configs = configs[selected]
             psi = psi[selected]
-            writer.flush()  # type: ignore[no-untyped-call]
             i += 1
 
         data["chop_imag"] = {
