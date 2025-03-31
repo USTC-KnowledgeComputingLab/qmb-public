@@ -4,6 +4,7 @@ This module is used to store a dictionary that maps model names to their corresp
 Other packages or subpackages can register their models by adding entries to this dictionary.
 """
 
+from __future__ import annotations
 import typing
 import torch
 
@@ -48,10 +49,10 @@ class NetworkProto(typing.Protocol):
         """torch.nn.Module function"""
 
 
-ModelConfig_co = typing.TypeVar("ModelConfig_co", covariant=True)
+ModelConfig = typing.TypeVar("ModelConfig")
 
 
-class ModelProto(typing.Protocol[ModelConfig_co]):
+class ModelProto(typing.Protocol[ModelConfig]):
     """
     The Model protocol defines the interface that all models must implement.
     """
@@ -59,6 +60,8 @@ class ModelProto(typing.Protocol[ModelConfig_co]):
     network_dict: dict[str, typing.Callable[[typing.Self, tuple[str, ...]], NetworkProto]]
 
     ref_energy: float
+
+    config_t: type[ModelConfig]
 
     @classmethod
     def preparse(cls, input_args: tuple[str, ...]) -> str:
@@ -76,29 +79,13 @@ class ModelProto(typing.Protocol[ModelConfig_co]):
             The group name for logging purposes.
         """
 
-    @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> ModelConfig_co:
-        """
-        Parse the arguments and return a config of the model.
-
-        Parameters
-        ----------
-        input_args : tuple[str, ...]
-            The input arguments to the model.
-
-        Returns
-        -------
-        ModelConfig_co
-            A config of the model.
-        """
-
-    def __init__(self, config: ModelConfig_co) -> None:
+    def __init__(self, config: ModelConfig) -> None:
         """
         Create a model from the given config.
 
         Parameters
         ----------
-        config : ModelConfig_co
+        config : ModelConfig
             The config of model.
         """
 

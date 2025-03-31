@@ -2,6 +2,7 @@
 This file offers a interface for defining Ising-like models on a two-dimensional lattice.
 """
 
+from __future__ import annotations
 import typing
 import logging
 import dataclasses
@@ -64,7 +65,9 @@ class Model(ModelProto[ModelConfig]):
     This class handles the Ising-like model.
     """
 
-    network_dict: dict[str, typing.Callable[["Model", tuple[str, ...]], NetworkProto]] = {}
+    network_dict: dict[str, typing.Callable[[Model, tuple[str, ...]], NetworkProto]] = {}
+
+    config_t = ModelConfig
 
     @classmethod
     def preparse(cls, input_args: tuple[str, ...]) -> str:
@@ -87,20 +90,6 @@ class Model(ModelProto[ModelConfig]):
         za = f"_za{args.za}" if args.za != 0 else ""
         desc = x + y + z + xh + yh + zh + xv + yv + zv + xd + yd + zd + xa + ya + za
         return f"Ising_{args.m}_{args.n}" + desc
-
-    @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> ModelConfig:
-        logging.info("Parsing arguments for the model: %a", input_args)
-        args = tyro.cli(ModelConfig, args=input_args)
-        logging.info("Input arguments successfully parsed")
-        logging.info("Grid dimensions: width = %d, height = %d", args.m, args.n)
-        logging.info("Element-wise coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.x, args.y, args.z)
-        logging.info("Horizontal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xh, args.yh, args.zh)
-        logging.info("Vertical bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xv, args.yv, args.zv)
-        logging.info("Diagonal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xd, args.yd, args.zd)
-        logging.info("Anti-diagonal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xa, args.ya, args.za)
-
-        return args
 
     @classmethod
     def _prepare_hamiltonian(cls, args: ModelConfig) -> dict[tuple[tuple[int, int], ...], complex]:
@@ -203,6 +192,14 @@ class Model(ModelProto[ModelConfig]):
         return hamiltonian
 
     def __init__(self, args: ModelConfig) -> None:
+        logging.info("Input arguments successfully parsed")
+        logging.info("Grid dimensions: width = %d, height = %d", args.m, args.n)
+        logging.info("Element-wise coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.x, args.y, args.z)
+        logging.info("Horizontal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xh, args.yh, args.zh)
+        logging.info("Vertical bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xv, args.yv, args.zv)
+        logging.info("Diagonal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xd, args.yd, args.zd)
+        logging.info("Anti-diagonal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xa, args.ya, args.za)
+
         self.m: int = args.m
         self.n: int = args.n
         logging.info("Constructing Ising model with dimensions: width = %d, height = %d", self.m, self.n)

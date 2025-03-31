@@ -2,6 +2,7 @@
 This file provides an interface to work with openfermion models.
 """
 
+from __future__ import annotations
 import os
 import typing
 import logging
@@ -35,23 +36,19 @@ class Model(ModelProto[ModelConfig]):
     This class handles the openfermion model.
     """
 
-    network_dict: dict[str, typing.Callable[["Model", tuple[str, ...]], NetworkProto]] = {}
+    network_dict: dict[str, typing.Callable[[Model, tuple[str, ...]], NetworkProto]] = {}
+
+    config_t = ModelConfig
 
     @classmethod
     def preparse(cls, input_args: tuple[str, ...]) -> str:
         args: ModelConfig = tyro.cli(ModelConfig, args=input_args)
         return args.model_name
 
-    @classmethod
-    def parse(cls, input_args: tuple[str, ...]) -> ModelConfig:
-        logging.info("Parsing input arguments for the model: %a", input_args)
-        args = tyro.cli(ModelConfig, args=input_args)
+    def __init__(self, args: ModelConfig) -> None:
         logging.info("Input arguments successfully parsed")
         logging.info("Model name: %s, Model path: %s", args.model_name, args.model_path)
 
-        return args
-
-    def __init__(self, args: ModelConfig) -> None:
         model_name = args.model_name
         model_path = args.model_path
 

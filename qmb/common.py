@@ -81,6 +81,8 @@ class CommonConfig:
         # pylint: disable=too-many-statements
 
         model_t = model_dict[self.model_name]
+        model_config_t = model_t.config_t
+
         if "-h" in self.network_args or "--help" in self.network_args:
             model_t.network_dict[self.network_name](object(), self.network_args)  # type: ignore[arg-type]
         if self.group_name is None:
@@ -126,7 +128,8 @@ class CommonConfig:
             logging.info("Random seed not specified, using current seed: %d", torch.seed())
 
         logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
-        model: ModelProto = model_t(model_t.parse(self.physics_args))
+        model_param = tyro.cli(model_config_t, args=self.physics_args)
+        model: ModelProto = model_t(model_param)
         logging.info("Physical model loaded successfully")
 
         logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
