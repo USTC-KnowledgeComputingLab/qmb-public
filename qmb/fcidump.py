@@ -174,9 +174,9 @@ class Model(ModelProto[ModelConfig]):
         else:
             fcidump_ref_energy_file = model_file_name.parent / "FCIDUMP.json"
             if fcidump_ref_energy_file.exists():
-                with open(model_file_name.parent / "FCIDUMP.json", "rt", encoding="utf-8") as file:
+                with open(fcidump_ref_energy_file, "rt", encoding="utf-8") as file:
                     fcidump_ref_energy_data = json.load(file)
-                self.ref_energy = fcidump_ref_energy_data.get(model_name.split("/")[-1], 0)
+                self.ref_energy = fcidump_ref_energy_data.get(pathlib.Path(model_name).name, 0)
             else:
                 self.ref_energy = 0
         logging.info("Reference energy for model '%s' is %.10f", model_name, self.ref_energy)
