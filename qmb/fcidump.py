@@ -32,13 +32,18 @@ class ModelConfig:
     # The openfermion model name
     model_name: typing.Annotated[str, tyro.conf.Positional, tyro.conf.arg(metavar="MODEL")]
     # The path of models folder
-    model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path(os.environ[QMB_MODEL_PATH] if QMB_MODEL_PATH in os.environ else "models")
+    model_path: typing.Annotated[pathlib.Path | None, tyro.conf.arg(aliases=["-M"], help_behavior_hint=f"default: \"models\", can be overridden by `${QMB_MODEL_PATH}'")] = None
     # The ref energy of the model, leave empty to read from FCIDUMP.json
     ref_energy: typing.Annotated[float | None, tyro.conf.arg(aliases=["-r"])] = None
 
     def __post_init__(self) -> None:
         if self.model_path is not None:
             self.model_path = pathlib.Path(self.model_path)
+        else:
+            if QMB_MODEL_PATH in os.environ:
+                self.model_path = pathlib.Path(os.environ[QMB_MODEL_PATH])
+            else:
+                self.model_path = pathlib.Path("models")
 
 
 def _read_fcidump(file_name: pathlib.Path, *, cached: bool = False) -> tuple[tuple[int, int, int], dict[tuple[tuple[int, int], ...], complex]]:
@@ -130,6 +135,7 @@ class Model(ModelProto[ModelConfig]):
         model_name = args.model_name
         model_path = args.model_path
         ref_energy = args.ref_energy
+        assert model_path is not None
 
         model_file_name = model_path / f"{model_name}.FCIDUMP.gz"
         model_file_name = model_file_name if model_file_name.exists() else model_path / model_name

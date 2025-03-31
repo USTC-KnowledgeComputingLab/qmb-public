@@ -27,11 +27,16 @@ class ModelConfig:
     # The openfermion model name
     model_name: typing.Annotated[str, tyro.conf.Positional, tyro.conf.arg(metavar="MODEL")]
     # The path of models folder
-    model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path(os.environ[QMB_MODEL_PATH] if QMB_MODEL_PATH in os.environ else "models")
+    model_path: typing.Annotated[pathlib.Path | None, tyro.conf.arg(aliases=["-M"], help_behavior_hint=f"default: \"models\", can be overridden by `${QMB_MODEL_PATH}'")] = None
 
     def __post_init__(self) -> None:
         if self.model_path is not None:
             self.model_path = pathlib.Path(self.model_path)
+        else:
+            if QMB_MODEL_PATH in os.environ:
+                self.model_path = pathlib.Path(os.environ[QMB_MODEL_PATH])
+            else:
+                self.model_path = pathlib.Path("models")
 
 
 class Model(ModelProto[ModelConfig]):
@@ -54,10 +59,11 @@ class Model(ModelProto[ModelConfig]):
 
         model_name = args.model_name
         model_path = args.model_path
+        assert model_path is not None
 
-        model_file_name: str = f"{model_path}/{model_name}.hdf5"
+        model_file_name = model_path / f"{model_name}.hdf5"
         logging.info("Loading OpenFermion model '%s' from file: %s", model_name, model_file_name)
-        openfermion_model: openfermion.MolecularData = openfermion.MolecularData(filename=model_file_name)  # type: ignore[no-untyped-call]
+        openfermion_model: openfermion.MolecularData = openfermion.MolecularData(filename=str(model_file_name))  # type: ignore[no-untyped-call]
         logging.info("OpenFermion model '%s' successfully loaded", model_name)
 
         self.n_qubits: int = int(openfermion_model.n_qubits)  # type: ignore[arg-type]
