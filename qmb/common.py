@@ -107,8 +107,14 @@ class CommonConfig:
         logging.info("Starting script with arguments: %a", sys.argv)
         logging.info("Model: %s, Network: %s", self.model_name, self.network_name)
         logging.info("Log directory: %s, Group name: %s, Job name: %s", self.log_path, self.group_name, self.current_job_name)
-        logging.info("Physics arguments: %a", self.physics_args)
-        logging.info("Network arguments: %a", self.network_args)
+        if model_param is not None:
+            logging.info("Model parameters: %a", model_param)
+        else:
+            logging.info("Physics arguments: %a", self.physics_args)
+        if network_param is not None:
+            logging.info("Network parameters: %a", network_param)
+        else:
+            logging.info("Network arguments: %a", self.network_args)
 
         logging.info("Disabling PyTorch's default gradient computation")
         torch.set_grad_enabled(False)
@@ -135,15 +141,21 @@ class CommonConfig:
         else:
             logging.info("Random seed not specified, using current seed: %d", torch.seed())
 
-        logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
         if model_param is None:
+            logging.info("Parsing configurations for model: %s with arguments: %a", self.model_name, self.physics_args)
             model_param = tyro.cli(model_config_t, args=self.physics_args)
+        else:
+            logging.info("The model parameters are given as %a, skipping parsing model arguments", model_param)
+        logging.info("Loading the model")
         model: ModelProto = model_t(model_param)
         logging.info("Physical model loaded successfully")
 
-        logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
         if network_param is None:
+            logging.info("Parsing configurations for network: %s with arguments: %a", self.network_name, self.network_args)
             network_param = tyro.cli(network_config_t, args=self.network_args)
+        else:
+            logging.info("The network parameters are given as %a, skipping parsing network arguments", network_param)
+        logging.info("Initializing the network")
         network: NetworkProto = network_param.create(model)
         logging.info("Network initialized successfully")
 
