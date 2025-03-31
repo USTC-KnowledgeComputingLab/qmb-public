@@ -82,7 +82,7 @@ class Model(ModelProto[ModelConfig]):
 
     def show_config(self, config: torch.Tensor) -> str:
         string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy())
-        return "[" + "".join(self._show_config_site(string[index * 2:index * 2 + 2]) for index in range(self.n_qubits // 2)) + "]"
+        return "[" + "".join(self._show_config_site(string[index:index + 2]) for index in range(0, self.n_qubits, 2)) + "]"
 
     def _show_config_site(self, string: str) -> str:
         match string:
