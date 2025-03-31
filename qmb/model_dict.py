@@ -49,6 +49,22 @@ class NetworkProto(typing.Protocol):
         """torch.nn.Module function"""
 
 
+Model_contra = typing.TypeVar("Model_contra", contravariant=True)
+
+
+class NetworkConfigProto(typing.Protocol[Model_contra]):
+    """
+    The NetworkConfigProto protocol defines the interface that all network configs must implement.
+    """
+
+    # pylint: disable=too-few-public-methods
+
+    def create(self, model: Model_contra) -> NetworkProto:
+        """
+        Create the network from the given config for the given model.
+        """
+
+
 ModelConfig = typing.TypeVar("ModelConfig")
 
 
@@ -57,7 +73,7 @@ class ModelProto(typing.Protocol[ModelConfig]):
     The Model protocol defines the interface that all models must implement.
     """
 
-    network_dict: dict[str, typing.Callable[[typing.Self, tuple[str, ...]], NetworkProto]]
+    network_dict: dict[str, type[NetworkConfigProto[typing.Self]]]
 
     ref_energy: float
 

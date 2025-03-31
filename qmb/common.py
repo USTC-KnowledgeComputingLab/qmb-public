@@ -82,9 +82,10 @@ class CommonConfig:
 
         model_t = model_dict[self.model_name]
         model_config_t = model_t.config_t
+        network_config_t = model_t.network_dict[self.network_name]
 
         if "-h" in self.network_args or "--help" in self.network_args:
-            model_t.network_dict[self.network_name](object(), self.network_args)  # type: ignore[arg-type]
+            tyro.cli(network_config_t, args=self.network_args)
         if self.group_name is None:
             self.group_name = model_t.preparse(self.physics_args)
 
@@ -133,7 +134,8 @@ class CommonConfig:
         logging.info("Physical model loaded successfully")
 
         logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
-        network: NetworkProto = model_t.network_dict[self.network_name](model, self.network_args)
+        network_param = tyro.cli(network_config_t, args=self.network_args)
+        network: NetworkProto = network_param.create(model)
         logging.info("Network initialized successfully")
 
         if "network" in data:

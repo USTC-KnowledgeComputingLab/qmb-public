@@ -28,8 +28,11 @@ class PrecompileConfig:
         The main function for precompilation.
         """
 
-        model: ModelProto = tyro.cli(model_dict[self.model_name], args=self.physics_args)
-        network: NetworkProto = model_dict[self.model_name].network_dict["mlp"](model, ()).to(device=self.device)
+        model_t = model_dict[self.model_name]
+        model_config_t = model_t.config_t
+        network_config_t = model_t.network_dict["mlp"]
+        model: ModelProto = model_t(tyro.cli(model_config_t, args=self.physics_args))
+        network: NetworkProto = network_config_t().create(model).to(device=self.device)
         configs_i, psi_i, _, _ = network.generate_unique(1)
         model.apply_within(configs_i, psi_i, configs_i)
         model.find_relative(configs_i, psi_i, 1)

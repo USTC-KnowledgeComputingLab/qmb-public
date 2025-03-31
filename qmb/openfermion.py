@@ -14,7 +14,7 @@ import openfermion
 from .mlp import WaveFunctionElectronUpDown as MlpWaveFunction
 from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
 from .hamiltonian import Hamiltonian
-from .model_dict import model_dict, ModelProto, NetworkProto
+from .model_dict import model_dict, ModelProto, NetworkProto, NetworkConfigProto
 
 QMB_MODEL_PATH = "QMB_MODEL_PATH"
 
@@ -36,7 +36,7 @@ class Model(ModelProto[ModelConfig]):
     This class handles the openfermion model.
     """
 
-    network_dict: dict[str, typing.Callable[[Model, tuple[str, ...]], NetworkProto]] = {}
+    network_dict: dict[str, type[NetworkConfigProto[Model]]] = {}
 
     config_t = ModelConfig
 
@@ -107,14 +107,11 @@ class MlpConfig:
     # The hidden widths of the network
     hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (512,)
 
-    @classmethod
-    def create(cls, model: Model, input_args: tuple[str, ...]) -> NetworkProto:
+    def create(self, model: Model) -> NetworkProto:
         """
         Create a MLP network for the model.
         """
-        logging.info("Parsing arguments for MLP network: %a", input_args)
-        args = tyro.cli(cls, args=input_args)
-        logging.info("Hidden layer widths: %a", args.hidden)
+        logging.info("Hidden layer widths: %a", self.hidden)
 
         network = MlpWaveFunction(
             double_sites=model.n_qubits,
@@ -122,14 +119,14 @@ class MlpConfig:
             is_complex=True,
             spin_up=model.n_electrons // 2,
             spin_down=model.n_electrons // 2,
-            hidden_size=args.hidden,
+            hidden_size=self.hidden,
             ordering=+1,
         )
 
         return network
 
 
-Model.network_dict["mlp"] = MlpConfig.create
+Model.network_dict["mlp"] = MlpConfig
 
 
 @dataclasses.dataclass
@@ -153,13 +150,10 @@ class AttentionConfig:
     # Network depth
     depth: typing.Annotated[int, tyro.conf.arg(aliases=["-d"])] = 6
 
-    @classmethod
-    def create(cls, model: Model, input_args: tuple[str, ...]) -> NetworkProto:
+    def create(self, model: Model) -> NetworkProto:
         """
         Create an attention network for the model.
         """
-        logging.info("Parsing arguments for attention network: %a", input_args)
-        args = tyro.cli(cls, args=input_args)
         logging.info(
             "Attention network configuration: "
             "embedding dimension: %d, "
@@ -169,13 +163,13 @@ class AttentionConfig:
             "routed expert number: %d, "
             "selected expert number: %d, "
             "depth: %d",
-            args.embedding_dim,
-            args.heads_num,
-            args.feed_forward_dim,
-            args.shared_expert_num,
-            args.routed_expert_num,
-            args.selected_expert_num,
-            args.depth,
+            self.embedding_dim,
+            self.heads_num,
+            self.feed_forward_dim,
+            self.shared_expert_num,
+            self.routed_expert_num,
+            self.selected_expert_num,
+            self.depth,
         )
 
         network = AttentionWaveFunction(
@@ -184,17 +178,17 @@ class AttentionConfig:
             is_complex=True,
             spin_up=model.n_electrons // 2,
             spin_down=model.n_electrons // 2,
-            embedding_dim=args.embedding_dim,
-            heads_num=args.heads_num,
-            feed_forward_dim=args.feed_forward_dim,
-            shared_num=args.shared_expert_num,
-            routed_num=args.routed_expert_num,
-            selected_num=args.selected_expert_num,
-            depth=args.depth,
+            embedding_dim=self.embedding_dim,
+            heads_num=self.heads_num,
+            feed_forward_dim=self.feed_forward_dim,
+            shared_num=self.shared_expert_num,
+            routed_num=self.routed_expert_num,
+            selected_num=self.selected_expert_num,
+            depth=self.depth,
             ordering=+1,
         )
 
         return network
 
 
-Model.network_dict["attention"] = AttentionConfig.create
+Model.network_dict["attention"] = AttentionConfig
