@@ -47,6 +47,12 @@ class CommonConfig:
     # The dtype of the network, leave empty to skip modifying the dtype
     dtype: typing.Annotated[str | None, tyro.conf.arg(aliases=["-T"])] = None
 
+    def __post_init__(self) -> None:
+        if self.log_path is not None:
+            self.log_path = pathlib.Path(self.log_path)
+        if self.device is not None:
+            self.device = torch.device(self.device)
+
     def folder(self) -> pathlib.Path:
         """
         Get the folder name for the current job.
@@ -73,12 +79,13 @@ class CommonConfig:
             (self.folder() / "data.pth").unlink(missing_ok=True)
             torch.save(data, self.folder() / "data.pth")
 
-    def main(self) -> tuple[ModelProto, NetworkProto, typing.Any]:
+    def main(self, *, model_param: typing.Any = None, network_param: typing.Any = None) -> tuple[ModelProto, NetworkProto, typing.Any]:
         """
         The main function to create the model and network.
         """
 
         # pylint: disable=too-many-statements
+        # pylint: disable=too-many-branches
 
         model_t = model_dict[self.model_name]
         model_config_t = model_t.config_t
@@ -129,12 +136,14 @@ class CommonConfig:
             logging.info("Random seed not specified, using current seed: %d", torch.seed())
 
         logging.info("Loading model: %s with arguments: %a", self.model_name, self.physics_args)
-        model_param = tyro.cli(model_config_t, args=self.physics_args)
+        if model_param is None:
+            model_param = tyro.cli(model_config_t, args=self.physics_args)
         model: ModelProto = model_t(model_param)
         logging.info("Physical model loaded successfully")
 
         logging.info("Initializing network: %s and initializing with model and arguments: %a", self.network_name, self.network_args)
-        network_param = tyro.cli(network_config_t, args=self.network_args)
+        if network_param is None:
+            network_param = tyro.cli(network_config_t, args=self.network_args)
         network: NetworkProto = network_param.create(model)
         logging.info("Network initialized successfully")
 

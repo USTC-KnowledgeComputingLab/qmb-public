@@ -30,6 +30,10 @@ class ModelConfig:
     # The path of models folder
     model_path: typing.Annotated[pathlib.Path, tyro.conf.arg(aliases=["-M"])] = pathlib.Path(os.environ[QMB_MODEL_PATH] if QMB_MODEL_PATH in os.environ else "models")
 
+    def __post_init__(self) -> None:
+        if self.model_path is not None:
+            self.model_path = pathlib.Path(self.model_path)
+
 
 class Model(ModelProto[ModelConfig]):
     """

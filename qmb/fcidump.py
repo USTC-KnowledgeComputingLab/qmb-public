@@ -37,6 +37,10 @@ class ModelConfig:
     # The ref energy of the model, leave empty to read from FCIDUMP.json
     ref_energy: typing.Annotated[float | None, tyro.conf.arg(aliases=["-r"])] = None
 
+    def __post_init__(self) -> None:
+        if self.model_path is not None:
+            self.model_path = pathlib.Path(self.model_path)
+
 
 def _read_fcidump(file_name: pathlib.Path, *, cached: bool = False) -> tuple[tuple[int, int, int], dict[tuple[tuple[int, int], ...], complex]]:
     # pylint: disable=too-many-locals
