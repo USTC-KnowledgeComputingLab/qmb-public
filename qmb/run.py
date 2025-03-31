@@ -1,51 +1,51 @@
 """
-This is an alternative entry point for the command line application..
-
-It read a configurtion in YAML format and run the corresponding program.
+This file implements the run command for the qmb package, which is different from the other commands.
+It is used to run a configuration file that contains the settings for a model and network, instead of using command line arguments.
+And it is not a specific algorithm, but a general command to run any other command with a configuration file.
 """
 
-import sys
 import typing
+import dataclasses
+import pathlib
 import yaml
-from . import cuda_limit as _  # type: ignore[no-redef]
-from . import openfermion as _  # type: ignore[no-redef]
-from . import fcidump as _  # type: ignore[no-redef]
-from . import ising as _  # type: ignore[no-redef]
-from . import vmc as _  # type: ignore[no-redef]
-from . import imag as _  # type: ignore[no-redef]
-from . import precompile as _  # type: ignore[no-redef]
-from . import list_loss as _  # type: ignore[no-redef]
-from . import chop_imag as _  # type: ignore[no-redef]
+import tyro
 from .subcommand_dict import subcommand_dict
 from .model_dict import model_dict
 from .common import CommonConfig
 
 
-def main() -> None:
+@dataclasses.dataclass
+class RunConfig:
     """
-    The main function for the command line application.
+    The execution of the configuration file with other specific commands.
     """
-    file_name = sys.argv[1]
-    with open(file_name, "rt", encoding="utf-8") as file:
-        data = yaml.safe_load(file)
 
-    common_data = data.pop("common")
-    physics_data = data.pop("physics")
-    network_data = data.pop("network")
-    script, param = next(iter(data.items()))
+    # The configuration file name
+    file_name: typing.Annotated[pathlib.Path, tyro.conf.Positional, tyro.conf.arg(metavar="CONFIG")]
 
-    common = CommonConfig(**common_data)
-    run = subcommand_dict[script](**param, common=common)
+    def main(self) -> None:
+        """
+        Run the configuration file.
+        """
+        with open(self.file_name, "rt", encoding="utf-8") as file:
+            data = yaml.safe_load(file)
 
-    model_t = model_dict[common.model_name]
-    model_config_t = model_t.config_t
-    network_config_t = model_t.network_dict[common.network_name]
+        common_data = data.pop("common")
+        physics_data = data.pop("physics")
+        network_data = data.pop("network")
+        script, param = next(iter(data.items()))
 
-    network_param: typing.Any = network_config_t(**network_data)
-    model_param: typing.Any = model_config_t(**physics_data)
+        common = CommonConfig(**common_data)
+        run = subcommand_dict[script](**param, common=common)
 
-    run.main(model_param=model_param, network_param=network_param)  # type: ignore[call-arg]
+        model_t = model_dict[common.model_name]
+        model_config_t = model_t.config_t
+        network_config_t = model_t.network_dict[common.network_name]
+
+        network_param = network_config_t(**network_data)
+        model_param = model_config_t(**physics_data)
+
+        run.main(model_param=model_param, network_param=network_param)  # type: ignore[call-arg]
 
 
-if __name__ == "__main__":
-    main()
+subcommand_dict["run"] = RunConfig

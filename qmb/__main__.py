@@ -14,6 +14,7 @@ from . import imag as _  # type: ignore[no-redef]
 from . import precompile as _  # type: ignore[no-redef]
 from . import list_loss as _  # type: ignore[no-redef]
 from . import chop_imag as _  # type: ignore[no-redef]
+from . import run as _  # type: ignore[no-redef]
 from .subcommand_dict import subcommand_dict
 
 
