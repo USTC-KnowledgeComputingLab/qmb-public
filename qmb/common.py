@@ -47,6 +47,12 @@ class CommonConfig:
     # The dtype of the network, leave empty to skip modifying the dtype
     dtype: typing.Annotated[str | None, tyro.conf.arg(aliases=["-T"])] = None
 
+    def __post_init__(self) -> None:
+        if self.log_path is not None:
+            self.log_path = pathlib.Path(self.log_path)
+        if self.device is not None:
+            self.device = torch.device(self.device)
+
     def folder(self) -> pathlib.Path:
         """
         Get the folder name for the current job.
