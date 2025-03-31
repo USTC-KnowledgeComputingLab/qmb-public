@@ -2,7 +2,6 @@
 This file provides an interface to work with FCIDUMP files.
 """
 
-from __future__ import annotations
 import os
 import typing
 import logging
@@ -114,7 +113,7 @@ class Model(ModelProto[ModelConfig]):
     This class handles the models from FCIDUMP files.
     """
 
-    network_dict: dict[str, type[NetworkConfigProto[Model]]] = {}
+    network_dict: dict[str, type[NetworkConfigProto["Model"]]] = {}
 
     config_t = ModelConfig
 

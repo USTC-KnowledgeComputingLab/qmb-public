@@ -2,7 +2,6 @@
 This file offers a interface for defining Ising-like models on a two-dimensional lattice.
 """
 
-from __future__ import annotations
 import typing
 import logging
 import dataclasses
@@ -65,7 +64,7 @@ class Model(ModelProto[ModelConfig]):
     This class handles the Ising-like model.
     """
 
-    network_dict: dict[str, type[NetworkConfigProto[Model]]] = {}
+    network_dict: dict[str, type[NetworkConfigProto["Model"]]] = {}
 
     config_t = ModelConfig
 

@@ -2,7 +2,6 @@
 This file provides an interface to work with openfermion models.
 """
 
-from __future__ import annotations
 import os
 import typing
 import logging
@@ -40,7 +39,7 @@ class Model(ModelProto[ModelConfig]):
     This class handles the openfermion model.
     """
 
-    network_dict: dict[str, type[NetworkConfigProto[Model]]] = {}
+    network_dict: dict[str, type[NetworkConfigProto["Model"]]] = {}
 
     config_t = ModelConfig
 

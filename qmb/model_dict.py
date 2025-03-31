@@ -4,7 +4,6 @@ This module is used to store a dictionary that maps model names to their corresp
 Other packages or subpackages can register their models by adding entries to this dictionary.
 """
 
-from __future__ import annotations
 import typing
 import torch
 
