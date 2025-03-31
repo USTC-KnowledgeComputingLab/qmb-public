@@ -319,7 +319,9 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
             ordering = list(range(self.sites))
         if isinstance(ordering, int) and ordering == -1:
             ordering = list(reversed(range(self.sites)))
+        self.ordering: torch.Tensor
         self.register_buffer('ordering', torch.tensor(ordering, dtype=torch.int64))
+        self.ordering_reversed: torch.Tensor
         self.register_buffer('ordering_reversed', torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
 
         # Dummy Parameter for Device and Dtype Retrieval
@@ -650,7 +652,9 @@ class WaveFunctionNormal(torch.nn.Module):
             ordering = list(range(self.sites))
         if isinstance(ordering, int) and ordering == -1:
             ordering = list(reversed(range(self.sites)))
+        self.ordering: torch.Tensor
         self.register_buffer('ordering', torch.tensor(ordering, dtype=torch.int64))
+        self.ordering_reversed: torch.Tensor
         self.register_buffer('ordering_reversed', torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
 
         # Dummy Parameter for Device and Dtype Retrieval
