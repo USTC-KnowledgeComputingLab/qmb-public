@@ -271,7 +271,7 @@ auto apply_within_interface(
 }
 
 __device__ void _mutex_lock(int* mutex) {
-    // I don’t know why we need to wait for these periods of time, but the examples in the CUDA documentation are written this way.
+    // I don't know why we need to wait for these periods of time, but the examples in the CUDA documentation are written this way.
     // https://docs.nvidia.com/cuda/cuda-c-programming-guide/#nanosleep-example
     unsigned int ns = 8;
     while (atomicCAS(mutex, 0, 1) == 1) {
