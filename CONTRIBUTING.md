@@ -20,7 +20,7 @@ There are also some other files such as `.clang-format`, `.pre-commit-config.yam
 ## How to get involved
 
 Please learn the basic Git usage to contribute to qmb.
-We use the squash-and-merge strategy to merge the pull requests.
+We use the git flow mode to merge the pull requests.
 Please provide the essential information with proper formatting in the git commit message and the pull request description.
 
 Please make sure that your code is properly formatted, linted and typed when you submit a pull request.
