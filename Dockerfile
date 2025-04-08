@@ -1,10 +1,10 @@
 # Use the specified CUDA base image with Rocky Linux 9
-FROM nvidia/cuda:12.6.3-cudnn-devel-rockylinux9
+FROM nvidia/cuda:12.8.1-cudnn-devel-rockylinux9
 
 # Install dependencies
 WORKDIR /app
 RUN dnf update --assumeyes && \
-    dnf install --assumeyes git python3.12-devel && \
+    dnf install --assumeyes git python3.12-devel libcusparselt-devel && \
     dnf clean all && \
     python3.12 -m ensurepip && \
     pip3.12 install --upgrade pip
