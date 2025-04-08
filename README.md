@@ -53,6 +53,10 @@ Users can then invoke the `qmb` script with:
 qmb --help
 ```
 
+Please note that if the CUDA toolkit version is too old, users must install a compatible PyTorch version before running `pip install qmb`.
+For example, use `pip install torch --index-url https://download.pytorch.org/whl/cu118` for CUDA 11.8 (see [PyTorch’s guide][pytorch-install-url] for details).
+This older CUDA-compatible PyTorch must be installed first, otherwise, users will need to uninstall all existing PyTorch/CUDA-related python packages before reinstalling the correct version.
+
 ## Usage
 
 The main entry point of this package is a CLI script named `qmb`.
@@ -102,5 +106,6 @@ This project is distributed under the GPLv3 License. See [LICENSE.md](LICENSE.md
 [pyenv-url]: https://github.com/pyenv/pyenv
 [our-pypi-url]: https://pypi.org/project/qmb/
 [docker-mount-url]: https://docs.docker.com/engine/storage/volumes/
+[pytorch-install-url]: https://pytorch.org/get-started/locally/
 [models-url]: https://huggingface.co/datasets/USTC-KnowledgeComputingLab/qmb-models
 [naqs-url]: https://github.com/tomdbar/naqs-for-quantum-chemistry
