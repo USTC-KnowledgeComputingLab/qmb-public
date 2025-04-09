@@ -69,6 +69,7 @@ Typically, `qmb` requires a specific descriptor for a particular physical or che
 We have collected a set of such models [here][models-url].
 Users can clone or download this dataset into a folder named `models` within their current working directory.
 This folder `models` is the default location which `qmb` will search for the necessary model files.
+Alternatively, users can specify a custom path by setting the `$QMB_MODEL_PATH` environment variable, thereby overriding the default behavior.
 
 After cloning or downloading the dataset, users can calculate the ground state of the $N_2$ system by running the command:
 ```
