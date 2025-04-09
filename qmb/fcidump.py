@@ -7,11 +7,11 @@ import typing
 import logging
 import dataclasses
 import re
-import json
 import gzip
 import pathlib
 import hashlib
 import torch
+import yaml
 import tyro
 import openfermion
 import platformdirs
@@ -33,7 +33,7 @@ class ModelConfig:
     model_name: typing.Annotated[str, tyro.conf.Positional, tyro.conf.arg(metavar="MODEL")]
     # The path of models folder
     model_path: typing.Annotated[pathlib.Path | None, tyro.conf.arg(aliases=["-M"], help_behavior_hint=f"default: \"models\", can be overridden by `${QMB_MODEL_PATH}'")] = None
-    # The ref energy of the model, leave empty to read from FCIDUMP.json
+    # The ref energy of the model, leave empty to read from FCIDUMP.yaml
     ref_energy: typing.Annotated[float | None, tyro.conf.arg(aliases=["-r"])] = None
 
     def __post_init__(self) -> None:
@@ -177,10 +177,10 @@ class Model(ModelProto[ModelConfig]):
         if ref_energy is not None:
             self.ref_energy = ref_energy
         else:
-            fcidump_ref_energy_file = model_file_name.parent / "FCIDUMP.json"
+            fcidump_ref_energy_file = model_file_name.parent / "FCIDUMP.yaml"
             if fcidump_ref_energy_file.exists():
                 with open(fcidump_ref_energy_file, "rt", encoding="utf-8") as file:
-                    fcidump_ref_energy_data = json.load(file)
+                    fcidump_ref_energy_data = yaml.safe_load(file)
                 self.ref_energy = fcidump_ref_energy_data.get(pathlib.Path(model_name).name, 0)
             else:
                 self.ref_energy = 0
