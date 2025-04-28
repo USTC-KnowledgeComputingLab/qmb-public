@@ -18,6 +18,7 @@ import platformdirs
 from .mlp import WaveFunctionElectronUpDown as MlpWaveFunction
 from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
 from .rbm import WaveFunctionElectronUpDown as RbmWaveFunction
+from .rbm import CnnWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto, NetworkConfigProto
 
@@ -346,3 +347,27 @@ Model.network_dict["rbm"] = RbmConfig
 # TODO: openfermion的，ising的
 # TODO: 无自旋守恒的RBM
 # TODO: 随机网络
+
+@dataclasses.dataclass
+class CnnConfig:
+    """
+    The configuration of the RBM network.
+    """
+
+    def create(self, model: Model) -> NetworkProto:
+        """
+        Create an RBM network for the model.
+        """
+
+        network = CnnWaveFunction(
+            double_sites=model.n_qubit,
+            physical_dim=2,
+            is_complex=True,
+            spin_up=(model.n_electron + model.n_spin) // 2,
+            spin_down=(model.n_electron - model.n_spin) // 2,
+        )
+
+        return network
+
+
+Model.network_dict["cnn"] = CnnConfig
