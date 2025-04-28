@@ -17,6 +17,7 @@ import openfermion
 import platformdirs
 from .mlp import WaveFunctionElectronUpDown as MlpWaveFunction
 from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
+from .rbm import WaveFunctionElectronUpDown as RbmWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto, NetworkConfigProto
 
@@ -307,3 +308,41 @@ class AttentionConfig:
 
 
 Model.network_dict["attention"] = AttentionConfig
+
+
+@dataclasses.dataclass
+class RbmConfig:
+    """
+    The configuration of the RBM network.
+    """
+
+    # Hidden dimensions
+    hidden: typing.Annotated[int, tyro.conf.arg(aliases=["-w"])] = 64
+
+    def create(self, model: Model) -> NetworkProto:
+        """
+        Create an RBM network for the model.
+        """
+        logging.info(
+            "RBM network configuration: "
+            "hidden dimension: %d",
+            self.hidden,
+        )
+
+        network = RbmWaveFunction(
+            double_sites=model.n_qubit,
+            physical_dim=2,
+            is_complex=True,
+            spin_up=(model.n_electron + model.n_spin) // 2,
+            spin_down=(model.n_electron - model.n_spin) // 2,
+            hidden_dim=self.hidden,
+        )
+
+        return network
+
+
+Model.network_dict["rbm"] = RbmConfig
+
+# TODO: openfermion的，ising的
+# TODO: 无自旋守恒的RBM
+# TODO: 随机网络
