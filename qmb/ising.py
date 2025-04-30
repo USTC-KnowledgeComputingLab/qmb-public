@@ -58,6 +58,9 @@ class ModelConfig:
     # The coefficient of ZZ for antidiagonal bond
     za: typing.Annotated[float, tyro.conf.arg(aliases=["-za"])] = 0
 
+    # The ref energy of the model
+    ref_energy: typing.Annotated[float, tyro.conf.arg(aliases=["-r"])] = 0
+
 
 class Model(ModelProto[ModelConfig]):
     """
@@ -212,7 +215,8 @@ class Model(ModelProto[ModelConfig]):
         hamiltonian_dict: dict[tuple[tuple[int, int], ...], complex] = self._prepare_hamiltonian(args)
         logging.info("Hamiltonian initialization complete")
 
-        self.ref_energy: float = torch.nan
+        self.ref_energy: float = args.ref_energy
+        logging.info("The ref energy is set to %.10f", self.ref_energy)
 
         logging.info("Converting the Hamiltonian to internal Hamiltonian representation")
         self.hamiltonian: Hamiltonian = Hamiltonian(hamiltonian_dict, kind="bose2")
