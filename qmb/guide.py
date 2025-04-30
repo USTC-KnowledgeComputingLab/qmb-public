@@ -1,5 +1,5 @@
 """
-This file implements a variational Monte Carlo method for solving quantum many-body problems.
+This file implements a variational Monte Carlo method for solving quantum many-body problems with guide.
 """
 
 import logging
@@ -15,9 +15,9 @@ from .random_engine import dump_random_engine_state
 
 
 @dataclasses.dataclass
-class VmcConfig:
+class GuideConfig:
     """
-    The VMC optimization for solving quantum many-body problems.
+    The guided VMC optimization for solving quantum many-body problems.
     """
 
     # pylint: disable=too-many-instance-attributes
@@ -36,6 +36,10 @@ class VmcConfig:
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
     # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 1000
+    # The weight for the KL divergence loss
+    alpha: typing.Annotated[float, tyro.conf.arg(aliases=["-a"])] = 1.0
+    # Whether to use forward or reverse KL divergence
+    forward: typing.Annotated[bool, tyro.conf.arg(aliases=["-f"])] = False
 
     def __post_init__(self) -> None:
         if self.learning_rate == -1:
@@ -43,12 +47,17 @@ class VmcConfig:
 
     def main(self) -> None:
         """
-        The main function for the VMC optimization.
+        The main function for the guided VMC optimization.
         """
         # pylint: disable=too-many-statements
         # pylint: disable=too-many-locals
 
         model, network, data = self.common.main()
+        # TODO make copy of network as sampling network, which should be updated to use a single network in future
+        import io
+        buffer = io.BytesIO()
+        torch.jit.save(network, buffer)
+        sampling = torch.jit.load(buffer)
 
         logging.info(
             "Arguments Summary: "
@@ -57,17 +66,21 @@ class VmcConfig:
             "Global Optimizer: %s, "
             "Use LBFGS: %s, "
             "Learning Rate: %.10f, "
-            "Local Steps: %d, ",
+            "Local Steps: %d, "
+            "Alpha: %.10f, "
+            "Forward KL: %s",
             self.sampling_count,
             self.relative_count,
             "Yes" if self.global_opt else "No",
             "Yes" if self.use_lbfgs else "No",
             self.learning_rate,
             self.local_step,
+            self.alpha,
+            "Yes" if self.forward else "No",
         )
 
         optimizer = initialize_optimizer(
-            network.parameters(),
+            (*network.parameters(), *sampling.parameters()),
             use_lbfgs=self.use_lbfgs,
             learning_rate=self.learning_rate,
             state_dict=data.get("optimizer"),
@@ -82,7 +95,10 @@ class VmcConfig:
             logging.info("Starting a new optimization cycle")
 
             logging.info("Sampling configurations")
-            configs_i, psi_i, _, _ = network.generate_unique(self.sampling_count)
+            configs_i_network, _, _, _ = network.generate_unique(self.sampling_count)
+            configs_i_sampling, _, _, _ = sampling.generate_unique(self.sampling_count)
+            configs_i = torch.unique(torch.cat([configs_i_network, configs_i_sampling]), dim=0)
+            psi_i = network(configs_i)
             logging.info("Sampling completed, unique configurations count: %d", len(configs_i))
 
             logging.info("Calculating relative configurations")
@@ -95,7 +111,7 @@ class VmcConfig:
             logging.info("Relative configurations calculated, count: %d", len(configs_dst))
 
             optimizer = initialize_optimizer(
-                network.parameters(),
+                (*network.parameters(), *sampling.parameters()),
                 use_lbfgs=self.use_lbfgs,
                 learning_rate=self.learning_rate,
                 new_opt=not self.global_opt,
@@ -103,8 +119,9 @@ class VmcConfig:
             )
 
             def closure() -> torch.Tensor:
-                # Optimizing energy
+                # Optimizing energy and KL divergence
                 optimizer.zero_grad()
+
                 psi_src = network(configs_src)
                 with torch.no_grad():
                     psi_dst = network(configs_dst)
@@ -113,7 +130,22 @@ class VmcConfig:
                 den = psi_src.conj() @ psi_src.detach()
                 energy = num / den
                 energy = energy.real
-                energy.backward()  # type: ignore[no-untyped-call]
+
+                pred_amplitude = sampling(configs_src)
+                pred = pred_amplitude.real**2 + pred_amplitude.imag**2
+                with torch.no_grad():
+                    target = (hamiltonian_psi_dst / psi_src - energy).real * (psi_src.real**2 + psi_src.imag**2)
+                    target = target * (pred.sum() / target.sum())
+                if self.forward:
+                    # target log (target / pred)
+                    loss = target / pred
+                else:
+                    # pred log (pred / target)
+                    log_pred = pred.log()
+                    log_target = target.log()
+                    loss = log_pred * (log_pred / 2 - log_target + 1)
+
+                (energy + self.alpha * loss).backward()  # type: ignore[no-untyped-call]
                 return energy
 
             logging.info("Starting local optimization process")
@@ -140,4 +172,4 @@ class VmcConfig:
             logging.info("Current optimization cycle completed")
 
 
-subcommand_dict["vmc"] = VmcConfig
+subcommand_dict["guide"] = GuideConfig
