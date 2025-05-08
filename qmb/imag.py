@@ -76,7 +76,7 @@ class _DynamicLanczos:
         elif self.first_extend:
             # Extend the configuration before all iterations.
             psi = self.psi
-            for _ in range(self.step):
+            for _ in range(1):
                 selected = (psi.conj() * psi).real.argsort(descending=True)[:self.count_extend]
                 configs = self.configs
                 self._extend(psi[selected], self.configs[selected])
