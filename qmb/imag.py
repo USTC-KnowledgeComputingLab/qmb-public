@@ -363,11 +363,35 @@ class ImaginaryConfig:
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
+        def filter(c, p):
+            from .bitspack import pack_int, unpack_int
+            cc = unpack_int(c, 1, c.size(1) * 8).reshape([c.size(0), -1, 2])
+            ss = cc.sum(dim=1)
+            assert ss.ndim == 2
+            assert ss.size(0) == c.size(0)
+            assert ss.size(1) == 2
+            selected = torch.logical_and(ss[:, 0] == model.n_electron // 2, ss[:, 1] == model.n_electron // 2)
+            c = c[selected]
+            p = p[selected]
+            return c, p
+
         while True:
             logging.info("Starting a new optimization cycle")
 
             logging.info("Sampling configurations from neural network")
             configs_from_neural_network, psi_from_neural_network, _, _ = network.generate_unique(self.sampling_count_from_neural_network, self.local_batch_count_generation)
+            configs_from_neural_network, psi_from_neural_network = filter(configs_from_neural_network, psi_from_neural_network)
+            print(len(psi_from_neural_network))
+            for i in range(1000):
+                if len(psi_from_neural_network) >= 0.9 * self.sampling_count_from_neural_network:
+                    break
+                else:
+                    c, p, _, _ = network.generate_unique(self.sampling_count_from_neural_network, self.local_batch_count_generation)
+                    configs_from_neural_network, psi_from_neural_network = _merge_pool_from_neural_network_and_pool_from_last_iteration(configs_from_neural_network, psi_from_neural_network, c, p)
+                    print(i)
+                    print(len(psi_from_neural_network))
+                    configs_from_neural_network, psi_from_neural_network = filter(configs_from_neural_network, psi_from_neural_network)
+                    print(len(psi_from_neural_network))
             logging.info("Sampling configurations from last iteration")
             configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["imag"]["pool"], self.sampling_count_from_last_iteration)
             logging.info("Merging configurations from neural network and last iteration")

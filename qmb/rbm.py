@@ -13,7 +13,7 @@ class RBM(torch.nn.Module):
         self.visible_dim = visible_dim
         self.hidden_dim = hidden_dim
 
-        self.a = torch.nn.Parameter(torch.randn(visible_dim))  # Visible bias
+        self.a = torch.nn.Parameter(torch.randn(visible_dim) - 6)  # Visible bias
         self.b = torch.nn.Parameter(torch.randn(hidden_dim))  # Hidden bias
         self.W = torch.nn.Parameter(torch.randn(visible_dim, hidden_dim))  # Weight matrix
 
