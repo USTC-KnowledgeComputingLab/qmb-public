@@ -368,6 +368,8 @@ class ImaginaryConfig:
 
             logging.info("Sampling configurations from neural network")
             configs_from_neural_network, psi_from_neural_network, _, _ = network.generate_unique(self.sampling_count_from_neural_network, self.local_batch_count_generation)
+            configs_from_neural_network = torch.tensor([[ 63,   0,   0, 192,   3,  48,  12]], device=configs_from_neural_network.device, dtype=configs_from_neural_network.dtype)
+            psi_from_neural_network = torch.tensor([1], device=psi_from_neural_network.device, dtype=psi_from_neural_network.dtype)
             logging.info("Sampling configurations from last iteration")
             configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["imag"]["pool"], self.sampling_count_from_last_iteration)
             logging.info("Merging configurations from neural network and last iteration")
