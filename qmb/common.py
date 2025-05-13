@@ -46,12 +46,18 @@ class CommonConfig:
     device: typing.Annotated[torch.device, tyro.conf.arg(aliases=["-D"])] = torch.device(type="cuda", index=0)
     # The dtype of the network, leave empty to skip modifying the dtype
     dtype: typing.Annotated[str | None, tyro.conf.arg(aliases=["-T"])] = None
+    # The maximum absolute step for the process, leave empty to loop forever
+    max_absolute_step: typing.Annotated[int | None, tyro.conf.arg(aliases=["-A"])] = None
+    # The maximum relative step for the process, leave empty to loop forever
+    max_relative_step: typing.Annotated[int | None, tyro.conf.arg(aliases=["-R"])] = None
 
     def __post_init__(self) -> None:
         if self.log_path is not None:
             self.log_path = pathlib.Path(self.log_path)
         if self.device is not None:
             self.device = torch.device(self.device)
+        if self.max_absolute_step is not None and self.max_relative_step is not None:
+            raise ValueError("Both max_absolute_step and max_relative_step are set, please set only one of them.")
 
     def folder(self) -> pathlib.Path:
         """
@@ -78,6 +84,12 @@ class CommonConfig:
         else:
             (self.folder() / "data.pth").unlink(missing_ok=True)
             torch.save(data, self.folder() / "data.pth")
+        if self.max_relative_step is not None:
+            self.max_absolute_step = step + self.max_relative_step - 1
+            self.max_relative_step = None
+        if step == self.max_absolute_step:
+            logging.info("Reached the maximum step, exiting.")
+            sys.exit(0)
 
     def main(self, *, model_param: typing.Any = None, network_param: typing.Any = None) -> tuple[ModelProto, NetworkProto, typing.Any]:
         """
