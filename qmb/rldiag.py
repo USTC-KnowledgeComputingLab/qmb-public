@@ -72,8 +72,8 @@ class RldiagConfig:
     lanczos_step: typing.Annotated[int, tyro.conf.arg(aliases=["-l"])] = 32
     # The thereshold for the lanczos iteration
     lanczos_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-8
-    # The exponent for the sigma calculation
-    alpha: typing.Annotated[float, tyro.conf.arg(aliases=["-a"])] = 0.5
+    # The coefficient of configuration number for the sigma calculation
+    alpha: typing.Annotated[float, tyro.conf.arg(aliases=["-a"])] = 0.0
 
     def __post_init__(self) -> None:
         if self.learning_rate == -1:
@@ -181,7 +181,7 @@ class RldiagConfig:
                 # This is the first time to calculate the energy, which is usually the energy of the Hatree-Fock state for quantum chemistry system
                 # This will not be flushed acrossing different cycle chains.
                 data["rldiag"]["base"] = energy
-            sigma = (energy - data["rldiag"]["base"]) / (configs_size**self.alpha)
+            sigma = (energy - data["rldiag"]["base"]) + self.alpha * configs_size
             logging.info("Current sigma is %.10f", sigma)
             writer.add_scalar("rldiag/sigma/global", sigma, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/sigma/local", sigma, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
