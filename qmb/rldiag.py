@@ -74,6 +74,8 @@ class RldiagConfig:
     lanczos_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-8
     # The exponent for the sigma calculation
     alpha: typing.Annotated[float, tyro.conf.arg(aliases=["-a"])] = 0.5
+    # The perturbation for the action
+    perturb: typing.Annotated[float, tyro.conf.arg(aliases=["-p"])] = 0.1
 
     def __post_init__(self) -> None:
         if self.learning_rate == -1:
@@ -95,13 +97,15 @@ class RldiagConfig:
             "Use LBFGS: %s, "
             "Lanczos step: %d, "
             "Lanczos threshold: %.10f, "
-            "Alpha: %.10f",
+            "Alpha: %.10f, "
+            "Perturb: %.10f",
             self.initial_config if self.initial_config is not None else "None",
             self.learning_rate,
             "Yes" if self.use_lbfgs else "No",
             self.lanczos_step,
             self.lanczos_threshold,
             self.alpha,
+            self.perturb,
         )
 
         optimizer = initialize_optimizer(
@@ -142,11 +146,12 @@ class RldiagConfig:
             logging.info("Starting a new cycle")
 
             logging.info("Evaluating each configuration")
-            score = network(configs).real
+            score = network(configs)
             logging.info("All configurations are evaluated")
 
             logging.info("Applying the action")
-            pruned_configs = configs[score >= 0]
+            action = score.real >= torch.randn_like(score.real) * self.perturb
+            pruned_configs = configs[action]
             extended_configs = torch.cat([
                 pruned_configs,
                 model.find_relative(
