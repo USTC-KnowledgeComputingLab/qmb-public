@@ -317,15 +317,15 @@ class CrossMlpConfig:
     """
 
     # The hidden widths of the embedding subnetwork
-    embedding_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (512,)
+    embedding_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (64,)
     # The dimension of the embedding
     embedding_size: typing.Annotated[int, tyro.conf.arg(aliases=["-e"])] = 16
     # The hidden widths of the momentum subnetwork
-    momentum_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-m"])] = (512,)
+    momentum_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-m"])] = (64,)
     # The number of max momentum order
-    momentum_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 4
+    momentum_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1
     # The hidden widths of the tail part
-    tail_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-t"])] = (512,)
+    tail_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-t"])] = (64,)
     # The ordering of the sites
     ordering: typing.Annotated[int | list[int], tyro.conf.arg(aliases=["-o"])] = +1
 

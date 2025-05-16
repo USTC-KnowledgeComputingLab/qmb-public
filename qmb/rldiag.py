@@ -75,7 +75,7 @@ class RldiagConfig:
     # The exponent for the sigma calculation
     alpha: typing.Annotated[float, tyro.conf.arg(aliases=["-a"])] = 0.5
     # The perturbation for the action
-    perturb: typing.Annotated[float, tyro.conf.arg(aliases=["-p"])] = 0.1
+    perturb: typing.Annotated[float, tyro.conf.arg(aliases=["-p"])] = 0.0
 
     def __post_init__(self) -> None:
         if self.learning_rate == -1:
@@ -135,11 +135,12 @@ class RldiagConfig:
                 # The packed string
                 configs = torch.tensor([[int(i) for i in self.initial_config.split(",")]], dtype=torch.uint8, device=self.common.device)
             if "rldiag" not in data:
-                data["rldiag"] = {"global": 0, "local": 0, "configs": configs, "sigma": [[0]]}
+                data["rldiag"] = {"global": 0, "local": 0, "configs": configs, "sigma": [[0]], "chain": [[]]}
             else:
                 data["rldiag"]["configs"] = configs
                 data["rldiag"]["local"] = 0
                 data["rldiag"]["sigma"].append([0])
+                data["rldiag"]["chain"].append([])
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
@@ -172,6 +173,7 @@ class RldiagConfig:
                 logging.info("All configurations has been pruned, please start a new configuration pool state")
                 sys.exit(0)
 
+            old_configs = configs
             configs = extended_configs
             energy = lanczos_energy(model, configs, self.lanczos_step, self.lanczos_threshold)
             logging.info("Current energy is %.10f, Reference energy is %.10f, Energy error is %.10f", energy, model.ref_energy, energy - model.ref_energy)
@@ -187,14 +189,15 @@ class RldiagConfig:
             logging.info("Current sigma is %.10f", sigma)
             writer.add_scalar("rldiag/sigma/global", sigma, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/sigma/local", sigma, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
-            reward = sigma - data["rldiag"]["sigma"][-1][-1]
+            reward = -(sigma - data["rldiag"]["sigma"][-1][-1])
             data["rldiag"]["sigma"][-1].append(sigma)
+            data["rldiag"]["chain"][-1].append((old_configs, action, reward))
             with torch.enable_grad():  # type: ignore[no-untyped-call]
                 loss_term = score * torch.where(action, +1, -1)
                 loss = -reward * loss_term.sum()
+                optimizer.zero_grad()
                 loss.backward()
             optimizer.step()  # pylint: disable=no-value-for-parameter
-            optimizer.zero_grad()
 
             logging.info("Saving model checkpoint")
             data["rldiag"]["configs"] = configs
