@@ -87,6 +87,7 @@ class RldiagConfig:
         """
 
         # pylint: disable=too-many-statements
+        # pylint: disable=too-many-locals
 
         model, network, data = self.common.main()
 
@@ -146,7 +147,8 @@ class RldiagConfig:
             logging.info("Starting a new cycle")
 
             logging.info("Evaluating each configuration")
-            score = network(configs)
+            with torch.enable_grad():  # type: ignore[no-untyped-call]
+                score = network(configs)
             logging.info("All configurations are evaluated")
 
             logging.info("Applying the action")
@@ -185,7 +187,14 @@ class RldiagConfig:
             logging.info("Current sigma is %.10f", sigma)
             writer.add_scalar("rldiag/sigma/global", sigma, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/sigma/local", sigma, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
+            reward = sigma - data["rldiag"]["sigma"][-1][-1]
             data["rldiag"]["sigma"][-1].append(sigma)
+            with torch.enable_grad():  # type: ignore[no-untyped-call]
+                loss_term = score * torch.where(action, +1, -1)
+                loss = -reward * loss_term.sum()
+                loss.backward()
+            optimizer.step()  # pylint: disable=no-value-for-parameter
+            optimizer.zero_grad()
 
             logging.info("Saving model checkpoint")
             data["rldiag"]["configs"] = configs
