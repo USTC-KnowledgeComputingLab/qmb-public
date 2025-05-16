@@ -72,6 +72,8 @@ class RldiagConfig:
     lanczos_step: typing.Annotated[int, tyro.conf.arg(aliases=["-l"])] = 32
     # The thereshold for the lanczos iteration
     lanczos_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-8
+    # The exponent for the sigma calculation
+    alpha: typing.Annotated[float, tyro.conf.arg(aliases=["-a"])] = 0.5
 
     def __post_init__(self) -> None:
         if self.learning_rate == -1:
@@ -92,12 +94,14 @@ class RldiagConfig:
             "Learning Rate: %.10f, "
             "Use LBFGS: %s, "
             "Lanczos step: %d, "
-            "Lanczos threshold: %.10f",
+            "Lanczos threshold: %.10f, "
+            "Alpha: %.10f",
             self.initial_config if self.initial_config is not None else "None",
             self.learning_rate,
             "Yes" if self.use_lbfgs else "No",
             self.lanczos_step,
             self.lanczos_threshold,
+            self.alpha,
         )
 
         optimizer = initialize_optimizer(
@@ -126,10 +130,11 @@ class RldiagConfig:
                 # The packed string
                 configs = torch.tensor([[int(i) for i in self.initial_config.split(",")]], dtype=torch.uint8, device=self.common.device)
             if "rldiag" not in data:
-                data["rldiag"] = {"global": 0, "local": 0, "configs": configs}
+                data["rldiag"] = {"global": 0, "local": 0, "configs": configs, "sigma": [[0]]}
             else:
                 data["rldiag"]["configs"] = configs
                 data["rldiag"]["local"] = 0
+                data["rldiag"]["sigma"].append([0])
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
@@ -167,6 +172,15 @@ class RldiagConfig:
             writer.add_scalar("rldiag/energy/state/local", energy, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/energy/error/global", energy - model.ref_energy, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/energy/error/local", energy - model.ref_energy, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
+            if "base" not in data["rldiag"]:
+                # This is the first time to calculate the energy, which is usually the energy of the Hatree-Fock state for quantum chemistry system
+                # This will not be flushed acrossing different cycle chains.
+                data["rldiag"]["base"] = energy
+            sigma = (energy - data["rldiag"]["base"]) / (configs_size**self.alpha)
+            logging.info("Current sigma is %.10f", sigma)
+            writer.add_scalar("rldiag/sigma/global", sigma, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("rldiag/sigma/local", sigma, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
+            data["rldiag"]["sigma"][-1].append(sigma)
 
             logging.info("Saving model checkpoint")
             data["rldiag"]["configs"] = configs
