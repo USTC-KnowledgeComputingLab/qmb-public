@@ -6,6 +6,7 @@ import sys
 import logging
 import typing
 import dataclasses
+import functools
 import tyro
 import scipy
 import torch
@@ -17,7 +18,7 @@ from .bitspack import pack_int
 from .random_engine import dump_random_engine_state
 
 
-def lanczos_energy(model: ModelProto, configs: torch.Tensor, step: int, threshold: float) -> float:
+def lanczos_energy(model: ModelProto, configs: torch.Tensor, step: int, threshold: float) -> tuple[float, torch.Tensor]:
     """
     Calculate the energy using the Lanczos method.
     """
@@ -46,10 +47,23 @@ def lanczos_energy(model: ModelProto, configs: torch.Tensor, step: int, threshol
         i += 1
 
     if len(beta) == 0:
-        return alpha[0].item()
-    vals, _ = scipy.linalg.eigh_tridiagonal(torch.stack(alpha, dim=0).cpu(), torch.stack(beta, dim=0).cpu(), lapack_driver="stebz", select="i", select_range=(0, 0))
+        return alpha[0].item(), v[0]
+    vals, vecs = scipy.linalg.eigh_tridiagonal(torch.stack(alpha, dim=0).cpu(), torch.stack(beta, dim=0).cpu(), lapack_driver="stebz", select="i", select_range=(0, 0))
     energy = torch.as_tensor(vals[0])
-    return energy.item()
+    result = functools.reduce(torch.add, (weight[0] * vector.to(device=configs.device) for weight, vector in zip(vecs, v)))
+    return energy.item(), result
+
+
+def config_contributions(model: ModelProto, base_configs: torch.Tensor, active_configs: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate the config contribution for the given configurations pool of the ground state approximation.
+    """
+    base_state = state[:base_configs.size(0)]
+    active_state = state[base_configs.size(0):]
+    num = (active_state.conj() * model.apply_within(base_configs, base_state, active_configs)).real * 2
+    den = (base_state.conj() @ base_state).real
+    result = num / den
+    return result
 
 
 @dataclasses.dataclass
@@ -65,19 +79,13 @@ class RldiagConfig:
     # The initial configuration for the first step, which is usually the Hatree-Fock state for quantum chemistry system
     initial_config: typing.Annotated[typing.Optional[str], tyro.conf.arg(aliases=["-i"])] = None
     # The learning rate for the local optimizer
-    learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"], help_behavior_hint="(default: 1e-3 for Adam, 1 for LBFGS)")] = -1
-    # Whether to use LBFGS instead of Adam
-    use_lbfgs: typing.Annotated[bool, tyro.conf.arg(aliases=["-2"])] = False
+    learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"])] = 1e-3
     # The step of lanczos iteration for calculating the energy
-    lanczos_step: typing.Annotated[int, tyro.conf.arg(aliases=["-l"])] = 32
+    lanczos_step: typing.Annotated[int, tyro.conf.arg(aliases=["-k"])] = 64
     # The thereshold for the lanczos iteration
-    lanczos_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-8
+    lanczos_threshold: typing.Annotated[float, tyro.conf.arg(aliases=["-d"])] = 1e-8
     # The coefficient of configuration number for the sigma calculation
     alpha: typing.Annotated[float, tyro.conf.arg(aliases=["-a"])] = 0.0
-
-    def __post_init__(self) -> None:
-        if self.learning_rate == -1:
-            self.learning_rate = 1 if self.use_lbfgs else 1e-3
 
     def main(self) -> None:
         """
@@ -86,6 +94,7 @@ class RldiagConfig:
 
         # pylint: disable=too-many-statements
         # pylint: disable=too-many-locals
+        # pylint: disable=too-many-branches
 
         model, network, data = self.common.main()
 
@@ -93,13 +102,11 @@ class RldiagConfig:
             "Arguments Summary: "
             "Initial Configuration: %s, "
             "Learning Rate: %.10f, "
-            "Use LBFGS: %s, "
             "Lanczos step: %d, "
             "Lanczos threshold: %.10f, "
             "Alpha: %.10f",
             self.initial_config if self.initial_config is not None else "None",
             self.learning_rate,
-            "Yes" if self.use_lbfgs else "No",
             self.lanczos_step,
             self.lanczos_threshold,
             self.alpha,
@@ -107,7 +114,7 @@ class RldiagConfig:
 
         optimizer = initialize_optimizer(
             network.parameters(),
-            use_lbfgs=self.use_lbfgs,
+            use_lbfgs=False,
             learning_rate=self.learning_rate,
             state_dict=data.get("optimizer"),
         )
@@ -118,10 +125,10 @@ class RldiagConfig:
             else:
                 configs = data["rldiag"]["configs"].to(device=self.common.device)
         else:
-            # The format of initial_config has two options:
+            # The parameter initial_config accepts two formats:
             # 1. The 0/1 string, such as "11111100000000000000000000000011110000000000110000110000"
             # 2. The packed string, such as "63,0,0,192,3,48,12"
-            if "," not in self.initial_config and all(i in "01" for i in self.initial_config):
+            if all(i in "01" for i in self.initial_config):
                 # The 0/1 string
                 configs = pack_int(
                     torch.tensor([[int(i) for i in self.initial_config]], dtype=torch.bool, device=self.common.device),
@@ -131,37 +138,39 @@ class RldiagConfig:
                 # The packed string
                 configs = torch.tensor([[int(i) for i in self.initial_config.split(",")]], dtype=torch.uint8, device=self.common.device)
             if "rldiag" not in data:
-                data["rldiag"] = {"global": 0, "local": 0, "configs": configs, "sigma": [[0]], "chain": [[]]}
+                data["rldiag"] = {"global": 0, "local": 0, "configs": configs}
             else:
                 data["rldiag"]["configs"] = configs
                 data["rldiag"]["local"] = 0
-                data["rldiag"]["sigma"].append([0])
-                data["rldiag"]["chain"].append([])
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
+        last_state = None
         while True:
             logging.info("Starting a new cycle")
 
             logging.info("Evaluating each configuration")
-            with torch.enable_grad():  # type: ignore[no-untyped-call]
-                score = network(configs)
+            score = network(configs)
             logging.info("All configurations are evaluated")
 
             logging.info("Applying the action")
-            action = torch.sigmoid(score.real) >= torch.rand_like(score.real)
-            pruned_configs = configs[action]
-            extended_configs = torch.cat([
-                pruned_configs,
-                model.find_relative(
-                    pruned_configs,
-                    torch.ones([pruned_configs.size(0)], dtype=torch.complex128, device=self.common.device),
-                    pruned_configs.size(0),
-                    configs,
-                ),
-            ])
+            # |  old config pool  |
+            # | pruned | remained | expanded |
+            #          |   new config pool   |
+            action = score.real >= -self.alpha
+            action[0] = True
+            _, topk = torch.topk(score.real, k=score.size(0) // 2, dim=0)
+            action[topk] = True
+            remained_configs = configs[action]
+            pruned_configs = configs[torch.logical_not(action)]
+            expanded_configs = model.single_relative(remained_configs)  # There are duplicated config here
+            effective_expanded_configs, previous_to_effective = torch.unique(expanded_configs, dim=0, return_inverse=True)
+            old_configs = torch.cat([remained_configs, pruned_configs])
+            new_configs = torch.cat([remained_configs, effective_expanded_configs])
+            configs = new_configs
             logging.info("Action has been applied")
-            configs_size = extended_configs.size(0)
+
+            configs_size = configs.size(0)
             logging.info("Configuration pool size: %d", configs_size)
             writer.add_scalar("rldiag/configs/global", configs_size, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/configs/local", configs_size, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
@@ -169,9 +178,13 @@ class RldiagConfig:
                 logging.info("All configurations has been pruned, please start a new configuration pool state")
                 sys.exit(0)
 
-            old_configs = configs
-            configs = extended_configs
-            energy = lanczos_energy(model, configs, self.lanczos_step, self.lanczos_threshold)
+            if last_state is not None:
+                old_state = last_state[torch.cat([action.nonzero()[:, 0], torch.logical_not(action).nonzero()[:, 0]])]
+            else:
+                _, old_state = lanczos_energy(model, old_configs, self.lanczos_step, self.lanczos_threshold)
+            new_energy, new_state = lanczos_energy(model, configs, self.lanczos_step, self.lanczos_threshold)
+            last_state = new_state
+            energy = new_energy
             logging.info("Current energy is %.10f, Reference energy is %.10f, Energy error is %.10f", energy, model.ref_energy, energy - model.ref_energy)
             writer.add_scalar("rldiag/energy/state/global", energy, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/energy/state/local", energy, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
@@ -181,16 +194,15 @@ class RldiagConfig:
                 # This is the first time to calculate the energy, which is usually the energy of the Hatree-Fock state for quantum chemistry system
                 # This will not be flushed acrossing different cycle chains.
                 data["rldiag"]["base"] = energy
-            sigma = (energy - data["rldiag"]["base"]) + self.alpha * configs_size
-            logging.info("Current sigma is %.10f", sigma)
-            writer.add_scalar("rldiag/sigma/global", sigma, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
-            writer.add_scalar("rldiag/sigma/local", sigma, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
-            reward = -(sigma - data["rldiag"]["sigma"][-1][-1])
-            data["rldiag"]["sigma"][-1].append(sigma)
-            data["rldiag"]["chain"][-1].append((old_configs, action, reward))
+
+            old_contribution = config_contributions(model, remained_configs, pruned_configs, old_state)
+            effective_new_contribution = config_contributions(model, remained_configs, effective_expanded_configs, new_state)
+            new_contribution = effective_new_contribution[previous_to_effective]
+            contribution = torch.cat([old_contribution, new_contribution])
+            configs_for_training = torch.cat([pruned_configs, remained_configs])
             with torch.enable_grad():  # type: ignore[no-untyped-call]
-                loss_term = score * torch.where(action, +1, -1)
-                loss = -reward * loss_term.sum()
+                score_for_training = network(configs_for_training)
+                loss = torch.linalg.norm(score_for_training + contribution)  # pylint: disable=not-callable
                 optimizer.zero_grad()
                 loss.backward()
             optimizer.step()  # pylint: disable=no-value-for-parameter
