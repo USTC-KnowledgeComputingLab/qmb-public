@@ -6,4 +6,4 @@
 
 # Checklist:
 
-- [ ] I have read the [CONTRIBUTING.md](CONTRIBUTING.md).
+- [ ] I have read the [CONTRIBUTING.md](/CONTRIBUTING.md).
