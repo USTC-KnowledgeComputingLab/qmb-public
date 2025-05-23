@@ -78,6 +78,8 @@ class RldiagConfig:
 
     # The initial configuration for the first step, which is usually the Hatree-Fock state for quantum chemistry system
     initial_config: typing.Annotated[typing.Optional[str], tyro.conf.arg(aliases=["-i"])] = None
+    # The maximum size of the configuration pool
+    max_pool_size: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 32768
     # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"])] = 1e-3
     # The step of lanczos iteration for calculating the energy
@@ -158,9 +160,12 @@ class RldiagConfig:
             # | pruned | remained | expanded |
             #          |   new config pool   |
             action = score.real >= -self.alpha
-            action[0] = True
             _, topk = torch.topk(score.real, k=score.size(0) // 2, dim=0)
             action[topk] = True
+            if score.size(0) > self.max_pool_size:
+                _, topk = torch.topk(-score.real, k=score.size(0) - self.max_pool_size)
+                action[topk] = False
+            action[0] = True
             remained_configs = configs[action]
             pruned_configs = configs[torch.logical_not(action)]
             expanded_configs = model.single_relative(remained_configs)  # There are duplicated config here
