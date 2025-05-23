@@ -2,7 +2,6 @@
 This file implements the reinforcement learning based subspace diagonalization algorithm.
 """
 
-import sys
 import logging
 import typing
 import dataclasses
@@ -179,9 +178,6 @@ class RldiagConfig:
             logging.info("Configuration pool size: %d", configs_size)
             writer.add_scalar("rldiag/configs/global", configs_size, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/configs/local", configs_size, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
-            if configs_size == 0:
-                logging.info("All configurations has been pruned, please start a new configuration pool state")
-                sys.exit(0)
 
             if last_state is not None:
                 old_state = last_state[torch.cat([action.nonzero()[:, 0], torch.logical_not(action).nonzero()[:, 0]])]
