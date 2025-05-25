@@ -103,9 +103,9 @@ class WaveFunction(torch.nn.Module):
         if isinstance(ordering, int) and ordering == -1:
             ordering = list(reversed(range(self.sites)))
         self.ordering: torch.Tensor
-        self.register_buffer('ordering', torch.tensor(ordering, dtype=torch.int64))
+        self.register_buffer("ordering", torch.tensor(ordering, dtype=torch.int64))
         self.ordering_reversed: torch.Tensor
-        self.register_buffer('ordering_reversed', torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
+        self.register_buffer("ordering_reversed", torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
 
         # Dummy Parameter for Device and Dtype Retrieval
         # This parameter is used to infer the device and dtype of the model.

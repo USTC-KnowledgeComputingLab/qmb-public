@@ -114,11 +114,11 @@ class DecoderUnit(torch.nn.Module):
         self.norm2: torch.nn.Module = torch.nn.LayerNorm(embedding_dim)
 
         self.bias: torch.Tensor
-        self.register_buffer('bias', torch.zeros([self.routed_num]))
+        self.register_buffer("bias", torch.zeros([self.routed_num]))
         self.accumulater: torch.Tensor
-        self.register_buffer('accumulater', torch.zeros([self.routed_num]))
+        self.register_buffer("accumulater", torch.zeros([self.routed_num]))
         self.count: torch.Tensor
-        self.register_buffer('count', torch.zeros([]))
+        self.register_buffer("count", torch.zeros([]))
 
     def forward(
         self,
@@ -320,9 +320,9 @@ class WaveFunctionElectronUpDown(torch.nn.Module):
         if isinstance(ordering, int) and ordering == -1:
             ordering = list(reversed(range(self.sites)))
         self.ordering: torch.Tensor
-        self.register_buffer('ordering', torch.tensor(ordering, dtype=torch.int64))
+        self.register_buffer("ordering", torch.tensor(ordering, dtype=torch.int64))
         self.ordering_reversed: torch.Tensor
-        self.register_buffer('ordering_reversed', torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
+        self.register_buffer("ordering_reversed", torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
 
         # Dummy Parameter for Device and Dtype Retrieval
         # This parameter is used to infer the device and dtype of the model.
@@ -653,9 +653,9 @@ class WaveFunctionNormal(torch.nn.Module):
         if isinstance(ordering, int) and ordering == -1:
             ordering = list(reversed(range(self.sites)))
         self.ordering: torch.Tensor
-        self.register_buffer('ordering', torch.tensor(ordering, dtype=torch.int64))
+        self.register_buffer("ordering", torch.tensor(ordering, dtype=torch.int64))
         self.ordering_reversed: torch.Tensor
-        self.register_buffer('ordering_reversed', torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
+        self.register_buffer("ordering_reversed", torch.scatter(torch.zeros(self.sites, dtype=torch.int64), 0, self.ordering, torch.arange(self.sites, dtype=torch.int64)))
 
         # Dummy Parameter for Device and Dtype Retrieval
         # This parameter is used to infer the device and dtype of the model.
