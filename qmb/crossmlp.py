@@ -146,7 +146,7 @@ class WaveFunction(torch.nn.Module):
             for layer in self.momentum:
                 new_emb = layer(emb)
                 new_emb = new_emb + emb
-                new_emb = new_emb - new_emb.mean(dim=0, keepdim=True)
+                emb = new_emb - new_emb.mean(dim=0, keepdim=True)
                 emb = emb / emb.norm(p=2, dim=1, keepdim=True)
         else:
             raise ValueError(f"Invalid kind: {self.kind}")
