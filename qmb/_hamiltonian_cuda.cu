@@ -774,11 +774,17 @@ __global__ void single_relative_kernel_interface(
 }
 
 template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
-auto single_relative_interface(const torch::Tensor& configs, const torch::Tensor& site, const torch::Tensor& kind, const torch::Tensor& coef)
-    -> torch::Tensor {
+auto single_relative_interface(
+    const torch::Tensor& configs,
+    const torch::Tensor& site,
+    const torch::Tensor& kind,
+    const torch::Tensor& coef,
+    const torch::Tensor& exclude_configs
+) -> torch::Tensor {
     std::int64_t device_id = configs.device().index();
     std::int64_t batch_size = configs.size(0);
     std::int64_t term_number = site.size(0);
+    std::int64_t exclude_size = exclude_configs.size(0);
 
     TORCH_CHECK(configs.device().type() == torch::kCUDA, "configs must be on CUDA.")
     TORCH_CHECK(configs.device().index() == device_id, "configs must be on the same device as others.");
@@ -812,6 +818,14 @@ auto single_relative_interface(const torch::Tensor& configs, const torch::Tensor
     TORCH_CHECK(coef.size(0) == term_number, "coef size must match the provided term_number.");
     TORCH_CHECK(coef.size(1) == 2, "coef must contain 2 elements for each term.");
 
+    TORCH_CHECK(exclude_configs.device().type() == torch::kCUDA, "configs must be on CUDA.")
+    TORCH_CHECK(exclude_configs.device().index() == device_id, "configs must be on the same device as others.");
+    TORCH_CHECK(exclude_configs.is_contiguous(), "configs must be contiguous.")
+    TORCH_CHECK(exclude_configs.dtype() == torch::kUInt8, "configs must be uint8.")
+    TORCH_CHECK(exclude_configs.dim() == 2, "configs must be 2D.")
+    TORCH_CHECK(exclude_configs.size(0) == exclude_size, "configs batch size must match the provided exclude_size.");
+    TORCH_CHECK(exclude_configs.size(1) == n_qubytes, "configs must have the same number of qubits as the provided n_qubytes.");
+
     auto stream = at::cuda::getCurrentCUDAStream(device_id);
     auto policy = thrust::device.on(stream);
 
@@ -819,12 +833,12 @@ auto single_relative_interface(const torch::Tensor& configs, const torch::Tensor
     AT_CUDA_CHECK(cudaGetDeviceProperties(&prop, device_id));
     std::int64_t max_threads_per_block = prop.maxThreadsPerBlock;
 
-    auto sorted_configs = configs.clone(torch::MemoryFormat::Contiguous);
+    auto sorted_exclude_configs = exclude_configs.clone(torch::MemoryFormat::Contiguous);
 
     thrust::sort(
         policy,
-        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_configs.data_ptr()),
-        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_configs.data_ptr()) + batch_size,
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()),
+        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()) + exclude_size,
         array_less<std::uint8_t, n_qubytes>()
     );
 
@@ -845,13 +859,13 @@ auto single_relative_interface(const torch::Tensor& configs, const torch::Tensor
     single_relative_kernel_interface<max_op_number, n_qubytes, particle_cut><<<num_blocks, threads_per_block, 0, stream>>>(
         /*term_number=*/term_number,
         /*batch_size=*/batch_size,
-        /*exclude_size=*/batch_size,
+        /*exclude_size=*/exclude_size,
         /*seed=*/seed,
         /*site=*/reinterpret_cast<const std::array<std::int16_t, max_op_number>*>(site.data_ptr()),
         /*kind=*/reinterpret_cast<const std::array<std::uint8_t, max_op_number>*>(kind.data_ptr()),
         /*coef=*/reinterpret_cast<const std::array<double, 2>*>(coef.data_ptr()),
         /*configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(configs.data_ptr()),
-        /*exclude_configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_configs.data_ptr()),
+        /*exclude_configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()),
         /*result_configs=*/reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(result_configs.data_ptr()),
         /*score=*/reinterpret_cast<double*>(score.data_ptr()),
         /*mutex=*/mutex

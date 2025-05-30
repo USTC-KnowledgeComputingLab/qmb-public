@@ -136,7 +136,7 @@ class Hamiltonian:
         configs_j = _find_relative(configs_i, torch.view_as_real(psi_i), count_selected, self.site, self.kind, self.coef, configs_exclude)
         return configs_j
 
-    def single_relative(self, configs: torch.Tensor) -> torch.Tensor:
+    def single_relative(self, configs: torch.Tensor, configs_exclude: torch.Tensor | None = None) -> torch.Tensor:
         """
         Find a single relative configuration for each configurations.
 
@@ -144,14 +144,18 @@ class Hamiltonian:
         ----------
         configs : torch.Tensor
             A uint8 tensor of shape [batch_size, n_qubytes] representing the input configurations.
+        configs_exclude : torch.Tensor, optional
+            A uint8 tensor of shape [batch_size_exclude, n_qubytes] representing the configurations to be excluded from the result, by default None
 
         Returns
         -------
         torch.Tensor
             A uint8 tensor of shape [batch_size, n_qubytes] representing the resulting configurations.
         """
+        if configs_exclude is None:
+            configs_exclude = configs
         self._prepare_data(configs.device)
-        _single_relative: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+        _single_relative: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
         _single_relative = getattr(self._load_module(configs.size(1), self.particle_cut), "single_relative")
-        configs_result = _single_relative(configs, self.site, self.kind, self.coef)
+        configs_result = _single_relative(configs, self.site, self.kind, self.coef, configs_exclude)
         return configs_result

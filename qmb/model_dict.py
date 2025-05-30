@@ -144,7 +144,7 @@ class ModelProto(typing.Protocol[ModelConfig]):
             The relative configurations.
         """
 
-    def single_relative(self, configs: torch.Tensor) -> torch.Tensor:
+    def single_relative(self, configs: torch.Tensor, configs_exclude: torch.Tensor | None = None) -> torch.Tensor:
         """
         Find a single relative configuration for each configurations.
 
@@ -152,6 +152,8 @@ class ModelProto(typing.Protocol[ModelConfig]):
         ----------
         configs : torch.Tensor
             The configurations to find the single relative configuration for.
+        configs_exclude : torch.Tensor, optional
+            The configurations to exclude from the result.
 
         Returns
         -------

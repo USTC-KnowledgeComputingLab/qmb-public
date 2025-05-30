@@ -193,8 +193,8 @@ class Model(ModelProto[ModelConfig]):
     def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int, configs_exclude: torch.Tensor | None = None) -> torch.Tensor:
         return self.hamiltonian.find_relative(configs_i, psi_i, count_selected, configs_exclude)
 
-    def single_relative(self, configs: torch.Tensor) -> torch.Tensor:
-        return self.hamiltonian.single_relative(configs)
+    def single_relative(self, configs: torch.Tensor, configs_exclude: torch.Tensor | None = None) -> torch.Tensor:
+        return self.hamiltonian.single_relative(configs, configs_exclude)
 
     def show_config(self, config: torch.Tensor) -> str:
         string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy())
