@@ -53,16 +53,12 @@ def lanczos_energy(model: ModelProto, configs: torch.Tensor, step: int, threshol
     return energy.item(), result
 
 
-def config_contributions(model: ModelProto, base_configs: torch.Tensor, active_configs: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
+def second_order_perturbation(model: ModelProto, configs: torch.Tensor, state: torch.Tensor, active_configs: torch.Tensor, energy: float) -> torch.Tensor:
     """
-    Calculate the config contribution for the given configurations pool of the ground state approximation.
+    Predict the config contribution based on given configurations pool by second order perturbation theory.
     """
-    base_state = state[:base_configs.size(0)]
-    active_state = state[base_configs.size(0):]
-    num = (active_state.conj() * model.apply_within(base_configs, base_state, active_configs)).real * 2
-    den = (base_state.conj() @ base_state).real
-    result = num / den
-    return result
+    result = model.apply_within(configs, state, active_configs)
+    return (result.real**2 + result.imag**2) / energy
 
 
 @dataclasses.dataclass
@@ -146,32 +142,31 @@ class RldiagConfig:
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
-        last_state = None
         while True:
             logging.info("Starting a new cycle")
 
             logging.info("Evaluating each configuration")
-            score = network(configs)
+            score = network(configs).real
             logging.info("All configurations are evaluated")
 
             logging.info("Applying the action")
-            # |  old config pool  |
-            # | pruned | remained | expanded |
-            #          |   new config pool   |
-            action = score.real >= -self.alpha
-            _, topk = torch.topk(score.real, k=score.size(0) // 2, dim=0)
-            action[topk] = True
+            # |      old config pool     |
+            # | pruned | kept | remained | expanded |
+            #          |      new config pool       |
+            action = torch.where(score >= +self.alpha, +1, torch.where(score <= self.alpha, -1, 0))
+            _, topk = torch.topk(score, k=score.size(0) // 2, dim=0)
+            action[topk] = +1
             if score.size(0) > self.max_pool_size:
-                _, topk = torch.topk(-score.real, k=score.size(0) - self.max_pool_size)
-                action[topk] = False
-            action[0] = True
-            remained_configs = configs[action]
-            pruned_configs = configs[torch.logical_not(action)]
-            expanded_configs = model.single_relative(remained_configs)  # There are duplicated config here
+                _, topk = torch.topk(-score, k=score.size(0) - self.max_pool_size)
+                action[topk] = torch.where(action[topk] == +1, 0, action[topk])
+            action[0] = +1
+
+            remained_configs = configs[action == +1]
+            kept_configs = configs[action == 0]
+            pruned_configs = configs[action == -1]
+            expanded_configs = model.single_relative(remained_configs, torch.cat([remained_configs, kept_configs]))  # There are duplicated config here
             effective_expanded_configs, previous_to_effective = torch.unique(expanded_configs, dim=0, return_inverse=True)
-            old_configs = torch.cat([remained_configs, pruned_configs])
-            new_configs = torch.cat([remained_configs, effective_expanded_configs])
-            configs = new_configs
+            configs = torch.cat([kept_configs, remained_configs, effective_expanded_configs])
             logging.info("Action has been applied")
 
             configs_size = configs.size(0)
@@ -179,13 +174,7 @@ class RldiagConfig:
             writer.add_scalar("rldiag/configs/global", configs_size, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/configs/local", configs_size, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
 
-            if last_state is not None:
-                old_state = last_state[torch.cat([action.nonzero()[:, 0], torch.logical_not(action).nonzero()[:, 0]])]
-            else:
-                _, old_state = lanczos_energy(model, old_configs, self.lanczos_step, self.lanczos_threshold)
-            new_energy, new_state = lanczos_energy(model, configs, self.lanczos_step, self.lanczos_threshold)
-            last_state = new_state
-            energy = new_energy
+            energy, _ = lanczos_energy(model, configs, self.lanczos_step, self.lanczos_threshold)
             logging.info("Current energy is %.10f, Reference energy is %.10f, Energy error is %.10f", energy, model.ref_energy, energy - model.ref_energy)
             writer.add_scalar("rldiag/energy/state/global", energy, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/energy/state/local", energy, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
@@ -196,13 +185,18 @@ class RldiagConfig:
                 # This will not be flushed acrossing different cycle chains.
                 data["rldiag"]["base"] = energy
 
-            old_contribution = config_contributions(model, remained_configs, pruned_configs, old_state)
-            effective_new_contribution = config_contributions(model, remained_configs, effective_expanded_configs, new_state)
-            new_contribution = effective_new_contribution[previous_to_effective]
-            contribution = torch.cat([old_contribution, new_contribution])
+            core_configs = torch.cat([kept_configs, remained_configs])
+            core_energy, core_state = lanczos_energy(model, core_configs, self.lanczos_step, self.lanczos_threshold)
+
+            pruned_expanded_contribution = second_order_perturbation(model, core_configs, core_state, torch.cat([pruned_configs, effective_expanded_configs]), core_energy)
+
+            pruned_contribution = pruned_expanded_contribution[:pruned_configs.size(0)]
+            effective_expanded_contribution = pruned_expanded_contribution[pruned_configs.size(0):]
+            expanded_contribution = effective_expanded_contribution[previous_to_effective]
+            contribution = torch.cat([pruned_contribution, expanded_contribution])
             configs_for_training = torch.cat([pruned_configs, remained_configs])
             with torch.enable_grad():  # type: ignore[no-untyped-call]
-                score_for_training = network(configs_for_training)
+                score_for_training = network(configs_for_training).real
                 loss = torch.linalg.norm(score_for_training + contribution)  # pylint: disable=not-callable
                 optimizer.zero_grad()
                 loss.backward()
