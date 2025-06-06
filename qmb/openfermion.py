@@ -12,6 +12,7 @@ import tyro
 import openfermion
 from .mlp import WaveFunctionElectronUpDown as MlpWaveFunction
 from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
+from .crossmlp import WaveFunction as CrossMlpWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto, NetworkConfigProto
 
@@ -85,6 +86,9 @@ class Model(ModelProto[ModelConfig]):
 
     def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int, configs_exclude: torch.Tensor | None = None) -> torch.Tensor:
         return self.hamiltonian.find_relative(configs_i, psi_i, count_selected, configs_exclude)
+
+    def single_relative(self, configs: torch.Tensor) -> torch.Tensor:
+        return self.hamiltonian.single_relative(configs)
 
     def show_config(self, config: torch.Tensor) -> str:
         string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy())
@@ -201,3 +205,65 @@ class AttentionConfig:
 
 
 Model.network_dict["attention"] = AttentionConfig
+
+
+@dataclasses.dataclass
+class CrossMlpConfig:
+    """
+    The configuration of the cross MLP network.
+    """
+
+    # The hidden widths of the embedding subnetwork
+    embedding_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-w"])] = (64,)
+    # The dimension of the embedding
+    embedding_size: typing.Annotated[int, tyro.conf.arg(aliases=["-e"])] = 16
+    # The hidden widths of the momentum subnetwork
+    momentum_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-m"])] = (64,)
+    # The number of max momentum order
+    momentum_count: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1
+    # The hidden widths of the tail part
+    tail_hidden: typing.Annotated[tuple[int, ...], tyro.conf.arg(aliases=["-t"])] = (64,)
+    # The kind of the crossmlp forward function
+    kind: typing.Annotated[typing.Literal[0, 1, 2], tyro.conf.arg(aliases=["-k"])] = 0
+    # The ordering of the sites
+    ordering: typing.Annotated[int | list[int], tyro.conf.arg(aliases=["-o"])] = +1
+
+    def create(self, model: Model) -> NetworkProto:
+        """
+        Create a cross MLP network for the model.
+        """
+        logging.info(
+            "Cross MLP network configuration: "
+            "embedding hidden widths: %a, "
+            "embedding size: %d, "
+            "momentum hidden widths: %a, "
+            "momentum count: %d, "
+            "tail hidden widths: %a, "
+            "kind: %d, "
+            "ordering: %s",
+            self.embedding_hidden,
+            self.embedding_size,
+            self.momentum_hidden,
+            self.momentum_count,
+            self.tail_hidden,
+            self.kind,
+            self.ordering,
+        )
+
+        network = CrossMlpWaveFunction(
+            sites=model.n_qubits,
+            physical_dim=2,
+            is_complex=False,
+            embedding_hidden_size=self.embedding_hidden,
+            embedding_size=self.embedding_size,
+            momentum_hidden_size=self.momentum_hidden,
+            momentum_count=self.momentum_count,
+            tail_hidden_size=self.tail_hidden,
+            kind=self.kind,
+            ordering=self.ordering,
+        )
+
+        return network
+
+
+Model.network_dict["crossmlp"] = CrossMlpConfig
