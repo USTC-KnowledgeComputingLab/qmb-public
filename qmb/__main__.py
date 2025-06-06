@@ -5,7 +5,6 @@ For the details of the command line application, run `qmb --help` or `python -m 
 """
 
 import tyro
-from . import cuda_limit as _  # type: ignore[no-redef]
 from . import openfermion as _  # type: ignore[no-redef]
 from . import fcidump as _  # type: ignore[no-redef]
 from . import ising as _  # type: ignore[no-redef]
