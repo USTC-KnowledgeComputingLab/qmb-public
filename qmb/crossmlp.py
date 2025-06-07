@@ -46,7 +46,6 @@ class MLP(torch.nn.Module):
         self.dim_input: int = dim_input
         self.dim_output: int = dim_output
         self.hidden_size: tuple[int, ...] = hidden_size
-        self.depth: int = len(hidden_size)
 
         dimensions: list[int] = [dim_input] + list(hidden_size) + [dim_output]
         linears: list[torch.nn.Module] = [select_linear_layer(i, j) for i, j in itertools.pairwise(dimensions)]
