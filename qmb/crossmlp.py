@@ -2,6 +2,7 @@
 This file implements a cross MLP network.
 """
 
+import itertools
 import typing
 import torch
 from .bitspack import unpack_int
@@ -48,7 +49,7 @@ class MLP(torch.nn.Module):
         self.depth: int = len(hidden_size)
 
         dimensions: list[int] = [dim_input] + list(hidden_size) + [dim_output]
-        linears: list[torch.nn.Module] = [select_linear_layer(i, j) for i, j in zip(dimensions[:-1], dimensions[1:])]
+        linears: list[torch.nn.Module] = [select_linear_layer(i, j) for i, j in itertools.pairwise(dimensions)]
         modules: list[torch.nn.Module] = [module for linear in linears for module in (linear, torch.nn.SiLU())][:-1]
         self.model: torch.nn.Module = torch.nn.Sequential(*modules)
 
