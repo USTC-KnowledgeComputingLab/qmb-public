@@ -2,7 +2,6 @@
 This file implements the reinforcement learning based subspace diagonalization algorithm.
 """
 
-import sys
 import logging
 import typing
 import dataclasses
@@ -78,6 +77,8 @@ class RldiagConfig:
 
     # The initial configuration for the first step, which is usually the Hatree-Fock state for quantum chemistry system
     initial_config: typing.Annotated[typing.Optional[str], tyro.conf.arg(aliases=["-i"])] = None
+    # The maximum size of the configuration pool
+    max_pool_size: typing.Annotated[int, tyro.conf.arg(aliases=["-n"])] = 32768
     # The learning rate for the local optimizer
     learning_rate: typing.Annotated[float, tyro.conf.arg(aliases=["-r"])] = 1e-3
     # The step of lanczos iteration for calculating the energy
@@ -158,9 +159,12 @@ class RldiagConfig:
             # | pruned | remained | expanded |
             #          |   new config pool   |
             action = score.real >= -self.alpha
-            action[0] = True
             _, topk = torch.topk(score.real, k=score.size(0) // 2, dim=0)
             action[topk] = True
+            if score.size(0) > self.max_pool_size:
+                _, topk = torch.topk(-score.real, k=score.size(0) - self.max_pool_size)
+                action[topk] = False
+            action[0] = True
             remained_configs = configs[action]
             pruned_configs = configs[torch.logical_not(action)]
             expanded_configs = model.single_relative(remained_configs)  # There are duplicated config here
@@ -174,9 +178,6 @@ class RldiagConfig:
             logging.info("Configuration pool size: %d", configs_size)
             writer.add_scalar("rldiag/configs/global", configs_size, data["rldiag"]["global"])  # type: ignore[no-untyped-call]
             writer.add_scalar("rldiag/configs/local", configs_size, data["rldiag"]["local"])  # type: ignore[no-untyped-call]
-            if configs_size == 0:
-                logging.info("All configurations has been pruned, please start a new configuration pool state")
-                sys.exit(0)
 
             if last_state is not None:
                 old_state = last_state[torch.cat([action.nonzero()[:, 0], torch.logical_not(action).nonzero()[:, 0]])]
