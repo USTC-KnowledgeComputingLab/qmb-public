@@ -1,5 +1,5 @@
 """
-This file offers a interface for defining Ising-like models on a two-dimensional lattice.
+This file offers an interface for defining Ising-like models on a two-dimensional lattice.
 """
 
 import typing
