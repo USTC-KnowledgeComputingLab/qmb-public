@@ -77,13 +77,14 @@ class CommonConfig:
         """
         Save data to checkpoint.
         """
+        data_pth = self.folder() / "data.pth"
+        local_data_pth = self.folder() / f"data.{step}.pth"
+        torch.save(data, local_data_pth)
+        data_pth.unlink(missing_ok=True)
         if step % self.checkpoint_interval == 0:
-            (self.folder() / "data.pth").unlink(missing_ok=True)
-            torch.save(data, self.folder() / f"data.{step}.pth")
-            (self.folder() / "data.pth").symlink_to(f"data.{step}.pth")
+            data_pth.symlink_to(f"data.{step}.pth")
         else:
-            (self.folder() / "data.pth").unlink(missing_ok=True)
-            torch.save(data, self.folder() / "data.pth")
+            local_data_pth.rename(data_pth)
         if self.max_relative_step is not None:
             self.max_absolute_step = step + self.max_relative_step - 1
             self.max_relative_step = None
