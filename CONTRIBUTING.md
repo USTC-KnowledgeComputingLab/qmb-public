@@ -24,6 +24,7 @@ We use the git flow mode to merge the pull requests.
 Please provide the essential information with proper formatting in the git commit message and the pull request description.
 
 Please make sure that your code is properly formatted, linted and typed when you submit a pull request.
+In Python code conventions, use double quotes (") for string literals and single quotes (') for character literals.
 The comments in the code are expected to be enough for other developers to understand your code.
 Please add docstrings to the code in NumPy style.
 If necessary, please update documentations and add tests for your changes.
