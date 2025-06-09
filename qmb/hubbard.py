@@ -89,8 +89,6 @@ class Model(ModelProto[ModelConfig]):
 
     def __init__(self, args: ModelConfig):
         logging.info("Input arguments successfully parsed")
-        logging.info("Grid dimensions: width = %d, height = %d", args.m, args.n)
-        logging.info("t = %.10f, U = %.10f, N = %d", args.t, args.u, args.electron_number)
 
         assert args.electron_number is not None
         self.m: int = args.m
