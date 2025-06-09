@@ -64,6 +64,7 @@ qmb = ["*.cpp", "*.cu"]
 [tool.setuptools_scm]
 version_file = "qmb/_version.py"
 version_scheme = "no-guess-dev"
+fallback_version = "0.0.0"
 
 [tool.yapf]
 based_on_style = "google"
