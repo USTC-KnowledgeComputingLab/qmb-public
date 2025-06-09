@@ -43,8 +43,8 @@ class ModelConfig:
         if self.m <= 0 or self.n <= 0:
             raise ValueError("The dimensions of the Hubbard model must be positive integers.")
 
-        if self.electron_number < 0 or self.electron_number > self.m * self.n:
-            raise ValueError(f"The electron number {self.electron_number} is out of bounds for a {self.m}x{self.n} lattice.")
+        if self.electron_number < 0 or self.electron_number > 2 * self.m * self.n:
+            raise ValueError(f"The electron number {self.electron_number} is out of bounds for a {self.m}x{self.n} lattice. Each site can host up to two electrons (spin up and spin down).")
 
 
 class Model(ModelProto[ModelConfig]):
