@@ -16,11 +16,40 @@ class NetworkProto(typing.Protocol):
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         """
         Calculate the amplitude for the given configurations.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            The configurations to calculate the amplitude for.
+            The configurations are a two-dimensional uint8 tensor with first dimension equal to some batch size.
+            The second dimension contains occupation for each qubit which is bitwise encoded.
+
+        Returns
+        -------
+        torch.Tensor
+            The amplitudes of the configurations.
+            The amplitudes are a one-dimensional complex tensor with the only dimension equal to the batch size.
         """
 
     def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate a batch of unique configurations.
+
+        Parameters
+        ----------
+        batch_size : int
+            The number of configurations to generate.
+        block_num : int, default=1
+            The number of batch block to generate. It is used to split the batch into smaller parts to avoid memory issues.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor, None, None]
+            A tuple containing the generated configurations, their amplitudes, and two None values.
+            The configurations are a two-dimensional uint8 tensor with first dimension equal to `batch_size`.
+            The second dimension contains occupation for each qubit which is bitwise encoded.
+            The amplitudes are a one-dimensional complex tensor with the only dimension equal to `batch_size`.
+            The last two None values are reserved for future use.
         """
 
     def load_state_dict(self, data: dict[str, torch.Tensor]) -> typing.Any:
