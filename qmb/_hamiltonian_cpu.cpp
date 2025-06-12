@@ -1,12 +1,9 @@
-#include <ATen/cuda/Exceptions.h>  // ?
-#include <c10/cuda/CUDAStream.h>  // ?
-#include <cuda_runtime.h>  // ?
 #include <thrust/sort.h>
 #include <torch/extension.h>
 
-namespace qmb_hamiltonian_cuda {  // ?
+namespace qmb_hamiltonian_cpu {
 
-constexpr torch::DeviceType device = torch::kCUDA;  // ?
+constexpr torch::DeviceType device = torch::kCPU;
 
 template<typename T, std::int64_t size>
 struct array_less {
@@ -128,8 +125,8 @@ void apply_within_kernel(
         return;
     }
     std::int8_t sign = parity ? -1 : +1;
-    atomicAdd(&result_psi[mid][0], sign * (coef[term_index][0] * psi[batch_index][0] - coef[term_index][1] * psi[batch_index][1]));
-    atomicAdd(&result_psi[mid][1], sign * (coef[term_index][0] * psi[batch_index][1] + coef[term_index][1] * psi[batch_index][0]));
+    result_psi[mid][0] += sign * (coef[term_index][0] * psi[batch_index][0] - coef[term_index][1] * psi[batch_index][1]);
+    result_psi[mid][1] += sign * (coef[term_index][0] * psi[batch_index][1] + coef[term_index][1] * psi[batch_index][0]);
 }
 
 template<std::int64_t max_op_number, std::int64_t n_qubytes, std::int64_t particle_cut>
@@ -145,11 +142,8 @@ void apply_within_kernel_interface(
     const std::array<std::uint8_t, n_qubytes>* result_configs, // result_batch_size
     std::array<double, 2>* result_psi
 ) {
-    std::int64_t term_index;
-    std::int64_t batch_index;
-
-    for(term_index = 0; term_index < term_number; term_index++){
-        for(batch_index = 0; batch_index < batch_size; batch_index++){
+    for(std::int64_t term_index = 0; term_index < term_number; term_index++){
+        for(std::int64_t batch_index = 0; batch_index < batch_size; batch_index++){
             apply_within_kernel<max_op_number, n_qubytes, particle_cut>(
                 /*term_index=*/term_index,
                 /*batch_index=*/batch_index,
@@ -182,7 +176,7 @@ auto apply_within_interface(
     std::int64_t result_batch_size = result_configs.size(0);
     std::int64_t term_number = site.size(0);
 
-    TORCH_CHECK(configs.device().type() == torch::kCUDA, "configs must be on CUDA.")  // ?
+    TORCH_CHECK(configs.device().type() == torch::kCPU, "configs must be on CPU.")
     TORCH_CHECK(configs.device().index() == device_id, "configs must be on the same device as others.");
     TORCH_CHECK(configs.is_contiguous(), "configs must be contiguous.")
     TORCH_CHECK(configs.dtype() == torch::kUInt8, "configs must be uint8.")
@@ -190,7 +184,7 @@ auto apply_within_interface(
     TORCH_CHECK(configs.size(0) == batch_size, "configs batch size must match the provided batch_size.");
     TORCH_CHECK(configs.size(1) == n_qubytes, "configs must have the same number of qubits as the provided n_qubytes.");
 
-    TORCH_CHECK(psi.device().type() == torch::kCUDA, "psi must be on CUDA.")
+    TORCH_CHECK(psi.device().type() == torch::kCPU, "psi must be on CPU.")
     TORCH_CHECK(psi.device().index() == device_id, "psi must be on the same device as others.");
     TORCH_CHECK(psi.is_contiguous(), "psi must be contiguous.")
     TORCH_CHECK(psi.dtype() == torch::kFloat64, "psi must be float64.")
@@ -198,7 +192,7 @@ auto apply_within_interface(
     TORCH_CHECK(psi.size(0) == batch_size, "psi batch size must match the provided batch_size.");
     TORCH_CHECK(psi.size(1) == 2, "psi must contain 2 elements for each batch.");
 
-    TORCH_CHECK(result_configs.device().type() == torch::kCUDA, "result_configs must be on CUDA.")
+    TORCH_CHECK(result_configs.device().type() == torch::kCPU, "result_configs must be on CPU.")
     TORCH_CHECK(result_configs.device().index() == device_id, "result_configs must be on the same device as others.");
     TORCH_CHECK(result_configs.is_contiguous(), "result_configs must be contiguous.")
     TORCH_CHECK(result_configs.dtype() == torch::kUInt8, "result_configs must be uint8.")
@@ -206,7 +200,7 @@ auto apply_within_interface(
     TORCH_CHECK(result_configs.size(0) == result_batch_size, "result_configs batch size must match the provided result_batch_size.")
     TORCH_CHECK(result_configs.size(1) == n_qubytes, "result_configs must have the same number of qubits as the provided n_qubytes.");
 
-    TORCH_CHECK(site.device().type() == torch::kCUDA, "site must be on CUDA.")
+    TORCH_CHECK(site.device().type() == torch::kCPU, "site must be on CPU.")
     TORCH_CHECK(site.device().index() == device_id, "site must be on the same device as others.");
     TORCH_CHECK(site.is_contiguous(), "site must be contiguous.")
     TORCH_CHECK(site.dtype() == torch::kInt16, "site must be int16.")
@@ -214,7 +208,7 @@ auto apply_within_interface(
     TORCH_CHECK(site.size(0) == term_number, "site size must match the provided term_number.");
     TORCH_CHECK(site.size(1) == max_op_number, "site must match the provided max_op_number.");
 
-    TORCH_CHECK(kind.device().type() == torch::kCUDA, "kind must be on CUDA.")
+    TORCH_CHECK(kind.device().type() == torch::kCPU, "kind must be on CPU.")
     TORCH_CHECK(kind.device().index() == device_id, "kind must be on the same device as others.");
     TORCH_CHECK(kind.is_contiguous(), "kind must be contiguous.")
     TORCH_CHECK(kind.dtype() == torch::kUInt8, "kind must be uint8.")
@@ -222,7 +216,7 @@ auto apply_within_interface(
     TORCH_CHECK(kind.size(0) == term_number, "kind size must match the provided term_number.");
     TORCH_CHECK(kind.size(1) == max_op_number, "kind must match the provided max_op_number.");
 
-    TORCH_CHECK(coef.device().type() == torch::kCUDA, "coef must be on CUDA.")
+    TORCH_CHECK(coef.device().type() == torch::kCPU, "coef must be on CPU.")
     TORCH_CHECK(coef.device().index() == device_id, "coef must be on the same device as others.");
     TORCH_CHECK(coef.is_contiguous(), "coef must be contiguous.")
     TORCH_CHECK(coef.dtype() == torch::kFloat64, "coef must be float64.")
@@ -230,28 +224,16 @@ auto apply_within_interface(
     TORCH_CHECK(coef.size(0) == term_number, "coef size must match the provided term_number.");
     TORCH_CHECK(coef.size(1) == 2, "coef must contain 2 elements for each term.");
 
-    //auto stream = at::cuda::getCurrentCUDAStream(device_id);
-    //auto policy = thrust::device.on(stream);
-
-    //cudaDeviceProp prop;
-    //AT_CUDA_CHECK(cudaGetDeviceProperties(&prop, device_id));
-    //std::int64_t max_threads_per_block = prop.maxThreadsPerBlock;
-
     auto sorted_result_configs = result_configs.clone(torch::MemoryFormat::Contiguous);
-    auto result_sort_index = torch::arange(result_batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device, device_id));// ?
+    auto result_sort_index = torch::arange(result_batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device, device_id));
     auto sorted_result_psi = torch::zeros({result_batch_size, 2}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
 
     thrust::sort_by_key(
-        //policy,
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()) + result_batch_size,
         reinterpret_cast<std::int64_t*>(result_sort_index.data_ptr()),
         array_less<std::uint8_t, n_qubytes>()
     );
-
-    //auto threads_per_block = dim3{1, max_threads_per_block >> 1}; // I don't know why, but need to divide by 2 to avoid errors
-    //auto num_blocks =
-    //    dim3{(term_number + threads_per_block.x - 1) / threads_per_block.x, (batch_size + threads_per_block.y - 1) / threads_per_block.y};
 
     apply_within_kernel_interface<max_op_number, n_qubytes, particle_cut>(
         /*term_number=*/term_number,
@@ -265,63 +247,21 @@ auto apply_within_interface(
         /*result_configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()),
         /*result_psi=*/reinterpret_cast<std::array<double, 2>*>(sorted_result_psi.data_ptr())
     );
-    //AT_CUDA_CHECK(cudaStreamSynchronize(stream));
 
     auto result_psi = torch::zeros_like(sorted_result_psi);
     result_psi.index_put_({result_sort_index}, sorted_result_psi);
     return result_psi;
 }
 
-void _mutex_lock(int* mutex) {
-    // I don't know why we need to wait for these periods of time, but the examples in the CUDA documentation are written this way.
-    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/#nanosleep-example
-    unsigned int ns = 8;
-    while (atomicCAS(mutex, 0, 1) == 1) {
-        __nanosleep(ns);
-        if (ns < 256) {
-            ns *= 2;
-        }
-    }
-}
-
-void mutex_lock(int* mutex) {
-    _mutex_lock(mutex);
-    __threadfence();
-}
-
-void mutex_lock(int* mutex1, int* mutex2) {
-    _mutex_lock(mutex1);
-    _mutex_lock(mutex2);
-    __threadfence();
-}
-
-void _mutex_unlock(int* mutex) {
-    atomicExch(mutex, 0);
-}
-
-void mutex_unlock(int* mutex) {
-    __threadfence();
-    _mutex_unlock(mutex);
-}
-
-void mutex_unlock(int* mutex1, int* mutex2) {
-    __threadfence();
-    _mutex_unlock(mutex1);
-    _mutex_unlock(mutex2);
-}
-
 template<typename T, typename Compare = thrust::less<T>>
-void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const T& value) {
+void add_into_heap(T* heap, std::int64_t heap_size, const T& value) {
     auto compare = Compare();
     std::int64_t index = 0;
     if (compare(value, heap[index])) {
     } else {
-        mutex_lock(&mutex[index]);
         if (compare(value, heap[index])) {
-            mutex_unlock(&mutex[index]);
         } else {
             while (true) {
-                // Current lock status: only mutex[index] is locked
                 // Calculate the indices of the left and right children
                 std::int64_t left = (index << 1) + 1;
                 std::int64_t right = (index << 1) + 2;
@@ -336,46 +276,35 @@ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const T& value) 
                                 break;
                             } else {
                                 // The left child is greater than the value, treat it as if only the right child is present
-                                mutex_lock(&mutex[right]);
                                 if (compare(value, heap[right])) {
-                                    mutex_unlock(&mutex[right]);
                                     break;
                                 } else {
                                     heap[index] = heap[right];
-                                    mutex_unlock(&mutex[index]);
                                     index = right;
                                 }
                             }
                         } else {
                             if (compare(value, heap[right])) {
                                 // The right child is greater than the value, treat it as if only the left child is present
-                                mutex_lock(&mutex[left]);
                                 if (compare(value, heap[left])) {
-                                    mutex_unlock(&mutex[left]);
                                     break;
                                 } else {
                                     heap[index] = heap[left];
-                                    mutex_unlock(&mutex[index]);
                                     index = left;
                                 }
                             } else {
-                                mutex_lock(&mutex[left], &mutex[right]);
                                 if (compare(heap[left], heap[right])) {
                                     if (compare(value, heap[left])) {
-                                        mutex_unlock(&mutex[left], &mutex[right]);
                                         break;
                                     } else {
-                                        heap[index] = heap[left];
-                                        mutex_unlock(&mutex[index], &mutex[right]);
+                                        heap[index] = heap[left];                                        
                                         index = left;
                                     }
                                 } else {
-                                    if (compare(value, heap[right])) {
-                                        mutex_unlock(&mutex[left], &mutex[right]);
+                                    if (compare(value, heap[right])) {                                        
                                         break;
                                     } else {
-                                        heap[index] = heap[right];
-                                        mutex_unlock(&mutex[index], &mutex[left]);
+                                        heap[index] = heap[right];                                        
                                         index = right;
                                     }
                                 }
@@ -385,14 +314,11 @@ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const T& value) 
                         // Only the left child is present
                         if (compare(value, heap[left])) {
                             break;
-                        } else {
-                            mutex_lock(&mutex[left]);
-                            if (compare(value, heap[left])) {
-                                mutex_unlock(&mutex[left]);
+                        } else {                            
+                            if (compare(value, heap[left])) {                                
                                 break;
                             } else {
-                                heap[index] = heap[left];
-                                mutex_unlock(&mutex[index]);
+                                heap[index] = heap[left];                                
                                 index = left;
                             }
                         }
@@ -402,14 +328,11 @@ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const T& value) 
                         // Only the right child is present
                         if (compare(value, heap[right])) {
                             break;
-                        } else {
-                            mutex_lock(&mutex[right]);
-                            if (compare(value, heap[right])) {
-                                mutex_unlock(&mutex[right]);
+                        } else {                            
+                            if (compare(value, heap[right])) {                               
                                 break;
                             } else {
-                                heap[index] = heap[right];
-                                mutex_unlock(&mutex[index]);
+                                heap[index] = heap[right];                                
                                 index = right;
                             }
                         }
@@ -419,8 +342,7 @@ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const T& value) 
                     }
                 }
             }
-            heap[index] = value;
-            mutex_unlock(&mutex[index]);
+            heap[index] = value;            
         }
     }
 }
@@ -455,7 +377,6 @@ void find_relative_kernel(
     const std::array<double, 2>* psi, // batch_size
     const std::array<std::uint8_t, n_qubytes>* exclude_configs, // exclude_size
     std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>* heap,
-    int* mutex,
     std::int64_t heap_size
 ) {
     std::array<std::uint8_t, n_qubytes> current_configs = configs[batch_index];
@@ -503,7 +424,6 @@ void find_relative_kernel(
     }
     add_into_heap<std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>, array_first_double_less<std::uint8_t, n_qubytes>>(
         heap,
-        mutex,
         heap_size,
         value
     );
@@ -521,7 +441,6 @@ void find_relative_kernel_interface(
     const std::array<double, 2>* psi, // batch_size
     const std::array<std::uint8_t, n_qubytes>* exclude_configs, // exclude_size
     std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>* heap,
-    int* mutex,
     std::int64_t heap_size
 ) {
     std::int64_t term_index;
@@ -542,7 +461,6 @@ void find_relative_kernel_interface(
                 /*psi=*/psi,
                 /*exclude_configs=*/exclude_configs,
                 /*heap=*/heap,
-                /*mutex=*/mutex,
                 /*heap_size=*/heap_size
             );
         }
@@ -564,7 +482,7 @@ auto find_relative_interface(
     std::int64_t term_number = site.size(0);
     std::int64_t exclude_size = exclude_configs.size(0);
 
-    TORCH_CHECK(configs.device().type() == torch::kCUDA, "configs must be on CUDA.")
+    TORCH_CHECK(configs.device().type() == torch::kCPU, "configs must be on CPU.")
     TORCH_CHECK(configs.device().index() == device_id, "configs must be on the same device as others.");
     TORCH_CHECK(configs.is_contiguous(), "configs must be contiguous.")
     TORCH_CHECK(configs.dtype() == torch::kUInt8, "configs must be uint8.")
@@ -572,7 +490,7 @@ auto find_relative_interface(
     TORCH_CHECK(configs.size(0) == batch_size, "configs batch size must match the provided batch_size.");
     TORCH_CHECK(configs.size(1) == n_qubytes, "configs must have the same number of qubits as the provided n_qubytes.");
 
-    TORCH_CHECK(psi.device().type() == torch::kCUDA, "psi must be on CUDA.")
+    TORCH_CHECK(psi.device().type() == torch::kCPU, "psi must be on CPU.")
     TORCH_CHECK(psi.device().index() == device_id, "psi must be on the same device as others.");
     TORCH_CHECK(psi.is_contiguous(), "psi must be contiguous.")
     TORCH_CHECK(psi.dtype() == torch::kFloat64, "psi must be float64.")
@@ -580,7 +498,7 @@ auto find_relative_interface(
     TORCH_CHECK(psi.size(0) == batch_size, "psi batch size must match the provided batch_size.");
     TORCH_CHECK(psi.size(1) == 2, "psi must contain 2 elements for each batch.");
 
-    TORCH_CHECK(site.device().type() == torch::kCUDA, "site must be on CUDA.")
+    TORCH_CHECK(site.device().type() == torch::kCPU, "site must be on CPU.")
     TORCH_CHECK(site.device().index() == device_id, "site must be on the same device as others.");
     TORCH_CHECK(site.is_contiguous(), "site must be contiguous.")
     TORCH_CHECK(site.dtype() == torch::kInt16, "site must be int16.")
@@ -588,7 +506,7 @@ auto find_relative_interface(
     TORCH_CHECK(site.size(0) == term_number, "site size must match the provided term_number.");
     TORCH_CHECK(site.size(1) == max_op_number, "site must match the provided max_op_number.");
 
-    TORCH_CHECK(kind.device().type() == torch::kCUDA, "kind must be on CUDA.")
+    TORCH_CHECK(kind.device().type() == torch::kCPU, "kind must be on CPU.")
     TORCH_CHECK(kind.device().index() == device_id, "kind must be on the same device as others.");
     TORCH_CHECK(kind.is_contiguous(), "kind must be contiguous.")
     TORCH_CHECK(kind.dtype() == torch::kUInt8, "kind must be uint8.")
@@ -596,7 +514,7 @@ auto find_relative_interface(
     TORCH_CHECK(kind.size(0) == term_number, "kind size must match the provided term_number.");
     TORCH_CHECK(kind.size(1) == max_op_number, "kind must match the provided max_op_number.");
 
-    TORCH_CHECK(coef.device().type() == torch::kCUDA, "coef must be on CUDA.")
+    TORCH_CHECK(coef.device().type() == torch::kCPU, "coef must be on CPU.")
     TORCH_CHECK(coef.device().index() == device_id, "coef must be on the same device as others.");
     TORCH_CHECK(coef.is_contiguous(), "coef must be contiguous.")
     TORCH_CHECK(coef.dtype() == torch::kFloat64, "coef must be float64.")
@@ -604,7 +522,7 @@ auto find_relative_interface(
     TORCH_CHECK(coef.size(0) == term_number, "coef size must match the provided term_number.");
     TORCH_CHECK(coef.size(1) == 2, "coef must contain 2 elements for each term.");
 
-    TORCH_CHECK(exclude_configs.device().type() == torch::kCUDA, "configs must be on CUDA.")
+    TORCH_CHECK(exclude_configs.device().type() == torch::kCPU, "configs must be on CPU.")
     TORCH_CHECK(exclude_configs.device().index() == device_id, "configs must be on the same device as others.");
     TORCH_CHECK(exclude_configs.is_contiguous(), "configs must be contiguous.")
     TORCH_CHECK(exclude_configs.dtype() == torch::kUInt8, "configs must be uint8.")
@@ -612,17 +530,9 @@ auto find_relative_interface(
     TORCH_CHECK(exclude_configs.size(0) == exclude_size, "configs batch size must match the provided exclude_size.");
     TORCH_CHECK(exclude_configs.size(1) == n_qubytes, "configs must have the same number of qubits as the provided n_qubytes.");
 
-    //auto stream = at::cuda::getCurrentCUDAStream(device_id);
-    //auto policy = thrust::device.on(stream);
-
-    //cudaDeviceProp prop;
-    //AT_CUDA_CHECK(cudaGetDeviceProperties(&prop, device_id));
-    //std::int64_t max_threads_per_block = prop.maxThreadsPerBlock;
-
     auto sorted_exclude_configs = exclude_configs.clone(torch::MemoryFormat::Contiguous);
 
     thrust::sort(
-        //policy,
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()) + exclude_size,
         array_less<std::uint8_t, n_qubytes>()
@@ -630,17 +540,10 @@ auto find_relative_interface(
 
     auto result_pool = torch::zeros(
         {count_selected, n_qubytes + sizeof(double) / sizeof(std::uint8_t)},
-        torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id) // ?
+        torch::TensorOptions().dtype(torch::kUInt8).device(device, device_id)
     );
     std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>* heap =
         reinterpret_cast<std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>*>(result_pool.data_ptr());
-    int* mutex;  // ?
-    AT_CUDA_CHECK(cudaMalloc(&mutex, sizeof(int) * count_selected));
-    AT_CUDA_CHECK(cudaMemset(mutex, 0, sizeof(int) * count_selected));
-
-    //auto threads_per_block = dim3{1, max_threads_per_block >> 1}; // I don't know why, but need to divide by 2 to avoid errors
-    //auto num_blocks =
-    //    dim3{(term_number + threads_per_block.x - 1) / threads_per_block.x, (batch_size + threads_per_block.y - 1) / threads_per_block.y};
 
     find_relative_kernel_interface<max_op_number, n_qubytes, particle_cut>(
         /*term_number=*/term_number,
@@ -653,12 +556,9 @@ auto find_relative_interface(
         /*psi=*/reinterpret_cast<const std::array<double, 2>*>(psi.data_ptr()),
         /*exclude_configs=*/reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()),
         /*heap=*/heap,
-        /*mutex=*/mutex,
         /*heap_size=*/count_selected
     );
-    //AT_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    AT_CUDA_CHECK(cudaFree(mutex));
 
     // Here, the bytes before sizeof(double) / sizeof(std::uint8_t) in result_pool are weights, and the bytes after are configs
     // We need to remove items with weight 0, then sort and deduplicate the configs
@@ -684,7 +584,7 @@ auto find_relative_interface(
 #if N_QUBYTES != 0
 #define QMB_LIBRARY_HELPER(x, y) qmb_hamiltonian_##x##_##y
 #define QMB_LIBRARY(x, y) QMB_LIBRARY_HELPER(x, y)
-TORCH_LIBRARY_IMPL(QMB_LIBRARY(N_QUBYTES, PARTICLE_CUT), CUDA, m) {// ?
+TORCH_LIBRARY_IMPL(QMB_LIBRARY(N_QUBYTES, PARTICLE_CUT), CPU, m) {
     m.impl("apply_within", apply_within_interface</*max_op_number=*/4, /*n_qubytes=*/N_QUBYTES, /*particle_cut=*/PARTICLE_CUT>);
     m.impl("find_relative", find_relative_interface</*max_op_number=*/4, /*n_qubytes=*/N_QUBYTES, /*particle_cut=*/PARTICLE_CUT>);
 }
@@ -692,4 +592,4 @@ TORCH_LIBRARY_IMPL(QMB_LIBRARY(N_QUBYTES, PARTICLE_CUT), CUDA, m) {// ?
 #undef QMB_LIBRARY_HELPER
 #endif
 
-} // namespace qmb_hamiltonian_cuda  // ?
+} // namespace qmb_hamiltonian_cpu
