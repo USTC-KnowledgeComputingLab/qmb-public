@@ -1,5 +1,5 @@
 """
-This file offers a interface for defining Ising-like models on a two-dimensional lattice.
+This file offers an interface for defining Ising-like models on a two-dimensional lattice.
 """
 
 import typing
@@ -195,12 +195,6 @@ class Model(ModelProto[ModelConfig]):
 
     def __init__(self, args: ModelConfig) -> None:
         logging.info("Input arguments successfully parsed")
-        logging.info("Grid dimensions: width = %d, height = %d", args.m, args.n)
-        logging.info("Element-wise coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.x, args.y, args.z)
-        logging.info("Horizontal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xh, args.yh, args.zh)
-        logging.info("Vertical bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xv, args.yv, args.zv)
-        logging.info("Diagonal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xd, args.yd, args.zd)
-        logging.info("Anti-diagonal bond coefficients: X = %.10f, Y = %.10f, Z = %.10f", args.xa, args.ya, args.za)
 
         self.m: int = args.m
         self.n: int = args.n
