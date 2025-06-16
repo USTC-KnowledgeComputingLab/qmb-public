@@ -142,8 +142,8 @@ void apply_within_kernel_interface(
     const std::array<std::uint8_t, n_qubytes>* result_configs, // result_batch_size
     std::array<double, 2>* result_psi
 ) {
-    for (std::int64_t term_index = 0; term_index < term_number; term_index++) {
-        for (std::int64_t batch_index = 0; batch_index < batch_size; batch_index++) {
+    for (std::int64_t term_index = 0; term_index < term_number; ++term_index) {
+        for (std::int64_t batch_index = 0; batch_index < batch_size; ++batch_index) {
             apply_within_kernel<max_op_number, n_qubytes, particle_cut>(
                 /*term_index=*/term_index,
                 /*batch_index=*/batch_index,
@@ -443,11 +443,8 @@ void find_relative_kernel_interface(
     std::array<std::uint8_t, n_qubytes + sizeof(double) / sizeof(std::uint8_t)>* heap,
     std::int64_t heap_size
 ) {
-    std::int64_t term_index;
-    std::int64_t batch_index;
-
-    for (term_index = 0; term_index < term_number; term_index++) {
-        for (batch_index = 0; term_index < term_number; batch_index++) {
+    for (std::int64_t term_index = 0; term_index < term_number; ++term_index) {
+        for (std::int64_t batch_index = 0; batch_index < batch_size; ++batch_index) {
             find_relative_kernel<max_op_number, n_qubytes, particle_cut>(
                 /*term_index=*/term_index,
                 /*batch_index=*/batch_index,
