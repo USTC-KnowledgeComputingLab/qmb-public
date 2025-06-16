@@ -107,7 +107,8 @@ class CommonConfig:
         if "-h" in self.network_args or "--help" in self.network_args:
             tyro.cli(network_config_t, args=self.network_args)
         if self.group_name is None:
-            self.group_name = model_t.preparse(self.physics_args)
+            model_param_for_group_name = tyro.cli(model_config_t, args=self.physics_args)
+            self.group_name = model_t.default_group_name(model_param_for_group_name)
 
         self.folder().mkdir(parents=True, exist_ok=True)
 
