@@ -229,6 +229,7 @@ auto apply_within_interface(
     auto sorted_result_psi = torch::zeros({result_batch_size, 2}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
 
     thrust::sort_by_key(
+        thrust::host_execution_policy,
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()) + result_batch_size,
         reinterpret_cast<std::int64_t*>(result_sort_index.data_ptr()),
@@ -532,6 +533,7 @@ auto find_relative_interface(
     auto sorted_exclude_configs = exclude_configs.clone(torch::MemoryFormat::Contiguous);
 
     thrust::sort(
+        thrust::host_execution_policy,
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()) + exclude_size,
         array_less<std::uint8_t, n_qubytes>()
