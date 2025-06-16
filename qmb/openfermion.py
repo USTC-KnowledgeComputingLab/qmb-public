@@ -50,9 +50,8 @@ class Model(ModelProto[ModelConfig]):
     config_t = ModelConfig
 
     @classmethod
-    def preparse(cls, input_args: tuple[str, ...]) -> str:
-        args: ModelConfig = tyro.cli(ModelConfig, args=input_args)
-        return args.model_name
+    def default_group_name(cls, config: ModelConfig) -> str:
+        return config.model_name
 
     def __init__(self, args: ModelConfig) -> None:
         logging.info("Input arguments successfully parsed")

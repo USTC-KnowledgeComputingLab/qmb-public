@@ -79,14 +79,14 @@ class ModelProto(typing.Protocol[ModelConfig]):
     config_t: type[ModelConfig]
 
     @classmethod
-    def preparse(cls, input_args: tuple[str, ...]) -> str:
+    def default_group_name(cls, config: ModelConfig) -> str:
         """
-        Preparse the arguments to obtain the group name for logging perposes
+        Get the default group name for logging purposes.
 
         Parameters
         ----------
-        input_args : tuple[str, ...]
-            The input arguments to the model.
+        config : ModelConfig
+            The config of model.
 
         Returns
         -------
