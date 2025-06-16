@@ -31,7 +31,7 @@ class Hamiltonian:
                     f"{folder}/_hamiltonian_cuda.cu",
                 ],
                 is_python_module=n_qubytes == 0,
-                extra_cflags=["-g", "-O0", "-ffast-math", "-march=native", f"-DN_QUBYTES={n_qubytes}", f"-DPARTICLE_CUT={particle_cut}"],
+                extra_cflags=["-O3", "-ffast-math", "-march=native", f"-DN_QUBYTES={n_qubytes}", f"-DPARTICLE_CUT={particle_cut}"],
                 extra_cuda_cflags=["-O3", "--use_fast_math", f"-DN_QUBYTES={n_qubytes}", f"-DPARTICLE_CUT={particle_cut}"],
                 build_directory=build_directory,
             )
