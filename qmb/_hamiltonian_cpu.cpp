@@ -39,7 +39,7 @@ bool get_bit(std::uint8_t* data, std::uint8_t index) {
     return ((*data) >> index) & 1;
 }
 
-bool set_bit(std::uint8_t* data, std::uint8_t index, bool value) {
+void set_bit(std::uint8_t* data, std::uint8_t index, bool value) {
     if (value) {
         *data |= (1 << index);
     } else {
