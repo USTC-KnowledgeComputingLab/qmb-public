@@ -57,9 +57,8 @@ class Model(ModelProto[ModelConfig]):
     config_t = ModelConfig
 
     @classmethod
-    def preparse(cls, input_args: tuple[str, ...]) -> str:
-        args = tyro.cli(ModelConfig, args=input_args)
-        return f"Hubbard_{args.m}x{args.n}_t{args.t}_u{args.u}"
+    def default_group_name(cls, config: ModelConfig) -> str:
+        return f"Hubbard_{config.m}x{config.n}_t{config.t}_u{config.u}"
 
     @classmethod
     def _prepare_hamiltonian(cls, args: ModelConfig) -> dict[tuple[tuple[int, int], ...], complex]:
