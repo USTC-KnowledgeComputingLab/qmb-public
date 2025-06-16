@@ -27,6 +27,7 @@ class Hamiltonian:
                 name=name,
                 sources=[
                     f"{folder}/_hamiltonian.cpp",
+                    f"{folder}/_hamiltonian_cpu.cpp",
                     f"{folder}/_hamiltonian_cuda.cu",
                 ],
                 is_python_module=n_qubytes == 0,
