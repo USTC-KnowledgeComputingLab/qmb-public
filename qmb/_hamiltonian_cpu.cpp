@@ -142,8 +142,8 @@ void apply_within_kernel_interface(
     const std::array<std::uint8_t, n_qubytes>* result_configs, // result_batch_size
     std::array<double, 2>* result_psi
 ) {
-    for(std::int64_t term_index = 0; term_index < term_number; term_index++){
-        for(std::int64_t batch_index = 0; batch_index < batch_size; batch_index++){
+    for (std::int64_t term_index = 0; term_index < term_number; term_index++) {
+        for (std::int64_t batch_index = 0; batch_index < batch_size; batch_index++) {
             apply_within_kernel<max_op_number, n_qubytes, particle_cut>(
                 /*term_index=*/term_index,
                 /*batch_index=*/batch_index,
@@ -297,14 +297,14 @@ void add_into_heap(T* heap, std::int64_t heap_size, const T& value) {
                                     if (compare(value, heap[left])) {
                                         break;
                                     } else {
-                                        heap[index] = heap[left];                                        
+                                        heap[index] = heap[left];
                                         index = left;
                                     }
                                 } else {
-                                    if (compare(value, heap[right])) {                                        
+                                    if (compare(value, heap[right])) {
                                         break;
                                     } else {
-                                        heap[index] = heap[right];                                        
+                                        heap[index] = heap[right];
                                         index = right;
                                     }
                                 }
@@ -314,11 +314,11 @@ void add_into_heap(T* heap, std::int64_t heap_size, const T& value) {
                         // Only the left child is present
                         if (compare(value, heap[left])) {
                             break;
-                        } else {                            
-                            if (compare(value, heap[left])) {                                
+                        } else {
+                            if (compare(value, heap[left])) {
                                 break;
                             } else {
-                                heap[index] = heap[left];                                
+                                heap[index] = heap[left];
                                 index = left;
                             }
                         }
@@ -328,11 +328,11 @@ void add_into_heap(T* heap, std::int64_t heap_size, const T& value) {
                         // Only the right child is present
                         if (compare(value, heap[right])) {
                             break;
-                        } else {                            
-                            if (compare(value, heap[right])) {                               
+                        } else {
+                            if (compare(value, heap[right])) {
                                 break;
                             } else {
-                                heap[index] = heap[right];                                
+                                heap[index] = heap[right];
                                 index = right;
                             }
                         }
@@ -342,7 +342,7 @@ void add_into_heap(T* heap, std::int64_t heap_size, const T& value) {
                     }
                 }
             }
-            heap[index] = value;            
+            heap[index] = value;
         }
     }
 }
@@ -357,8 +357,7 @@ struct array_first_double_less {
         return result;
     }
 
-    bool
-    operator()(const std::array<T, size + sizeof(double) / sizeof(T)>& lhs, const std::array<T, size + sizeof(double) / sizeof(T)>& rhs) const {
+    bool operator()(const std::array<T, size + sizeof(double) / sizeof(T)>& lhs, const std::array<T, size + sizeof(double) / sizeof(T)>& rhs) const {
         return first_double(lhs) < first_double(rhs);
     }
 };
@@ -446,8 +445,8 @@ void find_relative_kernel_interface(
     std::int64_t term_index;
     std::int64_t batch_index;
 
-    for(term_index = 0; term_index < term_number; term_index++){
-        for(batch_index = 0; term_index < term_number; batch_index++){
+    for (term_index = 0; term_index < term_number; term_index++) {
+        for (batch_index = 0; term_index < term_number; batch_index++) {
             find_relative_kernel<max_op_number, n_qubytes, particle_cut>(
                 /*term_index=*/term_index,
                 /*batch_index=*/batch_index,
@@ -558,7 +557,6 @@ auto find_relative_interface(
         /*heap=*/heap,
         /*heap_size=*/count_selected
     );
-
 
     // Here, the bytes before sizeof(double) / sizeof(std::uint8_t) in result_pool are weights, and the bytes after are configs
     // We need to remove items with weight 0, then sort and deduplicate the configs
