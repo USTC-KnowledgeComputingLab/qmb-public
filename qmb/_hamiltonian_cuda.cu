@@ -42,7 +42,7 @@ __device__ bool get_bit(std::uint8_t* data, std::uint8_t index) {
     return ((*data) >> index) & 1;
 }
 
-__device__ bool set_bit(std::uint8_t* data, std::uint8_t index, bool value) {
+__device__ void set_bit(std::uint8_t* data, std::uint8_t index, bool value) {
     if (value) {
         *data |= (1 << index);
     } else {
