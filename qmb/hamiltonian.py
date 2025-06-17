@@ -17,7 +17,26 @@ class Hamiltonian:
     _hamiltonian_module: dict[tuple[str, int, int], object] = {}
 
     @classmethod
+    def _set_torch_cuda_arch_list(cls) -> None:
+        """
+        Set the CUDA architecture list for PyTorch to use when compiling the PyTorch extensions.
+        """
+        if not torch.cuda.is_available():
+            return
+        if "TORCH_CUDA_ARCH_LIST" in os.environ:
+            return
+        supported_sm = [int(arch[3:]) for arch in torch.cuda.get_arch_list() if arch.startswith("sm_")]
+        max_supported_sm = max((sm // 10, sm % 10) for sm in supported_sm)
+        arch_list = set()
+        for i in range(torch.cuda.device_count()):
+            capability = min(max_supported_sm, torch.cuda.get_device_capability(i))
+            arch = f'{capability[0]}.{capability[1]}'
+            arch_list.add(arch)
+        os.environ["TORCH_CUDA_ARCH_LIST"] = ";".join(sorted(arch_list))
+
+    @classmethod
     def _load_module(cls, device_type: str = "declaration", n_qubytes: int = 0, particle_cut: int = 0) -> object:
+        cls._set_torch_cuda_arch_list()
         if device_type != "declaration":
             cls._load_module("declaration", n_qubytes, particle_cut) # Ensure the declaration module is loaded first
         key = (device_type, n_qubytes, particle_cut)
