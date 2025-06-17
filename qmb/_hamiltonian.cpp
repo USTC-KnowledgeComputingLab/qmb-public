@@ -37,9 +37,9 @@ auto prepare(py::dict hamiltonian) {
     auto coef = torch::empty({term_number, 2}, torch::TensorOptions().dtype(torch::kFloat64).device(torch::kCPU));
     // No need to initialize
 
-    auto site_accessor = site.template accessor<std::int16_t, 2>();
-    auto kind_accessor = kind.template accessor<std::uint8_t, 2>();
-    auto coef_accessor = coef.template accessor<double, 2>();
+    auto site_accessor = site.accessor<std::int16_t, 2>();
+    auto kind_accessor = kind.accessor<std::uint8_t, 2>();
+    auto coef_accessor = coef.accessor<double, 2>();
 
     std::int64_t index = 0;
     for (auto& item : hamiltonian) {
