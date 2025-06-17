@@ -31,8 +31,8 @@ class Hamiltonian:
                     f"{folder}/_hamiltonian_cuda.cu",
                 ],
                 is_python_module=n_qubytes == 0,
-                extra_cflags=["-O3", "-ffast-math", "-march=native", f"-DN_QUBYTES={n_qubytes}", f"-DPARTICLE_CUT={particle_cut}"],
-                extra_cuda_cflags=["-O3", "--use_fast_math", f"-DN_QUBYTES={n_qubytes}", f"-DPARTICLE_CUT={particle_cut}"],
+                extra_cflags=["-O3", "-ffast-math", "-march=native", f"-DN_QUBYTES={n_qubytes}", f"-DPARTICLE_CUT={particle_cut}", "-std=c++20"],
+                extra_cuda_cflags=["-O3", "--use_fast_math", f"-DN_QUBYTES={n_qubytes}", f"-DPARTICLE_CUT={particle_cut}", "-std=c++20"],
                 build_directory=build_directory,
             )
         if n_qubytes == 0:  # pylint: disable=no-else-return
