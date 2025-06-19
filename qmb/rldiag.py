@@ -14,7 +14,6 @@ from .subcommand_dict import subcommand_dict
 from .model_dict import ModelProto
 from .optimizer import initialize_optimizer
 from .bitspack import pack_int
-from .random_engine import dump_random_engine_state
 
 
 def lanczos_energy(model: ModelProto, configs: torch.Tensor, step: int, threshold: float) -> tuple[float, torch.Tensor]:
@@ -215,7 +214,6 @@ class RldiagConfig:
             data["rldiag"]["local"] += 1
             data["network"] = network.state_dict()
             data["optimizer"] = optimizer.state_dict()
-            data["random"] = {"host": torch.get_rng_state(), "device": dump_random_engine_state(self.common.device)}
             self.common.save(data, data["rldiag"]["global"])
             logging.info("Checkpoint successfully saved")
 

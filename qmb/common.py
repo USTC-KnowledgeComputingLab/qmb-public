@@ -10,7 +10,7 @@ import dataclasses
 import torch
 import tyro
 from .model_dict import model_dict, ModelProto, NetworkProto
-from .random_engine import load_random_engine_state
+from .random_engine import dump_random_engine_state, load_random_engine_state
 
 
 @dataclasses.dataclass
@@ -77,6 +77,7 @@ class CommonConfig:
         """
         Save data to checkpoint.
         """
+        data["random"] = {"host": torch.get_rng_state(), "device": dump_random_engine_state(self.device), "device_type": self.device.type}
         data_pth = self.folder() / "data.pth"
         local_data_pth = self.folder() / f"data.{step}.pth"
         torch.save(data, local_data_pth)
@@ -151,7 +152,10 @@ class CommonConfig:
         elif "random" in data:
             logging.info("Loading random seed from the checkpoint")
             torch.set_rng_state(data["random"]["host"])
-            load_random_engine_state(data["random"]["device"], self.device)
+            if data["random"]["device_type"] == self.device.type:
+                load_random_engine_state(data["random"]["device"], self.device)
+            else:
+                logging.info("Skipping loading random engine state for device since the device type does not match")
         else:
             logging.info("Random seed not specified, using current seed: %d", torch.seed())
 

@@ -11,7 +11,6 @@ import tyro
 from .common import CommonConfig
 from .subcommand_dict import subcommand_dict
 from .optimizer import initialize_optimizer
-from .random_engine import dump_random_engine_state
 
 
 @dataclasses.dataclass
@@ -133,7 +132,6 @@ class VmcConfig:
             data["vmc"]["global"] += 1
             data["network"] = network.state_dict()
             data["optimizer"] = optimizer.state_dict()
-            data["random"] = {"host": torch.get_rng_state(), "device": dump_random_engine_state(self.common.device)}
             self.common.save(data, data["vmc"]["global"])
             logging.info("Checkpoint successfully saved")
 
