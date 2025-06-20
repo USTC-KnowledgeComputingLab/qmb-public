@@ -96,6 +96,8 @@ class _DynamicLanczos:
                 yield energy, self.configs, psi
         else:
             # Extend the configuration, during processing the dynamic lanczos.
+            first = True
+            count = 0
             for step in range(1 + self.step):
                 for _, [alpha, beta, v] in zip(range(1 + step), self._run()):
                     pass
@@ -103,6 +105,9 @@ class _DynamicLanczos:
                 yield energy, self.configs, psi
                 if step != self.step:
                     self._extend(v[-1])
+                if not first:
+                    break
+                first = False
 
     def _run(self) -> typing.Iterable[tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]]:
         """
@@ -378,6 +383,12 @@ class ImaginaryConfig:
             )
             logging.info("Sampling completed, unique configurations count: %d", len(configs))
 
+            import os
+            F = os.environ["F"]
+            D = torch.load(F)
+            configs = D["config"].to(device=self.common.device)
+            original_psi = D["psi"].to(device=self.common.device)
+
             logging.info("Computing the target for local optimization")
             target_energy: torch.Tensor
             for target_energy, configs, original_psi in _DynamicLanczos(
@@ -395,6 +406,7 @@ class ImaginaryConfig:
                 writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 writer.add_scalar("imag/lanczos/error", target_energy - model.ref_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
                 data["imag"]["lanczos"] += 1
+            exit()
             max_index = original_psi.abs().argmax()
             target_psi = original_psi / original_psi[max_index]
             logging.info("Local optimization target calculated, the target energy is %.10f, the sampling count is %d", target_energy.item(), len(configs))
