@@ -127,6 +127,7 @@ class Hamiltonian:
         self._prepare_data(configs_i.device)
         _apply_within: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
         _apply_within = getattr(self._load_module(configs_i.device.type, configs_i.size(1), self.particle_cut), "apply_within")
+        print(configs_i.device)
         psi_j = torch.view_as_complex(_apply_within(configs_i, torch.view_as_real(psi_i), configs_j, self.site, self.kind, self.coef))
         return psi_j
 

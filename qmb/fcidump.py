@@ -26,10 +26,13 @@ QMB_MODEL_PATH = "QMB_MODEL_PATH"
 
 def work(i, cs, ps, configs_j, h):
     device = f"cuda:{i}"
-    c = cs[i].to(device=device).clone()
-    p = ps[i].to(device=device).clone()
-    psi_j = Hamiltonian(h, kind="fermi").apply_within(c, p, configs_j.to(device=device).clone())
-    return psi_j.to(configs_j.device)
+    m = Hamiltonian(h, kind="fermi")
+    for j in range(10):
+        c = cs[i].clone().to(device=device)
+        p = ps[i].clone().to(device=device)
+        psi_j = m.apply_within(c, p, configs_j.clone().to(device=device))
+        r = psi_j.to(configs_j.device)
+    return r
 
 
 @dataclasses.dataclass
