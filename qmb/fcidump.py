@@ -24,6 +24,14 @@ from .model_dict import model_dict, ModelProto, NetworkProto, NetworkConfigProto
 QMB_MODEL_PATH = "QMB_MODEL_PATH"
 
 
+def work(i, cs, ps, configs_j, h):
+    device = f"cuda:{i}"
+    c = cs[i].to(device=device).clone()
+    p = ps[i].to(device=device).clone()
+    psi_j = Hamiltonian(h, kind="fermi").apply_within(c, p, configs_j.to(device=device).clone())
+    return psi_j.to(configs_j.device)
+
+
 @dataclasses.dataclass
 class ModelConfig:
     """
@@ -148,19 +156,19 @@ class Model(ModelProto[ModelConfig]):
             logging.info("FCIDUMP metadata '%s' successfully loaded", model_name)
 
             logging.info("Loading FCIDUMP Hamiltonian '%s' from cache", model_name)
-            openfermion_hamiltonian_data = torch.load(cache_file, map_location="cpu", weights_only=True)
+            self.openfermion_hamiltonian_data = torch.load(cache_file, map_location="cpu", weights_only=True)
             logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
 
             logging.info("Recovering internal Hamiltonian representation for model '%s'", model_name)
-            self.hamiltonian = Hamiltonian(openfermion_hamiltonian_data, kind="fermi")
+            self.hamiltonian = Hamiltonian(self.openfermion_hamiltonian_data, kind="fermi")
             logging.info("Internal Hamiltonian representation for model '%s' successfully recovered", model_name)
         else:
             logging.info("Loading FCIDUMP Hamiltonian '%s' from file: %s", model_name, model_file_name)
-            (n_orbit, n_electron, n_spin), openfermion_hamiltonian_dict = _read_fcidump(model_file_name)
+            (n_orbit, n_electron, n_spin), self.openfermion_hamiltonian_dict = _read_fcidump(model_file_name)
             logging.info("FCIDUMP Hamiltonian '%s' successfully loaded", model_name)
 
             logging.info("Converting OpenFermion Hamiltonian to internal Hamiltonian representation")
-            self.hamiltonian = Hamiltonian(openfermion_hamiltonian_dict, kind="fermi")
+            self.hamiltonian = Hamiltonian(self.openfermion_hamiltonian_dict, kind="fermi")
             logging.info("Internal Hamiltonian representation for model '%s' has been successfully created", model_name)
 
             logging.info("Caching OpenFermion Hamiltonian for model '%s'", model_name)
@@ -187,6 +195,16 @@ class Model(ModelProto[ModelConfig]):
         logging.info("Reference energy for model '%s' is %.10f", model_name, self.ref_energy)
 
     def apply_within(self, configs_i: torch.Tensor, psi_i: torch.Tensor, configs_j: torch.Tensor) -> torch.Tensor:
+        import time
+        begin = time.time()
+        N = int(os.environ["N"])
+        cs = configs_i.chunk(N)
+        ps = psi_i.chunk(N)
+        torch.multiprocessing.spawn(fn=work, args=(cs, ps, configs_j, self.openfermion_hamiltonian_data), nprocs=N, join=True)
+        end = time.time()
+        duration = end - begin
+        print(duration)
+        exit()
         return self.hamiltonian.apply_within(configs_i, psi_i, configs_j)
 
     def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int, configs_exclude: torch.Tensor | None = None) -> torch.Tensor:

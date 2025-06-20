@@ -152,7 +152,7 @@ class CommonConfig:
         elif "random" in data:
             logging.info("Loading random seed from the checkpoint")
             torch.set_rng_state(data["random"]["host"])
-            if data["random"]["device_type"] == self.device.type:
+            if True:
                 load_random_engine_state(data["random"]["device"], self.device)
             else:
                 logging.info("Skipping loading random engine state for device since the device type does not match")
