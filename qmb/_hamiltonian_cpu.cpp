@@ -261,91 +261,64 @@ void add_into_heap(T* heap, std::int64_t heap_size, const T& value) {
     std::int64_t index = 0;
     if (compare(value, heap[index])) {
     } else {
-        if (compare(value, heap[index])) {
-        } else {
-            while (true) {
-                // Calculate the indices of the left and right children
-                std::int64_t left = (index << 1) + 1;
-                std::int64_t right = (index << 1) + 2;
-                std::int64_t left_present = left < heap_size;
-                std::int64_t right_present = right < heap_size;
-                if (left_present) {
-                    if (right_present) {
-                        // Both left and right children are present
-                        if (compare(value, heap[left])) {
-                            if (compare(value, heap[right])) {
-                                // Both children are greater than the value, break
-                                break;
-                            } else {
-                                // The left child is greater than the value, treat it as if only the right child is present
-                                if (compare(value, heap[right])) {
-                                    break;
-                                } else {
-                                    heap[index] = heap[right];
-                                    index = right;
-                                }
-                            }
+        while (true) {
+            // Calculate the indices of the left and right children
+            std::int64_t left = (index << 1) + 1;
+            std::int64_t right = (index << 1) + 2;
+            std::int64_t left_present = left < heap_size;
+            std::int64_t right_present = right < heap_size;
+            if (left_present) {
+                if (right_present) {
+                    // Both left and right children are present
+                    if (compare(value, heap[left])) {
+                        if (compare(value, heap[right])) {
+                            // Both children are greater than the value, break
+                            break;
                         } else {
-                            if (compare(value, heap[right])) {
-                                // The right child is greater than the value, treat it as if only the left child is present
-                                if (compare(value, heap[left])) {
-                                    break;
-                                } else {
-                                    heap[index] = heap[left];
-                                    index = left;
-                                }
-                            } else {
-                                if (compare(heap[left], heap[right])) {
-                                    if (compare(value, heap[left])) {
-                                        break;
-                                    } else {
-                                        heap[index] = heap[left];
-                                        index = left;
-                                    }
-                                } else {
-                                    if (compare(value, heap[right])) {
-                                        break;
-                                    } else {
-                                        heap[index] = heap[right];
-                                        index = right;
-                                    }
-                                }
-                            }
+                            // The left child is greater than the value
+                            heap[index] = heap[right];
+                            index = right;
                         }
                     } else {
-                        // Only the left child is present
-                        if (compare(value, heap[left])) {
-                            break;
+                        if (compare(value, heap[right])) {
+                            // The right child is greater than the value
+                            heap[index] = heap[left];
+                            index = left;
                         } else {
-                            if (compare(value, heap[left])) {
-                                break;
-                            } else {
+                            if (compare(heap[left], heap[right])) {
                                 heap[index] = heap[left];
                                 index = left;
-                            }
-                        }
-                    }
-                } else {
-                    if (right_present) {
-                        // Only the right child is present
-                        if (compare(value, heap[right])) {
-                            break;
-                        } else {
-                            if (compare(value, heap[right])) {
-                                break;
                             } else {
                                 heap[index] = heap[right];
                                 index = right;
                             }
                         }
-                    } else {
-                        // No children are present
+                    }
+                } else {
+                    // Only the left child is present
+                    if (compare(value, heap[left])) {
                         break;
+                    } else {
+                        heap[index] = heap[left];
+                        index = left;
                     }
                 }
+            } else {
+                if (right_present) {
+                    // Only the right child is present
+                    if (compare(value, heap[right])) {
+                        break;
+                    } else {
+                        heap[index] = heap[right];
+                        index = right;
+                    }
+                } else {
+                    // No children are present
+                    break;
+                }
             }
-            heap[index] = value;
         }
+        heap[index] = value;
     }
 }
 
