@@ -58,7 +58,7 @@ class Model(ModelProto[ModelConfig]):
 
     @classmethod
     def default_group_name(cls, config: ModelConfig) -> str:
-        return f"Hubbard_{config.m}x{config.n}_t{config.t}_u{config.u}"
+        return f"Hubbard_{config.m}x{config.n}_t{config.t}_u{config.u}_e{config.electron_number}"
 
     @classmethod
     def _prepare_hamiltonian(cls, args: ModelConfig) -> dict[tuple[tuple[int, int], ...], complex]:
