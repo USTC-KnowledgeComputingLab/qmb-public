@@ -1,0 +1,31 @@
+when:
+  - event: push
+  - event: pull_request
+
+clone:
+  git:
+    image: woodpeckerci/plugin-git:2.6
+    settings:
+      tags: true
+      partial: false
+
+steps:
+  - name: tagging
+    image: mcp/git:latest
+    commands:
+      - git describe --tags | tee .tag
+
+  - name: docker
+    image: woodpeckerci/plugin-docker-buildx:6-insecure
+    settings:
+      repo: git.kclab.cloud/hzhangxyz/qmb
+      username: hzhangxyz
+      password:
+        from_secret: gitea_package
+      registry: git.kclab.cloud
+      tags_file: .tag
+      buildkit_config: |
+        [registry."docker.io"]
+        mirrors = ["https://docker.mirrors.kclab.cloud/"]
+      build_args:
+        PYPI_MIRROR: https://mirrors.ustc.edu.cn/pypi/simple
