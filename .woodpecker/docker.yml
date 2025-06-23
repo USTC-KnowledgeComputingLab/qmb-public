@@ -1,0 +1,36 @@
+when:
+  - event: push
+  - event: pull_request
+
+variables:
+  - &pip_config
+    PIP_INDEX_URL: https://mirrors.ustc.edu.cn/pypi/simple
+
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      tags: true
+      partial: false
+
+steps:
+  - name: tagging
+    image: python:3.12
+    environment:
+      <<: *pip_config
+    commands:
+      - pip install pipx
+      - pipx run setuptools_scm | tee .tag
+
+  - name: docker
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      repo: git.kclab.cloud/hzhangxyz/qmb
+      username: hzhangxyz
+      password:
+        from_secret: package
+      registry: git.kclab.cloud
+      tags_file: .tag
+      mirror: docker.mirrors.kclab.cloud
+      build_args:
+        PYPI_MIRROR: https://mirrors.ustc.edu.cn/pypi/simple
