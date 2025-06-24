@@ -1,5 +1,3 @@
-#include <thrust/execution_policy.h>
-#include <thrust/sort.h>
 #include <torch/extension.h>
 
 namespace qmb_hamiltonian_cpu {
@@ -225,17 +223,20 @@ auto apply_within_interface(
     TORCH_CHECK(coef.size(0) == term_number, "coef size must match the provided term_number.");
     TORCH_CHECK(coef.size(1) == 2, "coef must contain 2 elements for each term.");
 
-    auto sorted_result_configs = result_configs.clone(torch::MemoryFormat::Contiguous);
     auto result_sort_index = torch::arange(result_batch_size, torch::TensorOptions().dtype(torch::kInt64).device(device, device_id));
-    auto sorted_result_psi = torch::zeros({result_batch_size, 2}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
 
-    thrust::sort_by_key(
-        thrust::host,
-        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()),
-        reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_result_configs.data_ptr()) + result_batch_size,
+    std::sort(
         reinterpret_cast<std::int64_t*>(result_sort_index.data_ptr()),
-        array_less<std::uint8_t, n_qubytes>()
+        reinterpret_cast<std::int64_t*>(result_sort_index.data_ptr()) + result_batch_size,
+        [&result_configs](std::int64_t i1, std::int64_t i2) {
+            return array_less<std::uint8_t, n_qubytes>()(
+                reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(result_configs.data_ptr())[i1],
+                reinterpret_cast<const std::array<std::uint8_t, n_qubytes>*>(result_configs.data_ptr())[i2]
+            );
+        }
     );
+    auto sorted_result_configs = result_configs.index({result_sort_index});
+    auto sorted_result_psi = torch::zeros({result_batch_size, 2}, torch::TensorOptions().dtype(torch::kFloat64).device(device, device_id));
 
     apply_within_kernel_interface<max_op_number, n_qubytes, particle_cut>(
         /*term_number=*/term_number,
@@ -255,7 +256,7 @@ auto apply_within_interface(
     return result_psi;
 }
 
-template<typename T, typename Compare = thrust::less<T>>
+template<typename T, typename Compare = std::less<T>>
 void add_into_heap(T* heap, std::int64_t heap_size, const T& value) {
     auto compare = Compare();
     std::int64_t index = 0;
@@ -530,8 +531,7 @@ auto find_relative_interface(
 
     auto sorted_exclude_configs = exclude_configs.clone(torch::MemoryFormat::Contiguous);
 
-    thrust::sort(
-        thrust::host,
+    std::sort(
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()),
         reinterpret_cast<std::array<std::uint8_t, n_qubytes>*>(sorted_exclude_configs.data_ptr()) + exclude_size,
         array_less<std::uint8_t, n_qubytes>()
