@@ -2,6 +2,17 @@ when:
   - event: push
   - event: pull_request
 
+variables:
+  - &docker_config
+    DOCKER_CACHE: /woodpecker/cache/docker
+  - &minio_config
+    MINIO_HOST: https://s3.kclab.cloud
+    MINIO_ACCESS_KEY:
+      from_secret: minio_access_key
+    MINIO_SECRET_KEY:
+      from_secret: minio_secret_key
+    MINIO_BUCKET: cache-53030
+
 clone:
   git:
     image: woodpeckerci/plugin-git:2.6
@@ -10,6 +21,17 @@ clone:
       partial: false
 
 steps:
+  - name: open cache
+    image: minio/mc:latest
+    environment:
+      <<: [*docker_config, *minio_config]
+    commands:
+      - mkdir --parents $${DOCKER_CACHE}
+      - touch $${DOCKER_CACHE}/.keep
+      - mc alias set minio $${MINIO_HOST} $${MINIO_ACCESS_KEY} $${MINIO_SECRET_KEY}
+      - mc cp --recursive minio/$${MINIO_BUCKET}/${CI_REPO}/docker/ $${DOCKER_CACHE}/
+    failure: ignore
+
   - name: tagging
     image: mcp/git:latest
     commands:
@@ -24,8 +46,20 @@ steps:
         from_secret: gitea_package
       registry: git.kclab.cloud
       tags_file: .tag
+      cache-to: type=local,dest=/woodpecker/cache/docker
+      cache-from:
+        - type=local\\,src=/woodpecker/cache/docker
       buildkit_config: |
         [registry."docker.io"]
         mirrors = ["https://docker.mirrors.kclab.cloud/"]
       build_args:
         PYPI_MIRROR: https://mirrors.ustc.edu.cn/pypi/simple
+
+  - name: save cache
+    image: minio/mc:latest
+    environment:
+      <<: [*docker_config, *minio_config]
+    commands:
+      - mc alias set minio $${MINIO_HOST} $${MINIO_ACCESS_KEY} $${MINIO_SECRET_KEY}
+      - mc cp --recursive $${DOCKER_CACHE}/ minio/$${MINIO_BUCKET}/${CI_REPO}/docker/
+    failure: ignore
