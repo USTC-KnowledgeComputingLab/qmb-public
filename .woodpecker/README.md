@@ -1,1 +1,1 @@
-This folder stores scripts for testing in our own CI/CD platform based on Woodpecker CI located in USTC Knowledge Computing Laboratory, which may contains many absolute URLs hard coded, so do not use it.
+This folder contains scripts for testing in our own CI/CD platform based on Woodpecker CI, located in the USTC Knowledge Computing Laboratory. These scripts may contain many hard-coded absolute URLs, so they should not be used elsewhere.
