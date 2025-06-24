@@ -1,0 +1,17 @@
+when:
+  - event: push
+  - event: pull_request
+
+variables:
+  - &pip_config
+    PIP_INDEX_URL: https://mirrors.ustc.edu.cn/pypi/simple
+
+steps:
+  - name: pre-commit
+    image: python:3.12
+    environment:
+      <<: *pip_config
+    commands:
+      - pip install pre-commit
+      - pip install '.[dev]'
+      - pre-commit run --all-files
