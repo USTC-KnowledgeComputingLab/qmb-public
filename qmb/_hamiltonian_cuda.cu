@@ -230,8 +230,7 @@ auto apply_within_interface(
     TORCH_CHECK(coef.size(1) == 2, "coef must contain 2 elements for each term.");
 
     cudaSetDevice(device_id);
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
+    auto stream = at::cuda::getCurrentCUDAStream(device_id);
     auto policy = thrust::device.on(stream);
 
     cudaDeviceProp prop;
