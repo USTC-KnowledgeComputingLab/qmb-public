@@ -113,12 +113,12 @@ __device__ void apply_within_kernel(
     std::int64_t low = 0;
     std::int64_t high = result_batch_size - 1;
     std::int64_t mid = 0;
-    auto compare = array_less<std::uint8_t, n_qubytes>();
+    auto less = array_less<std::uint8_t, n_qubytes>();
     while (low <= high) {
         mid = (low + high) / 2;
-        if (compare(current_configs, result_configs[mid])) {
+        if (less(current_configs, result_configs[mid])) {
             high = mid - 1;
-        } else if (compare(result_configs[mid], current_configs)) {
+        } else if (less(result_configs[mid], current_configs)) {
             low = mid + 1;
         } else {
             success = true;
@@ -309,14 +309,14 @@ __device__ void mutex_unlock(int* mutex1, int* mutex2) {
     _mutex_unlock(mutex2);
 }
 
-template<typename T, typename Compare = thrust::less<T>>
+template<typename T, typename Less = thrust::less<T>>
 __device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const T& value) {
-    auto compare = Compare();
+    auto less = Less();
     std::int64_t index = 0;
-    if (compare(value, heap[index])) {
+    if (less(value, heap[index])) {
     } else {
         mutex_lock(&mutex[index]);
-        if (compare(value, heap[index])) {
+        if (less(value, heap[index])) {
             mutex_unlock(&mutex[index]);
         } else {
             while (true) {
@@ -329,14 +329,14 @@ __device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const
                 if (left_present) {
                     if (right_present) {
                         // Both left and right children are present
-                        if (compare(value, heap[left])) {
-                            if (compare(value, heap[right])) {
+                        if (less(value, heap[left])) {
+                            if (less(value, heap[right])) {
                                 // Both children are greater than the value, break
                                 break;
                             } else {
                                 // The left child is greater than the value, treat it as if only the right child is present
                                 mutex_lock(&mutex[right]);
-                                if (compare(value, heap[right])) {
+                                if (less(value, heap[right])) {
                                     mutex_unlock(&mutex[right]);
                                     break;
                                 } else {
@@ -346,10 +346,10 @@ __device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const
                                 }
                             }
                         } else {
-                            if (compare(value, heap[right])) {
+                            if (less(value, heap[right])) {
                                 // The right child is greater than the value, treat it as if only the left child is present
                                 mutex_lock(&mutex[left]);
-                                if (compare(value, heap[left])) {
+                                if (less(value, heap[left])) {
                                     mutex_unlock(&mutex[left]);
                                     break;
                                 } else {
@@ -359,8 +359,8 @@ __device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const
                                 }
                             } else {
                                 mutex_lock(&mutex[left], &mutex[right]);
-                                if (compare(heap[left], heap[right])) {
-                                    if (compare(value, heap[left])) {
+                                if (less(heap[left], heap[right])) {
+                                    if (less(value, heap[left])) {
                                         mutex_unlock(&mutex[left], &mutex[right]);
                                         break;
                                     } else {
@@ -369,7 +369,7 @@ __device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const
                                         index = left;
                                     }
                                 } else {
-                                    if (compare(value, heap[right])) {
+                                    if (less(value, heap[right])) {
                                         mutex_unlock(&mutex[left], &mutex[right]);
                                         break;
                                     } else {
@@ -382,11 +382,11 @@ __device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const
                         }
                     } else {
                         // Only the left child is present
-                        if (compare(value, heap[left])) {
+                        if (less(value, heap[left])) {
                             break;
                         } else {
                             mutex_lock(&mutex[left]);
-                            if (compare(value, heap[left])) {
+                            if (less(value, heap[left])) {
                                 mutex_unlock(&mutex[left]);
                                 break;
                             } else {
@@ -399,11 +399,11 @@ __device__ void add_into_heap(T* heap, int* mutex, std::int64_t heap_size, const
                 } else {
                     if (right_present) {
                         // Only the right child is present
-                        if (compare(value, heap[right])) {
+                        if (less(value, heap[right])) {
                             break;
                         } else {
                             mutex_lock(&mutex[right]);
-                            if (compare(value, heap[right])) {
+                            if (less(value, heap[right])) {
                                 mutex_unlock(&mutex[right]);
                                 break;
                             } else {
@@ -473,12 +473,12 @@ __device__ void find_relative_kernel(
     std::int64_t low = 0;
     std::int64_t high = exclude_size - 1;
     std::int64_t mid = 0;
-    auto compare = array_less<std::uint8_t, n_qubytes>();
+    auto less = array_less<std::uint8_t, n_qubytes>();
     while (low <= high) {
         mid = (low + high) / 2;
-        if (compare(current_configs, exclude_configs[mid])) {
+        if (less(current_configs, exclude_configs[mid])) {
             high = mid - 1;
-        } else if (compare(exclude_configs[mid], current_configs)) {
+        } else if (less(exclude_configs[mid], current_configs)) {
             low = mid + 1;
         } else {
             success = false;
@@ -704,12 +704,12 @@ __device__ void single_relative_kernel(
     std::int64_t low = 0;
     std::int64_t high = exclude_size - 1;
     std::int64_t mid = 0;
-    auto compare = array_less<std::uint8_t, n_qubytes>();
+    auto less = array_less<std::uint8_t, n_qubytes>();
     while (low <= high) {
         mid = (low + high) / 2;
-        if (compare(current_configs, exclude_configs[mid])) {
+        if (less(current_configs, exclude_configs[mid])) {
             high = mid - 1;
-        } else if (compare(exclude_configs[mid], current_configs)) {
+        } else if (less(exclude_configs[mid], current_configs)) {
             low = mid + 1;
         } else {
             success = false;
