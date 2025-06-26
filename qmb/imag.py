@@ -44,14 +44,16 @@ class _DynamicLanczos:
         count_core = len(self.configs)
         logging.info("Number of core configurations: %d", count_core)
 
+        import time
+        begin0 = time.time()
         extra = self.model.find_relative(basic_configs, psi, self.count_extend, self.configs)
         self.configs = torch.cat([self.configs, extra])
-        import time
         begin = time.time()
         a = self.model.apply_within(basic_configs, psi, extra)
         a = a**2
         end = time.time()
-        logging.info("Expanding time cost: %.10f", end - begin)
+        logging.info("Expanding time without expanding cost: %.10f", end - begin)
+        logging.info("Expanding time with expanding cost: %.10f", end - begin0)
         count_selected = len(self.configs)
         self.psi = torch.nn.functional.pad(self.psi, (0, count_selected - count_core))
         logging.info("Basis extended from %d to %d", count_core, count_selected)
