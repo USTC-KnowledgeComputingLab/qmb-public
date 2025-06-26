@@ -19,7 +19,7 @@ class Hamiltonian:
     @classmethod
     def _load_module(cls, device_type: str = "declaration", n_qubytes: int = 0, particle_cut: int = 0) -> object:
         if device_type != "declaration":
-            cls._load_module("declaration", n_qubytes, particle_cut) # Ensure the declaration module is loaded first
+            cls._load_module("declaration", n_qubytes, particle_cut)  # Ensure the declaration module is loaded first
         key = (device_type, n_qubytes, particle_cut)
         is_prepare = key == ("declaration", 0, 0)
         name = "qmb_hamiltonian" if is_prepare else f"qmb_hamiltonian_{n_qubytes}_{particle_cut}"
