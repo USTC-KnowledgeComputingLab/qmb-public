@@ -29,7 +29,7 @@ class ModelConfig:
     # The coefficient of U
     u: typing.Annotated[float, tyro.conf.arg(aliases=["-u"])] = 0
 
-    # The electron number
+    # The electron number, left empty for half-filling
     electron_number: typing.Annotated[int | None, tyro.conf.arg(aliases=["-e"])] = None
 
     # The ref energy of the model
@@ -38,7 +38,6 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.electron_number is None:
             self.electron_number = self.m * self.n
-            logging.info("Electron number is not specified, set to half-filling (one electron per lattice site) %d", self.electron_number)
 
         if self.m <= 0 or self.n <= 0:
             raise ValueError("The dimensions of the Hubbard model must be positive integers.")
