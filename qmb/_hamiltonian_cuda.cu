@@ -1,4 +1,5 @@
 #include <ATen/cuda/Exceptions.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -180,6 +181,7 @@ auto apply_within_interface(
     std::int64_t batch_size = configs.size(0);
     std::int64_t result_batch_size = result_configs.size(0);
     std::int64_t term_number = site.size(0);
+    at::cuda::CUDAGuard cuda_device_guard(device_id);
 
     TORCH_CHECK(configs.device().type() == torch::kCUDA, "configs must be on CUDA.")
     TORCH_CHECK(configs.device().index() == device_id, "configs must be on the same device as others.");
@@ -560,6 +562,7 @@ auto find_relative_interface(
     std::int64_t batch_size = configs.size(0);
     std::int64_t term_number = site.size(0);
     std::int64_t exclude_size = exclude_configs.size(0);
+    at::cuda::CUDAGuard cuda_device_guard(device_id);
 
     TORCH_CHECK(configs.device().type() == torch::kCUDA, "configs must be on CUDA.")
     TORCH_CHECK(configs.device().index() == device_id, "configs must be on the same device as others.");
@@ -779,6 +782,7 @@ auto single_relative_interface(const torch::Tensor& configs, const torch::Tensor
     std::int64_t device_id = configs.device().index();
     std::int64_t batch_size = configs.size(0);
     std::int64_t term_number = site.size(0);
+    at::cuda::CUDAGuard cuda_device_guard(device_id);
 
     TORCH_CHECK(configs.device().type() == torch::kCUDA, "configs must be on CUDA.")
     TORCH_CHECK(configs.device().index() == device_id, "configs must be on the same device as others.");
