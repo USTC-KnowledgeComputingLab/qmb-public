@@ -15,6 +15,18 @@ steps:
     commands:
       - git describe --tags | tee .tag
 
+  - name: credential
+    image: python:3.12
+    commands:
+      - echo AWS_ACCESS_KEY_ID=$${AWS_ACCESS_KEY_ID} >> .env
+      - echo AWS_SECRET_ACCESS_KEY=$${AWS_SECRET_ACCESS_KEY} >> .env
+      - cat .env
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: minio_access_key
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: minio_secret_key
+
   - name: docker
     image: woodpeckerci/plugin-docker-buildx:6-insecure
     settings:
@@ -24,6 +36,10 @@ steps:
         from_secret: gitea_package
       registry: git.kclab.cloud
       tags_file: .tag
+      cache-to: type=s3,bucket=cache-53030,region=local,endpoint_url=https://s3.kclab.cloud,prefix=${CI_REPO}/docker/,mode=max
+      cache-from:
+        - type=s3\\,bucket=cache-53030\\,region=local\\,endpoint_url=https://s3.kclab.cloud\\,prefix=${CI_REPO}/docker/
+      env_file: .env
       buildkit_config: |
         [registry."docker.io"]
         mirrors = ["https://docker.mirrors.kclab.cloud/"]
