@@ -34,3 +34,5 @@ steps:
     commands:
       - pip install pipx
       - pipx run twine upload dist/* --verbose
+    when:
+      event: push

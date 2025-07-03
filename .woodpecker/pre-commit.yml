@@ -9,10 +9,6 @@ variables:
     PRE_COMMIT_HOME: /woodpecker/cache/pre-commit
   - &minio_config
     MINIO_HOST: https://s3.kclab.cloud
-    MINIO_ACCESS_KEY:
-      from_secret: minio_access_key
-    MINIO_SECRET_KEY:
-      from_secret: minio_secret_key
     MINIO_BUCKET: cache-53030
 
 steps:
@@ -20,6 +16,10 @@ steps:
     image: minio/mc:latest
     environment:
       <<: [*pre_commit_config, *minio_config]
+      MINIO_ACCESS_KEY:
+        from_secret: readonly_minio_access_key
+      MINIO_SECRET_KEY:
+        from_secret: readonly_minio_secret_key
     commands:
       - mkdir --parents $${PRE_COMMIT_HOME}
       - touch $${PRE_COMMIT_HOME}/.keep
@@ -40,6 +40,12 @@ steps:
     image: minio/mc:latest
     environment:
       <<: [*pre_commit_config, *minio_config]
+      MINIO_ACCESS_KEY:
+        from_secret: minio_access_key
+      MINIO_SECRET_KEY:
+        from_secret: minio_secret_key
     commands:
       - mc alias set minio $${MINIO_HOST} $${MINIO_ACCESS_KEY} $${MINIO_SECRET_KEY}
       - mc cp --recursive $${PRE_COMMIT_HOME}/ minio/$${MINIO_BUCKET}/${CI_REPO}/pre-commit/
+    when:
+      event: push
