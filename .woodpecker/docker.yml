@@ -2,17 +2,6 @@ when:
   - event: push
   - event: pull_request
 
-variables:
-  - &docker_config
-    DOCKER_CACHE: /woodpecker/cache/docker
-  - &minio_config
-    MINIO_HOST: https://s3.kclab.cloud
-    MINIO_ACCESS_KEY:
-      from_secret: minio_access_key
-    MINIO_SECRET_KEY:
-      from_secret: minio_secret_key
-    MINIO_BUCKET: cache-53030
-
 clone:
   git:
     image: woodpeckerci/plugin-git:2.6
@@ -21,21 +10,38 @@ clone:
       partial: false
 
 steps:
-  - name: open cache
-    image: minio/mc:latest
-    environment:
-      <<: [*docker_config, *minio_config]
-    commands:
-      - mkdir --parents $${DOCKER_CACHE}
-      - touch $${DOCKER_CACHE}/.keep
-      - mc alias set minio $${MINIO_HOST} $${MINIO_ACCESS_KEY} $${MINIO_SECRET_KEY}
-      - mc cp --recursive minio/$${MINIO_BUCKET}/${CI_REPO}/docker/ $${DOCKER_CACHE}/
-    failure: ignore
-
   - name: tagging
     image: mcp/git:latest
     commands:
       - git describe --tags | tee .tag
+
+  - name: credential
+    image: python:3.12
+    commands:
+      - echo AWS_ACCESS_KEY_ID=$${AWS_ACCESS_KEY_ID} >> .env
+      - echo AWS_SECRET_ACCESS_KEY=$${AWS_SECRET_ACCESS_KEY} >> .env
+      - cat .env
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: minio_access_key
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: minio_secret_key
+    when:
+      - event: push
+
+  - name: credential
+    image: python:3.12
+    commands:
+      - echo AWS_ACCESS_KEY_ID=$${AWS_ACCESS_KEY_ID} >> .env
+      - echo AWS_SECRET_ACCESS_KEY=$${AWS_SECRET_ACCESS_KEY} >> .env
+      - cat .env
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: readonly_minio_access_key
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: readonly_minio_secret_key
+    when:
+      - event: pull_request
 
   - name: docker
     image: woodpeckerci/plugin-docker-buildx:6-insecure
@@ -46,20 +52,31 @@ steps:
         from_secret: gitea_package
       registry: git.kclab.cloud
       tags_file: .tag
-      cache-to: type=local,dest=/woodpecker/cache/docker
+      cache-to: type=s3,bucket=cache-53030,region=local,endpoint_url=https://s3.kclab.cloud,prefix=${CI_REPO}/docker/,mode=max
       cache-from:
-        - type=local\\,src=/woodpecker/cache/docker
+        - type=s3\\,bucket=cache-53030\\,region=local\\,endpoint_url=https://s3.kclab.cloud\\,prefix=${CI_REPO}/docker/
+      env_file: .env
       buildkit_config: |
         [registry."docker.io"]
         mirrors = ["https://docker.mirrors.kclab.cloud/"]
       build_args:
         PYPI_MIRROR: https://mirrors.ustc.edu.cn/pypi/simple
+    when:
+      - event: push
 
-  - name: save cache
-    image: minio/mc:latest
-    environment:
-      <<: [*docker_config, *minio_config]
-    commands:
-      - mc alias set minio $${MINIO_HOST} $${MINIO_ACCESS_KEY} $${MINIO_SECRET_KEY}
-      - mc cp --recursive $${DOCKER_CACHE}/ minio/$${MINIO_BUCKET}/${CI_REPO}/docker/
-    failure: ignore
+  - name: docker
+    image: woodpeckerci/plugin-docker-buildx:6-insecure
+    settings:
+      repo: git.kclab.cloud/hzhangxyz/qmb
+      dry_run: true
+      tags_file: .tag
+      cache-from:
+        - type=s3\\,bucket=cache-53030\\,region=local\\,endpoint_url=https://s3.kclab.cloud\\,prefix=${CI_REPO}/docker/
+      env_file: .env
+      buildkit_config: |
+        [registry."docker.io"]
+        mirrors = ["https://docker.mirrors.kclab.cloud/"]
+      build_args:
+        PYPI_MIRROR: https://mirrors.ustc.edu.cn/pypi/simple
+    when:
+      - event: pull_request
