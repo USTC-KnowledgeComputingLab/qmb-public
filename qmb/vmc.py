@@ -108,17 +108,21 @@ class VmcConfig:
                 with torch.no_grad():
                     psi_dst = network(configs_dst)
                     hamiltonian_psi_dst = model.apply_within(configs_dst, psi_dst, configs_src)
+                weight = psi_src / hamiltonian_psi_dst
+                loss = weight.var()
                 num = psi_src.conj() @ hamiltonian_psi_dst
                 den = psi_src.conj() @ psi_src.detach()
                 energy = num / den
                 energy = energy.real
-                energy.backward()  # type: ignore[no-untyped-call]
-                return energy
+                loss.backward()  # type: ignore[no-untyped-call]
+                loss.energy = energy.item()
+                return loss
 
             logging.info("Starting local optimization process")
 
             for i in range(self.local_step):
-                energy: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
+                loss: torch.Tensor = optimizer.step(closure)  # type: ignore[assignment,arg-type]
+                energy = loss.energy
                 logging.info("Local optimization in progress, step: %d, energy: %.10f, ref energy: %.10f", i, energy.item(), model.ref_energy)
                 writer.add_scalar("vmc/energy", energy, data["vmc"]["local"])  # type: ignore[no-untyped-call]
                 writer.add_scalar("vmc/error", energy - model.ref_energy, data["vmc"]["local"])  # type: ignore[no-untyped-call]
