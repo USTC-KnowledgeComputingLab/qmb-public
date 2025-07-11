@@ -382,6 +382,9 @@ class ImaginaryConfig:
 
             logging.info("Sampling configurations from last iteration")
             configs, original_psi = data["imag"]["pool"]
+            top20436 = original_psi.abs().argsort(descending=True)[:20436]
+            configs = configs[top20436]
+            original_psi = original_psi[top20436]
             logging.info("Sampling completed, unique configurations count: %d", len(configs))
 
             for target_energy, configs, original_psi in _DynamicLanczos(
