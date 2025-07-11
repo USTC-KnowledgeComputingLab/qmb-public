@@ -113,10 +113,10 @@ class _DynamicLanczos:
                     pass
                 energy, psi = self._eigh_tridiagonal(alpha, beta, v)
                 yield energy, self.configs, psi
-                if step != self.step:
-                    self._extend(v[-1])
                 if not first and self.b:
                     break
+                if step != self.step:
+                    self._extend(v[-1])
                 first = False
 
     def _run(self) -> typing.Iterable[tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]]:
