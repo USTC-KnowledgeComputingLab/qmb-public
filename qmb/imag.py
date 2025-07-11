@@ -379,24 +379,9 @@ class ImaginaryConfig:
         while True:
             logging.info("Starting a new optimization cycle")
 
-            logging.info("Sampling configurations from neural network")
-            configs_from_neural_network, psi_from_neural_network, _, _ = network.generate_unique(self.sampling_count_from_neural_network, self.local_batch_count_generation)
             logging.info("Sampling configurations from last iteration")
-            configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["imag"]["pool"], self.sampling_count_from_last_iteration)
-            logging.info("Merging configurations from neural network and last iteration")
-            configs, original_psi = _merge_pool_from_neural_network_and_pool_from_last_iteration(
-                configs_from_neural_network,
-                psi_from_neural_network,
-                configs_from_last_iteration,
-                psi_from_last_iteration,
-            )
+            configs, original_psi = data["imag"]["pool"]
             logging.info("Sampling completed, unique configurations count: %d", len(configs))
-
-            import os
-            F = os.environ["F"]
-            D = torch.load(F)
-            configs = D["config"].to(device=self.common.device)
-            original_psi = D["psi"].to(device=self.common.device)
 
             logging.info("Computing the target for local optimization")
             target_energy: torch.Tensor
