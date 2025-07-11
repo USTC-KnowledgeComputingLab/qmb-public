@@ -35,6 +35,7 @@ class _DynamicLanczos:
     batch_count_apply_within: int
     single_extend: bool
     first_extend: bool
+    b: bool = False
 
     def _extend(self, psi: torch.Tensor, basic_configs: torch.Tensor | None = None) -> None:
         if basic_configs is None:
@@ -114,7 +115,7 @@ class _DynamicLanczos:
                 yield energy, self.configs, psi
                 if step != self.step:
                     self._extend(v[-1])
-                if not first:
+                if not first and self.b:
                     break
                 first = False
 
@@ -383,6 +384,22 @@ class ImaginaryConfig:
             configs, original_psi = data["imag"]["pool"]
             logging.info("Sampling completed, unique configurations count: %d", len(configs))
 
+            for target_energy, configs, original_psi in _DynamicLanczos(
+                    model=model,
+                    configs=configs,
+                    psi=original_psi,
+                    step=32,
+                    threshold=self.krylov_threshold,
+                    count_extend=0,
+                    batch_count_apply_within=self.local_batch_count_apply_within,
+                    single_extend=self.krylov_single_extend,
+                    first_extend=self.krylov_extend_first,
+            ).run():
+                logging.info("The current energy is %.10f where the sampling count is %d", target_energy.item(), len(configs))
+                writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
+                writer.add_scalar("imag/lanczos/error", target_energy - model.ref_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
+                data["imag"]["lanczos"] += 1
+
             logging.info("Computing the target for local optimization")
             target_energy: torch.Tensor
             for target_energy, configs, original_psi in _DynamicLanczos(
@@ -392,6 +409,23 @@ class ImaginaryConfig:
                     step=self.krylov_iteration,
                     threshold=self.krylov_threshold,
                     count_extend=self.krylov_extend_count,
+                    batch_count_apply_within=self.local_batch_count_apply_within,
+                    single_extend=self.krylov_single_extend,
+                    first_extend=self.krylov_extend_first,
+                    b=True,
+            ).run():
+                logging.info("The current energy is %.10f where the sampling count is %d", target_energy.item(), len(configs))
+                writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
+                writer.add_scalar("imag/lanczos/error", target_energy - model.ref_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
+                data["imag"]["lanczos"] += 1
+
+            for target_energy, configs, original_psi in _DynamicLanczos(
+                    model=model,
+                    configs=configs,
+                    psi=original_psi,
+                    step=32,
+                    threshold=self.krylov_threshold,
+                    count_extend=0,
                     batch_count_apply_within=self.local_batch_count_apply_within,
                     single_extend=self.krylov_single_extend,
                     first_extend=self.krylov_extend_first,
