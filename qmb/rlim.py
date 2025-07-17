@@ -33,6 +33,8 @@ class RlimConfig:
     evolution_time: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-3
     # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 32
+    # Whether to optimize the outside configurations instead of the default inside configurations
+    optimize_outside: typing.Annotated[bool, tyro.conf.arg(aliases=["-o"])] = False
 
     def main(self) -> None:
         """
@@ -50,12 +52,14 @@ class RlimConfig:
             "Relative Count: %d, "
             "Learning Rate: %.10f, "
             "Evolution Time: %.10f, "
-            "Local Steps: %d, ",
+            "Local Steps: %d, "
+            "Optimize Outside: %s",
             self.sampling_count,
             self.relative_count,
             self.learning_rate,
             self.evolution_time,
             self.local_step,
+            "Yes" if self.optimize_outside else "No",
         )
 
         optimizer = initialize_optimizer(
@@ -94,7 +98,7 @@ class RlimConfig:
                 ref_configs_dst = torch.cat([ref_configs_i, model.find_relative(ref_configs_i, ref_psi_i, self.relative_count - len(ref_configs_i))])
             logging.info("Reference relative configurations calculated, count: %d", len(ref_configs_dst))
 
-            def closure() -> torch.Tensor:
+            def inside_closure() -> torch.Tensor:
                 # Optimizing loss
                 optimizer.zero_grad()
                 psi_src = network(configs_src)  # psi s
@@ -116,6 +120,30 @@ class RlimConfig:
                     energy = (num / den).real
                 loss.energy = energy  # type: ignore[attr-defined]
                 return loss
+
+            def outside_closure() -> torch.Tensor:
+                # Optimizing loss
+                optimizer.zero_grad()
+                psi_src = network(configs_src)  # psi s
+                ref_psi_src = network(ref_configs_src)  # psi r
+                psi_dst = network(configs_dst)  # psi s'
+                ref_psi_dst = network(ref_configs_dst)  # psi r'
+                hamiltonian_psi_dst = model.apply_within(configs_dst, psi_dst, configs_src)  # H ss' psi s'
+                ref_hamiltonian_psi_dst = model.apply_within(ref_configs_dst, ref_psi_dst, ref_configs_src)  # H rr' psi r'
+                a = torch.outer(psi_src.conj(), ref_psi_src.detach()) - torch.outer(psi_src.detach().conj(), ref_psi_src)
+                b = torch.outer(hamiltonian_psi_dst.conj(), ref_psi_src.detach()) - torch.outer(psi_src.detach().conj(), ref_hamiltonian_psi_dst)
+                diff = (a + self.evolution_time * b).flatten()
+                loss = (diff.conj() @ diff).real
+                loss.backward()  # type: ignore[no-untyped-call]
+                # Calculate energy
+                with torch.no_grad():
+                    num = psi_src.conj() @ hamiltonian_psi_dst
+                    den = psi_src.conj() @ psi_src
+                    energy = (num / den).real
+                loss.energy = energy  # type: ignore[attr-defined]
+                return loss
+
+            closure = outside_closure if self.optimize_outside else inside_closure
 
             logging.info("Starting local optimization process")
 
