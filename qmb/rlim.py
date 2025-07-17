@@ -33,6 +33,8 @@ class RlimConfig:
     evolution_time: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1e-3
     # The number of steps for the local optimizer
     local_step: typing.Annotated[int, tyro.conf.arg(aliases=["-s"])] = 32
+    # The dropout of the loss function
+    dropout: typing.Annotated[float, tyro.conf.arg(aliases=["-d"])] = 0.5
 
     def main(self) -> None:
         """
@@ -50,12 +52,14 @@ class RlimConfig:
             "Relative Count: %d, "
             "Learning Rate: %.10f, "
             "Evolution Time: %.10f, "
-            "Local Steps: %d, ",
+            "Local Steps: %d, "
+            "Dropout: %.2f",
             self.sampling_count,
             self.relative_count,
             self.learning_rate,
             self.evolution_time,
             self.local_step,
+            self.dropout,
         )
 
         optimizer = initialize_optimizer(
@@ -106,8 +110,8 @@ class RlimConfig:
                     ref_hamiltonian_psi_dst = model.apply_within(ref_configs_dst, ref_psi_dst, ref_configs_src)  # H rr' psi r'
                 a = torch.outer(psi_src.detach().conj(), ref_psi_src) - torch.outer(psi_src.conj(), ref_psi_src.detach())
                 b = torch.outer(hamiltonian_psi_dst.conj(), ref_psi_src) - torch.outer(psi_src.conj(), ref_hamiltonian_psi_dst)
-                diff = (a - self.evolution_time * b).flatten()
-                loss = (diff.conj() @ diff).real
+                diff = torch.nn.functional.dropout(torch.view_as_real(a - self.evolution_time * b).abs(), p=self.dropout).flatten()
+                loss = diff @ diff
                 loss.backward()  # type: ignore[no-untyped-call]
                 # Calculate energy
                 with torch.no_grad():
