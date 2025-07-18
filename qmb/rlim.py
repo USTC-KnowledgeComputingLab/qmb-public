@@ -108,8 +108,8 @@ class RlimConfig:
                     ref_psi_dst = network(ref_configs_dst)  # psi r'
                     hamiltonian_psi_dst = model.apply_within(configs_dst, psi_dst, configs_src)  # H ss' psi s'
                     ref_hamiltonian_psi_dst = model.apply_within(ref_configs_dst, ref_psi_dst, ref_configs_src)  # H rr' psi r'
-                a = torch.outer(psi_src.detach().conj(), ref_psi_src) - torch.outer(psi_src.conj(), ref_psi_src.detach())
-                b = torch.outer(hamiltonian_psi_dst.conj(), ref_psi_src) - torch.outer(psi_src.conj(), ref_hamiltonian_psi_dst)
+                a = torch.outer(psi_src.detach(), ref_psi_src) - torch.outer(psi_src, ref_psi_src.detach())
+                b = torch.outer(hamiltonian_psi_dst, ref_psi_src) - torch.outer(psi_src, ref_hamiltonian_psi_dst)
                 diff = torch.nn.functional.dropout(torch.view_as_real(a - self.evolution_time * b).abs(), p=self.dropout).flatten()
                 loss = diff @ diff
                 loss.backward()  # type: ignore[no-untyped-call]
