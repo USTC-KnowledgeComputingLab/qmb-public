@@ -1,5 +1,5 @@
 """
-This file offers an interface for defining Hubbard models on a two-dimensional lattice.
+This file offers an interface for defining Free fermion models on a two-dimensional lattice.
 """
 
 import typing
@@ -7,8 +7,8 @@ import logging
 import dataclasses
 import torch
 import tyro
-from .mlp import WaveFunctionElectronUpDown as MlpWaveFunction
-from .attention import WaveFunctionElectronUpDown as AttentionWaveFunction
+from .mlp import WaveFunctionNormal as MlpWaveFunction
+from .attention import WaveFunctionNormal as AttentionWaveFunction
 from .hamiltonian import Hamiltonian
 from .model_dict import model_dict, ModelProto, NetworkProto, NetworkConfigProto
 
@@ -16,36 +16,31 @@ from .model_dict import model_dict, ModelProto, NetworkProto, NetworkConfigProto
 @dataclasses.dataclass
 class ModelConfig:
     """
-    The configuration for the Hubbard model.
+    The configuration for the Free fermion model.
     """
 
-    # The width of the hubbard lattice
+    # The width of the free fermion lattice
     m: typing.Annotated[int, tyro.conf.Positional]
-    # The height of the hubbard lattice
+    # The height of the free fermion lattice
     n: typing.Annotated[int, tyro.conf.Positional]
 
     # The electron number, left empty for half-filling
     electron_number: typing.Annotated[int, tyro.conf.arg(aliases=["-e"])]
-
-    # The coefficient of t
-    t: typing.Annotated[float, tyro.conf.arg(aliases=["-t"])] = 1
-    # The coefficient of U
-    u: typing.Annotated[float, tyro.conf.arg(aliases=["-u"])] = 0
 
     def __post_init__(self) -> None:
         if self.electron_number is None:
             raise ValueError("Electron number must be provided.")
 
         if self.m <= 0 or self.n <= 0:
-            raise ValueError("The dimensions of the Hubbard model must be positive integers.")
+            raise ValueError("The dimensions of the Free fermion model must be positive integers.")
 
-        if self.electron_number < 0 or self.electron_number > 2 * self.m * self.n:
-            raise ValueError(f"The electron number {self.electron_number} is out of bounds for a {self.m}x{self.n} lattice. Each site can host up to two electrons (spin up and spin down).")
+        if self.electron_number < 0 or self.electron_number > self.m * self.n:
+            raise ValueError(f"The electron number {self.electron_number} is out of bounds for a {self.m}x{self.n} lattice. Each site can host up to one electrons (all spin up or spin down).")
 
 
 class Model(ModelProto[ModelConfig]):
     """
-    This class handles the Hubbard model.
+    This class handles the Free fermion model.
     """
 
     network_dict: dict[str, type[NetworkConfigProto["Model"]]] = {}
@@ -54,7 +49,7 @@ class Model(ModelProto[ModelConfig]):
 
     @classmethod
     def default_group_name(cls, config: ModelConfig) -> str:
-        return f"FreeFermion_{config.m}x{config.n}_t{config.t}_u{config.u}_e{config.electron_number}"
+        return f"FreeFermion_{config.m}x{config.n}_e{config.electron_number}"
 
     @classmethod
     def _prepare_hamiltonian(cls, args: ModelConfig) -> dict[tuple[tuple[int, int], ...], complex]:
@@ -67,33 +62,42 @@ class Model(ModelProto[ModelConfig]):
             for j in range(args.n):
                 # Nearest neighbor hopping
                 if i != 0:
-                    hamiltonian_dict[(_index(i, j), 1), (_index(i - 1, j), 0)] = -args.t
-                    hamiltonian_dict[(_index(i - 1, j), 1), (_index(i, j), 0)] = -args.t
+                    hamiltonian_dict[(_index(i, j), 1), (_index(i - 1, j), 0)] = 1
+                    hamiltonian_dict[(_index(i - 1, j), 1), (_index(i, j), 0)] = 1
                 if j != 0:
-                    hamiltonian_dict[(_index(i, j), 1), (_index(i, j - 1), 0)] = -args.t
-                    hamiltonian_dict[(_index(i, j - 1), 1), (_index(i, j), 0)] = -args.t
+                    hamiltonian_dict[(_index(i, j), 1), (_index(i, j - 1), 0)] = 1
+                    hamiltonian_dict[(_index(i, j - 1), 1), (_index(i, j), 0)] = 1
 
         return hamiltonian_dict
 
     @classmethod
-    def _calc_ref_energy(cls, args: ModelConfig) -> float:
-        raise NotImplementedError()
+    def _calculate_ref_energy(cls, args: ModelConfig, hamiltonian_dict: dict[tuple[tuple[int, int], ...], complex]) -> float:
+        sites = args.m * args.n
+        hamiltonian = torch.zeros((sites,) * 2, dtype=torch.complex128)  # device?
+        for operators, intensity in hamiltonian_dict.items():
+            if len(operators) == 2:
+                coordinate = tuple({n: j for j, n in operators}[i] for i in [0, 1])
+                hamiltonian[coordinate] = torch.tensor(intensity, dtype=torch.complex128)  # device?
+        return sum(torch.linalg.eigh(hamiltonian).eigenvalues[:args.electron_number])  # pylint: disable=not-callable
 
-    def __init__(self, args: ModelConfig):
+    def __init__(
+        self,
+        args: ModelConfig,
+    ):
         logging.info("Input arguments successfully parsed")
 
         assert args.electron_number is not None
         self.m: int = args.m
         self.n: int = args.n
         self.electron_number: int = args.electron_number
-        logging.info("Constructing Hubbard model with dimensions: width = %d, height = %d", self.m, self.n)
-        logging.info("The parameters of the model are: t = %.10f, U = %.10f, N = %d", args.t, args.u, args.electron_number)
+        logging.info("Constructing Free fermion model with dimensions: width = %d, height = %d", self.m, self.n)
+        logging.info("The parameters of the model are: N = %d", args.electron_number)
 
         logging.info("Initializing Hamiltonian for the lattice")
         hamiltonian_dict: dict[tuple[tuple[int, int], ...], complex] = self._prepare_hamiltonian(args)
         logging.info("Hamiltonian initialization complete")
 
-        self.ref_energy: float = self._calc_ref_energy(args)
+        self.ref_energy: float = self._calculate_ref_energy(args, hamiltonian_dict)
         logging.info("The ref energy is %.10f", self.ref_energy)
 
         logging.info("Converting the Hamiltonian to internal Hamiltonian representation")
@@ -110,20 +114,12 @@ class Model(ModelProto[ModelConfig]):
         return self.hamiltonian.single_relative(configs)
 
     def show_config(self, config: torch.Tensor) -> str:
-        string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy())
-        return "[" + ".".join("".join(self._show_config_site(string[(i + j * self.m):(i + j * self.m) + 1]) for i in range(self.m)) for j in range(self.n)) + "]"
-
-    def _show_config_site(self, string: str) -> str:
-        match string:
-            case "0":
-                return " "
-            case "1":
-                return "o"
-            case _:
-                raise ValueError(f"Invalid string: {string}")
+        trans_table = {ord("0"): " ", ord("1"): "x"}
+        string = "".join(f"{i:08b}"[::-1] for i in config.cpu().numpy()).translate(trans_table)
+        return "[" + ".".join(string[(j * self.m):((j + 1) * self.m)] for j in range(self.n)) + "]"
 
 
-model_dict["hubbard"] = Model
+model_dict["free_fermion"] = Model
 
 
 @dataclasses.dataclass
@@ -142,11 +138,9 @@ class MlpConfig:
         logging.info("Hidden layer widths: %a", self.hidden)
 
         network = MlpWaveFunction(
-            double_sites=model.m * model.n,
+            sites=model.m * model.n,
             physical_dim=2,
             is_complex=True,
-            spin_up=model.electron_number // 2,
-            spin_down=model.electron_number - model.electron_number // 2,
             hidden_size=self.hidden,
             ordering=+1,
         )
@@ -201,11 +195,9 @@ class AttentionConfig:
         )
 
         network = AttentionWaveFunction(
-            double_sites=model.m * model.n,
+            sites=model.m * model.n,
             physical_dim=2,
             is_complex=True,
-            spin_up=model.electron_number // 2,
-            spin_down=model.electron_number - model.electron_number // 2,
             embedding_dim=self.embedding_dim,
             heads_num=self.heads_num,
             feed_forward_dim=self.feed_forward_dim,

@@ -8,6 +8,7 @@ import tyro
 from . import openfermion as _  # type: ignore[no-redef]
 from . import fcidump as _  # type: ignore[no-redef]
 from . import hubbard as _  # type: ignore[no-redef]
+from . import free_fermion as _  # type: ignore[no-redef]
 from . import ising as _  # type: ignore[no-redef]
 from . import vmc as _  # type: ignore[no-redef]
 from . import imag as _  # type: ignore[no-redef]
