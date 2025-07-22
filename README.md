@@ -67,7 +67,7 @@ qmb --help
 
 This command provides a collection of subcommands, such as `imag`.
 To access detailed help for a specific subcommand, users can append `--help` to the command.
-For example, use `qmb imag --help` to view the help information for the `imag` subcommand.
+For example, use `qmb haar --help` to view the help information for the `imag` subcommand.
 
 Typically, `qmb` requires a specific descriptor for a particular physical or chemical model to execute.
 We have collected a set of such models [here][models-url].
@@ -77,7 +77,7 @@ Alternatively, users can specify a custom path by setting the `$QMB_MODEL_PATH` 
 
 After cloning or downloading the dataset, users can calculate the ground state of the $N_2$ system by running the command:
 ```
-qmb imag openfermion mlp -PN2
+qmb haar openfermion mlp -PN2
 ```
 This command utilizes the `imag` subcommand with the descriptor in OpenFermion format and the [mlp network][naqs-url],
 It specifies the $N_2$ model via the `-PN2` flag since the $N_2$ model is loaded from the file `N2.hdf5` in the folder `models`.

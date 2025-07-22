@@ -247,7 +247,7 @@ def _merge_pool_from_neural_network_and_pool_from_last_iteration(
 
 
 @dataclasses.dataclass
-class ImaginaryConfig:
+class HaarConfig:
     """
     The two-step optimization process for solving quantum many-body problems based on imaginary time.
     """
@@ -354,11 +354,15 @@ class ImaginaryConfig:
             state_dict=data.get("optimizer"),
         )
 
-        if "imag" not in data:
-            data["imag"] = {"global": 0, "local": 0, "lanczos": 0, "pool": None}
+        if "haar" not in data and "imag" in data:
+            logging.warning("The 'imag' subcommand is deprecated, please use 'haar' instead.")
+            data["haar"] = data["imag"]
+            del data["imag"]
+        if "haar" not in data:
+            data["haar"] = {"global": 0, "local": 0, "lanczos": 0, "pool": None}
         else:
-            pool_configs, pool_psi = data["imag"]["pool"]
-            data["imag"]["pool"] = (pool_configs.to(device=self.common.device), pool_psi.to(device=self.common.device))
+            pool_configs, pool_psi = data["haar"]["pool"]
+            data["haar"]["pool"] = (pool_configs.to(device=self.common.device), pool_psi.to(device=self.common.device))
 
         writer = torch.utils.tensorboard.SummaryWriter(log_dir=self.common.folder())  # type: ignore[no-untyped-call]
 
@@ -368,7 +372,7 @@ class ImaginaryConfig:
             logging.info("Sampling configurations from neural network")
             configs_from_neural_network, psi_from_neural_network, _, _ = network.generate_unique(self.sampling_count_from_neural_network, self.local_batch_count_generation)
             logging.info("Sampling configurations from last iteration")
-            configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["imag"]["pool"], self.sampling_count_from_last_iteration)
+            configs_from_last_iteration, psi_from_last_iteration = _sampling_from_last_iteration(data["haar"]["pool"], self.sampling_count_from_last_iteration)
             logging.info("Merging configurations from neural network and last iteration")
             configs, original_psi = _merge_pool_from_neural_network_and_pool_from_last_iteration(
                 configs_from_neural_network,
@@ -392,9 +396,9 @@ class ImaginaryConfig:
                     first_extend=self.krylov_extend_first,
             ).run():
                 logging.info("The current energy is %.10f where the sampling count is %d", target_energy.item(), len(configs))
-                writer.add_scalar("imag/lanczos/energy", target_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
-                writer.add_scalar("imag/lanczos/error", target_energy - model.ref_energy, data["imag"]["lanczos"])  # type: ignore[no-untyped-call]
-                data["imag"]["lanczos"] += 1
+                writer.add_scalar("haar/lanczos/energy", target_energy, data["haar"]["lanczos"])  # type: ignore[no-untyped-call]
+                writer.add_scalar("haar/lanczos/error", target_energy - model.ref_energy, data["haar"]["lanczos"])  # type: ignore[no-untyped-call]
+                data["haar"]["lanczos"] += 1
             max_index = original_psi.abs().argmax()
             target_psi = original_psi / original_psi[max_index]
             logging.info("Local optimization target calculated, the target energy is %.10f, the sampling count is %d", target_energy.item(), len(configs))
@@ -449,12 +453,12 @@ class ImaginaryConfig:
                 logging.info("Starting local optimization process")
                 success = True
                 last_loss: float = 0.0
-                local_step: int = data["imag"]["local"]
+                local_step: int = data["haar"]["local"]
                 scale_learning_rate(optimizer, 1 / (1 << try_index))
                 for i in range(self.local_step):
                     loss = optimizer.step(closure)  # type: ignore[assignment,arg-type]
                     logging.info("Local optimization in progress, step %d, current loss: %.10f", i, loss.item())
-                    writer.add_scalar(f"imag/loss/{self.loss_name}", loss, local_step)  # type: ignore[no-untyped-call]
+                    writer.add_scalar(f"haar/loss/{self.loss_name}", loss, local_step)  # type: ignore[no-untyped-call]
                     local_step += 1
                     if torch.isnan(loss) or torch.isinf(loss):
                         logging.warning("Loss is NaN, restoring the previous state and exiting the optimization loop")
@@ -474,7 +478,7 @@ class ImaginaryConfig:
                         success = False
                 if success:
                     logging.info("Local optimization process completed")
-                    data["imag"]["local"] = local_step
+                    data["haar"]["local"] = local_step
                     break
                 network.load_state_dict(state_backup)
                 optimizer.load_state_dict(optimizer_backup)
@@ -493,10 +497,10 @@ class ImaginaryConfig:
                 model.ref_energy,
                 final_energy.item() - model.ref_energy,
             )
-            writer.add_scalar("imag/energy/state", final_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
-            writer.add_scalar("imag/energy/target", target_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
-            writer.add_scalar("imag/error/state", final_energy - model.ref_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
-            writer.add_scalar("imag/error/target", target_energy - model.ref_energy, data["imag"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("haar/energy/state", final_energy, data["haar"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("haar/energy/target", target_energy, data["haar"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("haar/error/state", final_energy - model.ref_energy, data["haar"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_scalar("haar/error/target", target_energy - model.ref_energy, data["haar"]["global"])  # type: ignore[no-untyped-call]
             logging.info("Displaying the largest amplitudes")
             indices = target_psi.abs().argsort(descending=True)
             text = []
@@ -504,18 +508,33 @@ class ImaginaryConfig:
                 this_config = model.show_config(configs[index])
                 logging.info("Configuration: %s, Target amplitude: %s, Final amplitude: %s", this_config, f"{target_psi[index].item():.8f}", f"{psi[index].item():.8f}")
                 text.append(f"Configuration: {this_config}, Target amplitude: {target_psi[index].item():.8f}, Final amplitude: {psi[index].item():.8f}")
-            writer.add_text("config", "\n".join(text), data["imag"]["global"])  # type: ignore[no-untyped-call]
+            writer.add_text("config", "\n".join(text), data["haar"]["global"])  # type: ignore[no-untyped-call]
             writer.flush()  # type: ignore[no-untyped-call]
 
             logging.info("Saving model checkpoint")
-            data["imag"]["pool"] = (configs, original_psi)
-            data["imag"]["global"] += 1
+            data["haar"]["pool"] = (configs, original_psi)
+            data["haar"]["global"] += 1
             data["network"] = network.state_dict()
             data["optimizer"] = optimizer.state_dict()
-            self.common.save(data, data["imag"]["global"])
+            self.common.save(data, data["haar"]["global"])
             logging.info("Checkpoint successfully saved")
 
             logging.info("Current optimization cycle completed")
 
 
-subcommand_dict["imag"] = ImaginaryConfig
+subcommand_dict["haar"] = HaarConfig
+
+
+class ImagConfig(HaarConfig):
+    """
+    Deprecated, use "haar" instead.
+    """
+
+    # pylint: disable=too-few-public-methods
+
+    def __post_init__(self) -> None:
+        logging.warning("The 'imag' subcommand is deprecated, please use 'haar' instead.")
+        super().__post_init__()
+
+
+subcommand_dict["imag"] = ImagConfig
