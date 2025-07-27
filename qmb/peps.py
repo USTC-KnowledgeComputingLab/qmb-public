@@ -12,15 +12,16 @@ class PEPS(torch.nn.Module):
 
     # pylint: disable=invalid-name
 
-    def __init__(self, L1: int, L2: int, d: int, D: int, Dc: int) -> None:  # pylint: disable=too-many-arguments, too-many-positional-arguments
+    def __init__(self, L1: int, L2: int, d: int, D: int, Dc: int, use_complex: bool = False) -> None:  # pylint: disable=too-many-arguments, too-many-positional-arguments
         super().__init__()
         self.L1: int = L1
         self.L2: int = L2
         self.d: int = d
         self.D: int = D
         self.Dc: int = Dc
+        self.use_complex: bool = use_complex
 
-        self.tensors = torch.nn.Parameter(torch.randn(L1, L2, d, D, D, D, D))
+        self.tensors = torch.nn.Parameter(torch.randn([L1, L2, d, D, D, D, D], dtype=torch.complex128 if use_complex else torch.float64))
 
     def _tensor(self, l1: int, l2: int, config: torch.Tensor) -> torch.Tensor:
         """
