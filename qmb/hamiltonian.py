@@ -165,6 +165,26 @@ class Hamiltonian:
         configs_j = _find_relative(configs_i, torch.view_as_real(psi_i), count_selected, self.site, self.kind, self.coef, configs_exclude)
         return configs_j
 
+    def diagonal_term(self, configs: torch.Tensor) -> torch.Tensor:
+        """
+        Get the diagonal term of the Hamiltonian for the given configurations.
+
+        Parameters
+        ----------
+        configs : torch.Tensor
+            A uint8 tensor of shape [batch_size, n_qubytes] representing the input configurations.
+
+        Returns
+        -------
+        torch.Tensor
+            A complex64 tensor of shape [batch_size] representing the diagonal term of the Hamiltonian for the given configurations.
+        """
+        self._prepare_data(configs.device)
+        _diagonal_term: typing.Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+        _diagonal_term = getattr(self._load_module(configs.device.type, configs.size(1), self.particle_cut), "diagonal_term")
+        psi_result = torch.view_as_complex(_diagonal_term(configs, self.site, self.kind, self.coef))
+        return psi_result
+
     def single_relative(self, configs: torch.Tensor) -> torch.Tensor:
         """
         Find a single relative configuration for each configurations.
