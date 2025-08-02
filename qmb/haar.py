@@ -523,18 +523,4 @@ class HaarConfig:
 
 
 subcommand_dict["haar"] = HaarConfig
-
-
-class ImagConfig(HaarConfig):
-    """
-    Deprecated, use "haar" instead.
-    """
-
-    # pylint: disable=too-few-public-methods
-
-    def __post_init__(self) -> None:
-        logging.warning("The 'imag' subcommand is deprecated, please use 'haar' instead.")
-        super().__post_init__()
-
-
-subcommand_dict["imag"] = ImagConfig
+subcommand_dict["imag"] = HaarConfig
