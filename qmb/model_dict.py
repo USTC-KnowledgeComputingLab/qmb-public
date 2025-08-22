@@ -173,6 +173,21 @@ class ModelProto(typing.Protocol[ModelConfig]):
             The relative configurations.
         """
 
+    def diagonal_term(self, configs: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate the diagonal term for the given configurations.
+
+        Parameters
+        ----------
+        configs : torch.Tensor
+            The configurations to calculate the diagonal term for.
+
+        Returns
+        -------
+        torch.Tensor
+            The diagonal term of the configurations.
+        """
+
     def single_relative(self, configs: torch.Tensor) -> torch.Tensor:
         """
         Find a single relative configuration for each configurations.

@@ -192,6 +192,9 @@ class Model(ModelProto[ModelConfig]):
     def find_relative(self, configs_i: torch.Tensor, psi_i: torch.Tensor, count_selected: int, configs_exclude: torch.Tensor | None = None) -> torch.Tensor:
         return self.hamiltonian.find_relative(configs_i, psi_i, count_selected, configs_exclude)
 
+    def diagonal_term(self, configs: torch.Tensor) -> torch.Tensor:
+        return self.hamiltonian.diagonal_term(configs)
+
     def single_relative(self, configs: torch.Tensor) -> torch.Tensor:
         return self.hamiltonian.single_relative(configs)
 
