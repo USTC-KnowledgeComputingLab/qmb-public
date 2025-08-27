@@ -1,6 +1,6 @@
-# Hamiltonian-Guided Autoregressive Selected-Configuration Interaction Achieves Chemical Accuracy in Strongly Correlated Systems
+# Hamiltonian-Guided Autoregressive Selected-Configuration Interaction(HAAR-SCI) Achieves Chemical Accuracy in Strongly Correlated Systems
 
-The Current project temporarily named as Quantum-Many-Body (`qmb`) which is a powerful tool designed to solve quantum-many-body problems especially for strongly correlated systems.
+The current project temporarily named as Quantum-Many-Body (`qmb`) which is a powerful tool designed to solve quantum-many-body problems especially for strongly correlated systems.
 
 ## About The Project
 
