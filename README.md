@@ -1,6 +1,6 @@
-# An efficient Neural-Network Quantum States Architecture for Strongly Correlated Systems
+# Hamiltonian-Guided Autoregressive Selected-Configuration Interaction Achieves Chemical Accuracy in Strongly Correlated Systems
 
-The Quantum-Many-Body (`qmb`) is a powerful tool designed to solve quantum-many-body problems.
+The Current project temporarily named as Quantum-Many-Body (`qmb`) which is a powerful tool designed to solve quantum-many-body problems especially for strongly correlated systems.
 
 ## About The Project
 
