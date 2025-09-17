@@ -3,6 +3,7 @@ This file implements the PEPS tensor network.
 """
 
 import torch
+from .bitspack import unpack_int
 
 
 class PEPS(torch.nn.Module):
@@ -96,3 +97,28 @@ class PEPS(torch.nn.Module):
         """
         tensors: list[list[torch.Tensor]] = [[self._tensor(l1, l2, configs[:, (l1 * self.L2) + l2]) for l2 in range(self.L2)] for l1 in range(self.L1)]
         return self._contract(tensors)
+
+
+class PepsFunction(torch.nn.Module):
+    """
+    The PEPS tensor network used by qmb interface.
+    """
+
+    def __init__(self, L1: int, L2: int, d: int, D: int, Dc: int, use_complex: bool = False) -> None:  # pylint: disable=too-many-arguments, too-many-positional-arguments
+        super().__init__()
+        assert d == 2
+        self.sites = L1 * L2
+        self.model = PEPS(L1, L2, d, D, Dc, use_complex)
+
+    def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
+        """
+        Generate a batch of unique configurations.
+        """
+        raise NotImplementedError("The generate_unique method is not implemented for this class.")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the PEPS tensor network.
+        """
+        x = unpack_int(x, size=1, last_dim=self.sites)
+        return self.model(x)
