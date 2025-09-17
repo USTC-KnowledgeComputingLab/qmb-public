@@ -110,12 +110,14 @@ class PepsFunction(torch.nn.Module):
         self.sites = L1 * L2
         self.model = PEPS(L1, L2, d, D, Dc, use_complex)
 
+    @torch.jit.export
     def generate_unique(self, batch_size: int, block_num: int = 1) -> tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Generate a batch of unique configurations.
         """
         raise NotImplementedError("The generate_unique method is not implemented for this class.")
 
+    @torch.jit.export
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of the PEPS tensor network.
