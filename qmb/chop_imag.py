@@ -24,14 +24,14 @@ class ChopImagConfig:
     # The estimated magnitude of the second order term
     second_order_magnitude: typing.Annotated[float, tyro.conf.arg(aliases=["-s"])] = 0.0
 
-    def main(self) -> None:
+    def main(self, *, model_param: typing.Any = None, network_param: typing.Any = None) -> None:
         """
         The main function for the subspace chopping.
         """
 
         # pylint: disable=too-many-locals
 
-        model, _, data = self.common.main()
+        model, _, data = self.common.main(model_param=model_param, network_param=network_param)
 
         logging.info(
             "Arguments Summary: "

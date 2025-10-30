@@ -87,7 +87,7 @@ class RldiagConfig:
     # The coefficient of configuration number for the sigma calculation
     alpha: typing.Annotated[float, tyro.conf.arg(aliases=["-a"])] = 0.0
 
-    def main(self) -> None:
+    def main(self, *, model_param: typing.Any = None, network_param: typing.Any = None) -> None:
         """
         The main function for the reinforcement learning based subspace diagonalization algorithm.
         """
@@ -96,7 +96,7 @@ class RldiagConfig:
         # pylint: disable=too-many-locals
         # pylint: disable=too-many-branches
 
-        model, network, data = self.common.main()
+        model, network, data = self.common.main(model_param=model_param, network_param=network_param)
 
         logging.info(
             "Arguments Summary: "

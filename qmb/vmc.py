@@ -40,14 +40,14 @@ class VmcConfig:
         if self.learning_rate == -1:
             self.learning_rate = 1 if self.use_lbfgs else 1e-3
 
-    def main(self) -> None:
+    def main(self, *, model_param: typing.Any = None, network_param: typing.Any = None) -> None:
         """
         The main function for the VMC optimization.
         """
         # pylint: disable=too-many-statements
         # pylint: disable=too-many-locals
 
-        model, network, data = self.common.main()
+        model, network, data = self.common.main(model_param=model_param, network_param=network_param)
 
         logging.info(
             "Arguments Summary: "
