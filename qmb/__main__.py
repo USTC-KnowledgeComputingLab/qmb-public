@@ -30,7 +30,7 @@ def main(config: omegaconf.DictConfig) -> None:
     """
     action = subcommand_dict[config.action.name]
     common = CommonConfig(
-        log_path=hydra.core.hydra_config.HydraConfig.get().runtime.output_dir,
+        log_path=pathlib.Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir),
         model_name=config.model.name,
         network_name=config.network.name,
         **config.common,
@@ -50,4 +50,4 @@ def main(config: omegaconf.DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main()  # pylint: disable=no-value-for-parameter
