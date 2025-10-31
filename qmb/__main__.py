@@ -31,8 +31,6 @@ def main(config: omegaconf.DictConfig) -> None:
     action = subcommand_dict[config.action.name]
     common = CommonConfig(
         log_path=hydra.core.hydra_config.HydraConfig.get().runtime.output_dir,
-        group_name=".",
-        current_job_name="data",
         model_name=config.model.name,
         network_name=config.network.name,
         **config.common,
