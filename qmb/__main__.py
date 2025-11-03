@@ -1,10 +1,13 @@
 """
 This is the main entry point for the command line application.
-
-For the details of the command line application, run `qmb --help` or `python -m qmb --help`.
 """
 
-import tyro
+import pathlib
+import hydra
+import omegaconf
+from .subcommand_dict import subcommand_dict
+from .common import CommonConfig
+from .model_dict import model_dict
 from . import openfermion as _  # type: ignore[no-redef]
 from . import fcidump as _  # type: ignore[no-redef]
 from . import hubbard as _  # type: ignore[no-redef]
@@ -18,15 +21,33 @@ from . import list_loss as _  # type: ignore[no-redef]
 from . import chop_imag as _  # type: ignore[no-redef]
 from . import pert as _  # type: ignore[no-redef]
 from . import run as _  # type: ignore[no-redef]
-from .subcommand_dict import subcommand_dict
 
 
-def main() -> None:
+@hydra.main(version_base=None, config_path=str(pathlib.Path().resolve()), config_name="config")
+def main(config: omegaconf.DictConfig) -> None:
     """
     The main function for the command line application.
     """
-    tyro.extras.subcommand_cli_from_dict(subcommand_dict).main()
+    action = subcommand_dict[config.action.name]
+    common = CommonConfig(
+        log_path=pathlib.Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir),
+        model_name=config.model.name,
+        network_name=config.network.name,
+        **config.common,
+    )
+    run = action(
+        common=common,
+        **config.action.params,
+    )
+
+    model_t = model_dict[config.model.name]
+    model_config_t = model_t.config_t
+    model_param = model_config_t(**config.model.params)
+    network_config_t = model_t.network_dict[config.network.name]
+    network_param = network_config_t(**config.network.params)
+
+    run.main(model_param=model_param, network_param=network_param)  # type: ignore[call-arg]
 
 
 if __name__ == "__main__":
-    main()
+    main()  # pylint: disable=no-value-for-parameter
